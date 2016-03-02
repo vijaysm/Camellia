@@ -55,7 +55,7 @@ namespace Camellia
     
     // traces:
     VarPtr sigma_n();
-    VarPtr uhat();
+    VarPtr u_hat();
     
     // test variables:
     VarPtr v();
@@ -63,6 +63,9 @@ namespace Camellia
     
     // ! Returns the forcing function corresponding to the specified exact solution u
     FunctionPtr forcingFunction(FunctionPtr u_exact);
+    
+    // ! Returns the RHS corresponding to the provided forcing function
+    RHSPtr rhs(FunctionPtr forcingFunction);
   };
 }
 

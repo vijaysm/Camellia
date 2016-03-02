@@ -7,6 +7,7 @@
 //
 
 #include "ConvectionDiffusionReactionFormulation.h"
+#include "RHS.h"
 
 using namespace Camellia;
 
@@ -125,12 +126,10 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
 FunctionPtr ConvectionDiffusionReactionFormulation::forcingFunction(FunctionPtr u_exact)
 {
   // -epsilon \Delta u + div (beta * u) + alpha u
-  return -_epsilon * u_exact->grad(_spaceDim)->div() + (_beta * u_exact)->div() + _alpha * u_exact;
-}
-
-VarFactoryPtr ConvectionDiffusionReactionFormulation::vf()
-{
-  return _vf;
+  if (_spaceDim > 1)
+    return -_epsilon * u_exact->grad(_spaceDim)->div() + (_beta * u_exact)->div() + _alpha * u_exact;
+  else
+    return -_epsilon * u_exact->dx()->dx() + (_beta * u_exact)->dx() + _alpha * u_exact;
 }
 
 BFPtr ConvectionDiffusionReactionFormulation::bf()
@@ -138,10 +137,11 @@ BFPtr ConvectionDiffusionReactionFormulation::bf()
   return _bf;
 }
 
-// field variables:
-VarPtr ConvectionDiffusionReactionFormulation::u()
+RHSPtr ConvectionDiffusionReactionFormulation::rhs(FunctionPtr f)
 {
-  return _vf->fieldVar(S_U);
+  RHSPtr rhs = RHS::rhs();
+  rhs->addTerm(f * v());
+  return rhs;
 }
 
 VarPtr ConvectionDiffusionReactionFormulation::sigma()
@@ -149,21 +149,19 @@ VarPtr ConvectionDiffusionReactionFormulation::sigma()
   return _vf->fieldVar(S_SIGMA);
 }
 
-// traces:
 VarPtr ConvectionDiffusionReactionFormulation::sigma_n()
 {
   return _vf->fluxVar(S_SIGMA_N);
 }
 
-VarPtr ConvectionDiffusionReactionFormulation::uhat()
+VarPtr ConvectionDiffusionReactionFormulation::u()
 {
-  return _vf->traceVar(S_UHAT);
+  return _vf->fieldVar(S_U);
 }
 
-// test variables:
-VarPtr ConvectionDiffusionReactionFormulation::v()
+VarPtr ConvectionDiffusionReactionFormulation::u_hat()
 {
-  return _vf->testVar(S_V, HGRAD);
+  return _vf->traceVar(S_UHAT);
 }
 
 VarPtr ConvectionDiffusionReactionFormulation::tau()
@@ -172,4 +170,14 @@ VarPtr ConvectionDiffusionReactionFormulation::tau()
     return _vf->testVar(S_TAU, HDIV);
   else
     return _vf->testVar(S_TAU, HGRAD);
+}
+
+VarPtr ConvectionDiffusionReactionFormulation::v()
+{
+  return _vf->testVar(S_V, HGRAD);
+}
+
+VarFactoryPtr ConvectionDiffusionReactionFormulation::vf()
+{
+  return _vf;
 }
