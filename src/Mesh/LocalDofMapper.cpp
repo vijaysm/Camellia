@@ -858,7 +858,7 @@ FieldContainer<double> LocalDofMapper::fitLocalCoefficients(const FieldContainer
     int err = SerialDenseWrapper::solveSystemUsingQR(_localCoefficientsFitMatrix, filteredNormalMatrix, filteredIdentityCoefficients);
     if (err > 0)
     {
-      cout << "while trying to fit local coefficients on side " << _sideOrdinalToMap;
+      cout << "LocalDofMapper::fitLocalCoefficients(): while trying to fit local coefficients on side " << _sideOrdinalToMap;
       cout << " for variable " << _varIDToMap << ", solveSystemUsingQR returned err = " << err << endl;
       Camellia::print("fittableGlobalOrdinals",fittableOrdinals);
       cout << "localCoefficients:\n" << localCoefficients;
@@ -1322,7 +1322,7 @@ void LocalDofMapper::printMappingReport()
       for (vector<SubBasisDofMapperPtr>::iterator subBasisMapIt = basisMap.begin(); subBasisMapIt != basisMap.end(); subBasisMapIt++)
       {
         SubBasisDofMapperPtr subBasisDofMapper = *subBasisMapIt;
-        Camellia::print("local dof ordinals", subBasisDofMapper->basisDofOrdinalFilter());
+        Camellia::print("basis dof ordinals", subBasisDofMapper->basisDofOrdinalFilter());
         Camellia::print("global ordinals   ", subBasisDofMapper->mappedGlobalDofOrdinals());
         
         SubBasisDofMatrixMapper * matrixMapper = dynamic_cast< SubBasisDofMatrixMapper* >(subBasisDofMapper.get());
