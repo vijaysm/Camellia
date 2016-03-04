@@ -159,6 +159,18 @@ VarPtr ConvectionDiffusionReactionFormulation::u()
   return _vf->fieldVar(S_U);
 }
 
+VarPtr ConvectionDiffusionReactionFormulation::u_dirichlet()
+{
+  if (_formulationChoice == ULTRAWEAK)
+  {
+    return u_hat();
+  }
+  else
+  {
+    return u();
+  }
+}
+
 VarPtr ConvectionDiffusionReactionFormulation::u_hat()
 {
   return _vf->traceVar(S_UHAT);

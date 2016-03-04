@@ -66,6 +66,9 @@ namespace Camellia
     
     // ! Returns the RHS corresponding to the provided forcing function
     RHSPtr rhs(FunctionPtr forcingFunction);
+    
+    // ! Returns either u or u_hat, whichever is appropriate for imposing Dirichlet BCs.
+    VarPtr u_dirichlet();
   };
 }
 
