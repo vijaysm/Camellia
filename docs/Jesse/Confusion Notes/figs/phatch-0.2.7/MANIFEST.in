@@ -1,4 +1,0 @@
-include AUTHORS COPYING README linux/phatch.desktop
-recursive-include phatch *.wxg
-recursive-include locale */LC_MESSAGES/phatch.mo
-recursive-include images *.png
