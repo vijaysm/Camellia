@@ -1,0 +1,7 @@
+project(ConvectionDiffusionReactionExamples)
+
+add_executable(ConvectionReactionExample ConvectionReactionExample.cpp)
+target_link_libraries(ConvectionReactionExample Camellia)
+
+add_executable(ConvectionDiffusionExample ConvectionDiffusionExample.cpp)
+target_link_libraries(ConvectionDiffusionExample Camellia)
