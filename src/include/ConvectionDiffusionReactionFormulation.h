@@ -9,10 +9,10 @@
 #ifndef Camellia_ConvectionDiffusionReactionFormulation_h
 #define Camellia_ConvectionDiffusionReactionFormulation_h
 
-#include "TypeDefs.h"
-
-#include "VarFactory.h"
 #include "BF.h"
+#include "ParameterFunction.h"
+#include "TypeDefs.h"
+#include "VarFactory.h"
 
 namespace Camellia
 {
@@ -31,6 +31,8 @@ namespace Camellia
     int _spaceDim;
     double _epsilon, _alpha; // _alpha: weight on the reaction term
     FunctionPtr _beta;
+    
+    Teuchos::RCP<ParameterFunction> _stabilizationWeight; // for SUPG
     
     VarFactoryPtr _vf;
     BFPtr _bf;
@@ -66,6 +68,9 @@ namespace Camellia
     
     // ! Returns the RHS corresponding to the provided forcing function
     RHSPtr rhs(FunctionPtr forcingFunction);
+    
+    // ! For SUPG, computes and sets the appropriate weight for the provided mesh.
+    void setStabilizationWeight(MeshPtr mesh);
     
     // ! Returns either u or u_hat, whichever is appropriate for imposing Dirichlet BCs.
     VarPtr u_dirichlet();

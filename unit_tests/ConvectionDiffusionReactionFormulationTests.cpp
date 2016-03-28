@@ -94,6 +94,42 @@ namespace
     TEST_COMPARE(diff, <, tol);
   }
   
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, DofCount_ContinuousTriangles )
+  {
+    // a couple tests to ensure that the dof counts are correct in linear, triangular Bubnov-Galerkin meshes
+    int spaceDim = 2;
+    bool useTriangles = true;
+    FunctionPtr x = Function::xn(1), y = Function::yn(1);
+    FunctionPtr beta = Function::vectorize(y,x);
+    double alpha = 0;
+    double epsilon = 1e-2;
+
+    ConvectionDiffusionReactionFormulation form(ConvectionDiffusionReactionFormulation::SUPG, spaceDim, beta, epsilon, alpha);
+    
+    vector<double> dimensions = {1.0,1.0};
+    vector<int> elementCounts = {1,1};
+    
+    int H1Order = 1, delta_k = 0;
+    MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
+                                                elementCounts[0], elementCounts[1], useTriangles);
+    
+    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    int vertexDim = 0;
+    int numVertices = meshTopo->getEntityCount(vertexDim);
+    
+    int globalDofCount = mesh->numGlobalDofs();
+    TEST_EQUALITY(numVertices, globalDofCount);
+    
+    elementCounts = {16,16};
+    mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
+                                        elementCounts[0], elementCounts[1], useTriangles);
+    meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    numVertices = meshTopo->getEntityCount(vertexDim);
+    
+    globalDofCount = mesh->numGlobalDofs();
+    TEST_EQUALITY(numVertices, globalDofCount);
+  }
+  
   TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, ForcingFunction )
   {
     int spaceDim = 3;

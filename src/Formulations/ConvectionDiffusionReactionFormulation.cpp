@@ -119,7 +119,49 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
       }
       break;
     case SUPG:
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "SUPG formulation is not yet implemented");
+      u = _vf->fieldVar(S_U, HGRAD);
+      v = _vf->testVar(S_V, HGRAD);
+    {
+      // set up stabilization term (from Egger & Schöberl, via Broersen & Stevenson)
+      //            max(h|b| - 2e, 0)/|b|^2
+      // where h is element width, b is beta, and e is epsilon.
+      // See http://www.asc.tuwien.ac.at/~schoeberl/wiki/publications/MixedHybridDG.pdf (Section 5)
+      
+      FunctionPtr h = Function::h();
+      FunctionPtr beta_norm_squared = Function::zero();
+      for (int comp = 1; comp <= spaceDim; comp++)
+      {
+        FunctionPtr beta_comp = beta->spatialComponent(comp);
+        beta_norm_squared = beta_norm_squared + beta_comp * beta_comp;
+      }
+      FunctionPtr beta_norm = Function::sqrtFunction(beta_norm_squared);
+      FunctionPtr stabilizationWeight = Function::max(h * beta_norm - 2 * _epsilon, Function::zero()) / beta_norm_squared;
+      _stabilizationWeight = ParameterFunction::parameterFunction(stabilizationWeight);
+    }
+      _bf = Teuchos::rcp( new BF(_vf) );
+      
+      if (spaceDim==1)
+      {
+        _bf->addTerm(_epsilon * u->dx() - _beta * u, v->dx());
+        _bf->addTerm(_alpha * u, v);
+        
+        // stabilization term
+        FunctionPtr tau = _stabilizationWeight;
+        _bf->addTerm( tau * -_epsilon * u->laplacian(), _beta * v->dx());
+        _bf->addTerm( tau * _beta * u->dx(), _beta * v->dx());
+        _bf->addTerm( tau * _alpha * u, _beta * v->dx());
+      }
+      else
+      {
+        _bf->addTerm(_epsilon * u->grad() - _beta * u, v->grad());
+        _bf->addTerm(_alpha * u, v);
+        
+        // stabilization term
+        FunctionPtr tau = _stabilizationWeight;
+        _bf->addTerm( tau * -_epsilon * u->laplacian(), _beta * v->grad());
+        _bf->addTerm( tau * _beta * u->grad(), _beta * v->grad());
+        _bf->addTerm( tau * _alpha * u, _beta * v->grad());
+      }
   }
 }
 
@@ -141,7 +183,21 @@ RHSPtr ConvectionDiffusionReactionFormulation::rhs(FunctionPtr f)
 {
   RHSPtr rhs = RHS::rhs();
   rhs->addTerm(f * v());
+  if (_formulationChoice == SUPG)
+  {
+    // add stabilization term
+    FunctionPtr tau = _stabilizationWeight;
+    if (_spaceDim == 1)
+      rhs->addTerm(tau * f * (_beta * v()->dx()));
+    else
+      rhs->addTerm(tau * f * (_beta * v()->grad()));
+  }
   return rhs;
+}
+
+void ConvectionDiffusionReactionFormulation::setStabilizationWeight(MeshPtr mesh)
+{
+  // weight = max( h |beta| - 2 * eps )
 }
 
 VarPtr ConvectionDiffusionReactionFormulation::sigma()
