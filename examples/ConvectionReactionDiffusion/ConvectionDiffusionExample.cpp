@@ -1,4 +1,5 @@
 #include "ConvectionDiffusionReactionFormulation.h"
+#include "EnergyErrorFunction.h"
 #include "ExpFunction.h"
 #include "GDAMinimumRule.h"
 #include "GMGSolver.h"
@@ -209,7 +210,7 @@ int main(int argc, char *argv[])
   BFPtr bf = form.bf();
   
   // inner product
-  IPPtr ip;
+  IPPtr ip, ipForResidual;
   int H1Order = -1;
   if (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK)
   {
@@ -225,6 +226,8 @@ int main(int argc, char *argv[])
   {
     delta_k = 0;
     H1Order = polyOrder;
+    ConvectionDiffusionReactionFormulation primalForm(ConvectionDiffusionReactionFormulation::PRIMAL, spaceDim, beta, epsilon, alpha);
+    ipForResidual = primalForm.bf()->naiveNorm(spaceDim);
   }
   
   // set up mesh
@@ -265,29 +268,27 @@ int main(int argc, char *argv[])
   bool useCondensedSolve = false;
   solution->setUseCondensedSolve(useCondensedSolve);
   solution->solve();
+  LinearTermPtr residual = form.residual(solution);
+  if (ipForResidual == Teuchos::null) ipForResidual = ip;
+  RefinementStrategy refStrategy(mesh, residual, ipForResidual, energyThreshold);
+  FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(refStrategy.getRieszRep()) );
+  refStrategy.getRieszRep()->computeRieszRep();
   
   int refinementNumber = 0;
   FunctionPtr meshIndicator = Function::meshSkeletonCharacteristic();
   HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
-  functionExporter.exportFunction({u_exact, f}, {"u_exact", "f"}, refinementNumber);
+  functionExporter.exportFunction({u_exact, f, energyErrorFunction}, {"u_exact", "f", "energy_error"}, refinementNumber);
   functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
   
   HDF5Exporter exporter(mesh, "ConvectionDiffusionExample", "/tmp");
   exporter.exportSolution(solution, refinementNumber);
   
-  if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
-  {
-    if (rank==0) cout << "Formulation = SUPG; exiting after initial solve (no refinement strategy defined for this case)\n";
-    exit(0);
-  }
-  
-  RefinementStrategy refStrategy(solution, energyThreshold);
- 
   while (refinementNumber < numRefinements)
   {
+    GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
+    GlobalIndexType numActiveElements = mesh->numActiveElements();
+    
     refStrategy.refine();
-    functionExporter.exportFunction({u_exact, f}, {"u_exact", "f"}, refinementNumber);
-    functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
    
     vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(mesh, 1, delta_k);
     
@@ -297,11 +298,22 @@ int main(int argc, char *argv[])
                                                                    GMGOperator::MultigridStrategy::V_CYCLE,
                                                                    Solver::getDirectSolver(),
                                                                    useCondensedSolve));
+    
+    if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
+    {
+      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
+      gmgSolver->setUseConjugateGradient(false); // won't be SPD
+    }
+    else
+    {
+//      // just let's try something
+//      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
+    }
+    
     gmgSolver->setAztecOutput(25);
     
     double energyError = refStrategy.getEnergyError(refinementNumber);
-    GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
-    GlobalIndexType numActiveElements = mesh->numActiveElements();
+
     if (rank == 0)
     {
       cout << "Refinement " << refinementNumber << " has energy error " << energyError;
@@ -312,9 +324,13 @@ int main(int argc, char *argv[])
     refinementNumber++;
     
     exporter.exportSolution(solution, refinementNumber);
+    
+    refStrategy.getRieszRep()->computeRieszRep();
+    functionExporter.exportFunction({u_exact, f, energyErrorFunction}, {"u_exact", "f", "energy_error"}, refinementNumber);
+    functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
   }
   
-  double energyError = solution->energyErrorTotal();
+  double energyError = refStrategy.computeTotalEnergyError();
   GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
   GlobalIndexType numActiveElements = mesh->numActiveElements();
   if (rank == 0)

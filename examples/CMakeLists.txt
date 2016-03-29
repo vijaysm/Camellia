@@ -1,5 +1,6 @@
 project(examples)
 
+add_subdirectory(ConvectionReactionDiffusion)
 add_subdirectory(DGAdvection)
 add_subdirectory(DPGAdvection)
 add_subdirectory(HeatSpaceTime)
