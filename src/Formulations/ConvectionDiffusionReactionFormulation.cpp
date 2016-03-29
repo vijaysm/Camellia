@@ -8,6 +8,7 @@
 
 #include "ConvectionDiffusionReactionFormulation.h"
 #include "RHS.h"
+#include "Solution.h"
 
 using namespace Camellia;
 
@@ -129,10 +130,17 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
       
       FunctionPtr h = Function::h();
       FunctionPtr beta_norm_squared = Function::zero();
-      for (int comp = 1; comp <= spaceDim; comp++)
+      if (spaceDim == 1)
       {
-        FunctionPtr beta_comp = beta->spatialComponent(comp);
-        beta_norm_squared = beta_norm_squared + beta_comp * beta_comp;
+        beta_norm_squared = beta * beta;
+      }
+      else
+      {
+        for (int comp = 1; comp <= spaceDim; comp++)
+        {
+          FunctionPtr beta_comp = beta->spatialComponent(comp);
+          beta_norm_squared = beta_norm_squared + beta_comp * beta_comp;
+        }
       }
       FunctionPtr beta_norm = Function::sqrtFunction(beta_norm_squared);
       FunctionPtr stabilizationWeight = Function::max(h * beta_norm - 2 * _epsilon, Function::zero()) / beta_norm_squared;
@@ -195,9 +203,10 @@ RHSPtr ConvectionDiffusionReactionFormulation::rhs(FunctionPtr f)
   return rhs;
 }
 
-void ConvectionDiffusionReactionFormulation::setStabilizationWeight(MeshPtr mesh)
+LinearTermPtr ConvectionDiffusionReactionFormulation::residual(SolutionPtr soln)
 {
-  // weight = max( h |beta| - 2 * eps )
+  LinearTermPtr bfEval = _bf->testFunctional(soln);
+  return bfEval - soln->rhs()->linearTerm();
 }
 
 VarPtr ConvectionDiffusionReactionFormulation::sigma()

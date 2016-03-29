@@ -66,11 +66,11 @@ namespace Camellia
     // ! Returns the forcing function corresponding to the specified exact solution u
     FunctionPtr forcingFunction(FunctionPtr u_exact);
     
+    // ! Returns the residual corresponding to the provided solution
+    LinearTermPtr residual(SolutionPtr soln);
+    
     // ! Returns the RHS corresponding to the provided forcing function
     RHSPtr rhs(FunctionPtr forcingFunction);
-    
-    // ! For SUPG, computes and sets the appropriate weight for the provided mesh.
-    void setStabilizationWeight(MeshPtr mesh);
     
     // ! Returns either u or u_hat, whichever is appropriate for imposing Dirichlet BCs.
     VarPtr u_dirichlet();

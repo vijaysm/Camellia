@@ -63,8 +63,6 @@ namespace
     int delta_k = 2;
     vector<double> meshDim(spaceDim,1.0);
     vector<int> elementWidths(spaceDim,1);
-    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), meshDim, elementWidths, H1Order, delta_k);
-    
     BCPtr bc = BC::bc();
     IPPtr ip;
     // enforce a Dirichlet BC everywhere
@@ -78,10 +76,18 @@ namespace
       bc->addDirichlet(form.u(), SpatialFilter::allSpace(), u_exact);
       ip = form.bf()->naiveNorm(spaceDim);
     }
+    else if (formulationChoice == ConvectionDiffusionReactionFormulation::SUPG)
+    {
+      ip = Teuchos::null;
+      delta_k = 0;
+      bc->addDirichlet(form.u(), SpatialFilter::allSpace(), u_exact);
+    }
     else
     {
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported formulation choice");
     }
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), meshDim, elementWidths, H1Order, delta_k);
     
     SolutionPtr soln = Solution::solution(form.bf(), mesh, bc, rhs, ip);
     soln->setCubatureEnrichmentDegree(beta_degree); //set to match the degree of beta
@@ -177,6 +183,27 @@ namespace
   {
     int spaceDim = 3;
     ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::PRIMAL;
+    testSolve(spaceDim, formulation, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolveSUPG_1D )
+  {
+    int spaceDim = 1;
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::SUPG;
+    testSolve(spaceDim, formulation, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolveSUPG_2D )
+  {
+    int spaceDim = 2;
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::SUPG;
+    testSolve(spaceDim, formulation, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolveSUPG_3D_Slow )
+  {
+    int spaceDim = 3;
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::SUPG;
     testSolve(spaceDim, formulation, out, success);
   }
   
