@@ -540,7 +540,6 @@ void ZoltanMeshPartitionPolicy::pack_elem_data(void *data,
     hasData = soln->cellHasCoefficientsAssigned(cellID);
   }
   CellDataMigration::packData(mesh, cellID, isChild && !hasData, buf, size);
-//  CellDataMigration::packData(mesh, cellID, false, buf, size);
   *ierr = ZOLTAN_OK; // CellDataMigration throws exceptions if it's not OK
 }
 
