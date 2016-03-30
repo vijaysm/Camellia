@@ -825,6 +825,11 @@ void MeshTopology::applyTag(std::string tagName, int tagID, EntitySetPtr entityS
   _tagSetsInteger[tagName].push_back({entitySet->getHandle(), tagID});
 }
 
+MeshTopology* MeshTopology::baseMeshTopology()
+{
+  return this;
+}
+
 vector<IndexType> MeshTopology::getCanonicalEntityNodesViaPeriodicBCs(unsigned d, const vector<IndexType> &myEntityNodes)
 {
   vector<IndexType> sortedNodes(myEntityNodes.begin(),myEntityNodes.end());
