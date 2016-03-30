@@ -40,7 +40,7 @@ int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID)
     // the dofs themselves
     size += localDofs * sizeof(double);
   }
-
+  
   return size;
 }
 
@@ -50,8 +50,6 @@ void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packPa
   // however, producing the map is an implementation challenge, particularly in the presence of refined elements
   // so what we do instead is map local data, and then use the local to global mapper that we build anyway to map
   // to global values when unpacking.
-  int myRank                    = Teuchos::GlobalMPISession::getRank();
-
 //  cout << "CellDataMigration::packData() called for cell " << cellID << " on rank " << myRank << endl;
   char* dataLocation = dataBuffer;
   if (size<dataSize(mesh, cellID))
@@ -111,8 +109,6 @@ void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packPa
 
 void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const char *dataBuffer, int size)
 {
-  int myRank                    = Teuchos::GlobalMPISession::getRank();
-
 //  cout << "CellDataMigration::unpackData() called for cell " << cellID << " on rank " << myRank << endl;
   const char* dataLocation = dataBuffer;
   if (size<dataSize(mesh, cellID))
