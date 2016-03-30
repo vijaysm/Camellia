@@ -56,6 +56,11 @@ long long MeshTopologyView::approximateMemoryFootprint()
   return  footprint;
 }
 
+MeshTopology* MeshTopologyView::baseMeshTopology()
+{
+  return _meshTopo.get();
+}
+
 IndexType MeshTopologyView::cellCount()
 {
   return _allKnownCells.size();
