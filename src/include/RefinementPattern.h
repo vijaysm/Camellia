@@ -21,6 +21,20 @@ namespace Camellia {
   typedef vector< pair<RefinementPattern*, unsigned> > RefinementBranch; //unsigned: the child ordinal; order is from coarse to fine
   typedef vector< pair<RefinementPattern*, vector<unsigned> > > RefinementPatternRecipe;
 
+  // ! RefinementPatternKey: first is the CellTopologyKey for the CellTopology being refined; second is an enumerating identifier.
+  // ! Convention is that (2^D)-1 is a null refinement, and 0 a regular isotropic refinement when there is such a thing (tetrahedra are an exception).
+  typedef pair<CellTopologyKey,int> RefinementPatternKey;
+
+  // ! The following define the refinement pattern enumeration for any topologies where we can think of dividing along the x/y/z/t axes.
+  // ! Pass in 1 for each axis that is being refined.  (Refining in all directions gives 0.)
+#define REFINEMENT_PATTERN_ORDINAL_1D(xRef) ((1-xRef) << 0)
+#define REFINEMENT_PATTERN_ORDINAL_2D(xRef,yRef) ((1-xRef) << 1) | ((1-yRef) << 0)
+#define REFINEMENT_PATTERN_ORDINAL_3D(xRef,yRef,zRef) ((1-xRef) << 2) | ((1-yRef) << 1) | ((1-zRef) << 0)
+#define REFINEMENT_PATTERN_ORDINAL_4D(xRef,yRef,zRef,tRef) ((1-xRef) << 3) | ((1-yRef) << 2) | ((1-zRef) << 1) | ((1-tRef) << 0)
+
+  // ! Time extruded means that we don't refine in the temporal direction:
+#define REFINEMENT_PATTERN_ORDINAL_TIME_EXTRUSION(spacePatternOrdinal) (spacePatternOrdinal << 1) | ((1-0) << 0)
+  
   struct RefinementBranchTier
   {
     CellTopoPtr previousTierTopo;            // topology of the previous tier
@@ -38,6 +52,7 @@ namespace Camellia {
   class RefinementPattern {
     MeshTopologyPtr _refinementTopology;
 
+    int _refinementOrdinal; // the ordinal of this pattern in the enumeration of known patterns for the topology
     CellTopoPtr _cellTopoPtr;
     Intrepid::FieldContainer<double> _nodes;
     vector< vector< unsigned > > _subCells;
@@ -59,8 +74,7 @@ namespace Camellia {
 
     double distance(const vector<double> &v1, const vector<double> &v2);
 
-    static map< pair<unsigned,unsigned>, Teuchos::RCP<RefinementPattern> > _refPatternForKeyTensorialDegree;
-    static map< pair<unsigned,unsigned>, Teuchos::RCP<RefinementPattern> > _timeExtrudedRefPatternForKeyTensorialDegree;
+    static map<RefinementPatternKey, Teuchos::RCP<RefinementPattern> > _refPatterns;
     
     static map< pair< RefinementBranch, unsigned> , Intrepid::FieldContainer<double> > _descendantNodesRelativeToPermutedReferenceCell;
     
@@ -72,7 +86,7 @@ namespace Camellia {
     static RefinementPatternPtr refPatternExtrudedInTime(RefinementPatternPtr spaceRefPattern);
   public:
     RefinementPattern(CellTopoPtr cellTopoPtr, Intrepid::FieldContainer<double> refinedNodes,
-                      vector< Teuchos::RCP<RefinementPattern> > sideRefinementPatterns);
+                      vector< Teuchos::RCP<RefinementPattern> > sideRefinementPatterns, int refinementOrdinal);
   //  RefinementPattern(Teuchos::RCP< shards::CellTopology > shardsTopoPtr, Intrepid::FieldContainer<double> refinedNodes,
   //                    vector< Teuchos::RCP<RefinementPattern> > sideRefinementPatterns);
 
@@ -163,6 +177,10 @@ namespace Camellia {
 
   static map<unsigned, set<unsigned> > getInternalSubcellOrdinals(RefinementBranch &refinements);
 
+    RefinementPatternKey getKey() const;
+    
+    static RefinementPatternPtr refinementPattern(RefinementPatternKey key);
+    
   static RefinementBranch sideRefinementBranch(RefinementBranch &volumeRefinementBranch, unsigned sideIndex);
 
   // ! returns a refinement branch rooted in subcell ordinal of subcord and dimension of subcdim in the root of volumeRefinementBranch.

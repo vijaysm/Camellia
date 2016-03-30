@@ -43,16 +43,17 @@ using namespace Intrepid;
 using namespace Camellia;
 
 // define our static maps:
-map< CellTopologyKey, RefinementPatternPtr > RefinementPattern::_refPatternForKeyTensorialDegree;
-map< CellTopologyKey, RefinementPatternPtr > RefinementPattern::_timeExtrudedRefPatternForKeyTensorialDegree;
+map< RefinementPatternKey, RefinementPatternPtr > RefinementPattern::_refPatterns;
 
 map< pair<RefinementBranch, unsigned>, FieldContainer<double> > RefinementPattern::_descendantNodesRelativeToPermutedReferenceCell;
 
-RefinementPattern::RefinementPattern(CellTopoPtr cellTopoPtr, FieldContainer<double> refinedNodes, vector< RefinementPatternPtr > sideRefinementPatterns)
+RefinementPattern::RefinementPattern(CellTopoPtr cellTopoPtr, FieldContainer<double> refinedNodes, vector< RefinementPatternPtr > sideRefinementPatterns,
+                                     int refinementOrdinal)
 {
   _cellTopoPtr = cellTopoPtr;
   _nodes = refinedNodes;
   _sideRefinementPatterns = sideRefinementPatterns;
+  _refinementOrdinal = refinementOrdinal;
 
   int numSubCells = refinedNodes.dimension(0);
   int numNodesPerCell = refinedNodes.dimension(1);
@@ -1072,6 +1073,11 @@ map<unsigned, set<unsigned> > RefinementPattern::getInternalSubcellOrdinals(Refi
   return internalSubcellOrdinals;
 }
 
+RefinementPatternKey RefinementPattern::getKey() const
+{
+  return {_cellTopoPtr->getKey(),_refinementOrdinal};
+}
+
 void RefinementPattern::mapPointsToChildRefCoordinates(const FieldContainer<double> &pointsParentCoords, unsigned childOrdinal,
     FieldContainer<double> &pointsChildCoords)
 {
@@ -1285,30 +1291,58 @@ unsigned RefinementPattern::mapVolumeChildOrdinalToSubcellChildOrdinal(unsigned 
 }
 
 
-RefinementPatternPtr RefinementPattern::noRefinementPattern(CellTopoPtr cellTopoPtr)
+RefinementPatternPtr RefinementPattern::noRefinementPattern(CellTopoPtr cellTopo)
 {
-  static map< CellTopologyKey, RefinementPatternPtr > knownRefinementPatterns;
-  CellTopologyKey key = cellTopoPtr->getKey();
-  if (knownRefinementPatterns.find(key) == knownRefinementPatterns.end())
+  int refinementOrdinal;
+  switch (cellTopo->getDimension()) {
+    case 0:
+      refinementOrdinal = 0;
+      break;
+    case 1:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_1D(0);
+      break;
+    case 2:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(0,0);
+      break;
+    case 3:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(0,0,0);
+      break;
+    case 4:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_4D(0,0,0,0);
+      break;
+      
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial dimenison");
+  }
+  RefinementPatternKey key = {cellTopo->getKey(),refinementOrdinal};
+  
+  if (_refPatterns.find(key) == _refPatterns.end())
   {
-    unsigned numSides = cellTopoPtr->getSideCount();
+    unsigned numSides = cellTopo->getSideCount();
     vector< RefinementPatternPtr > sideRefPatterns;
-    unsigned d = cellTopoPtr->getDimension();
+    unsigned d = cellTopo->getDimension();
     if (d > 1)
     {
       for (unsigned sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
       {
-        CellTopoPtr sideTopo = cellTopoPtr->getSubcell(d-1, sideOrdinal);
+        CellTopoPtr sideTopo = cellTopo->getSubcell(d-1, sideOrdinal);
         sideRefPatterns.push_back( noRefinementPattern(sideTopo) );
       }
     }
-    FieldContainer<double> cellPoints(cellTopoPtr->getVertexCount(),d);
-    CamelliaCellTools::refCellNodesForTopology(cellPoints, cellTopoPtr);
-    cellPoints.resize(1,cellPoints.dimension(0),cellPoints.dimension(1));
-
-    knownRefinementPatterns[key] = Teuchos::rcp( new RefinementPattern(cellTopoPtr, cellPoints, sideRefPatterns) );
+    if (d >= 1)
+    {
+      FieldContainer<double> cellPoints(cellTopo->getVertexCount(),d);
+      CamelliaCellTools::refCellNodesForTopology(cellPoints, cellTopo);
+      cellPoints.resize(1,cellPoints.dimension(0),cellPoints.dimension(1));
+      _refPatterns[key] = Teuchos::rcp( new RefinementPattern(cellTopo, cellPoints, sideRefPatterns, refinementOrdinal) );
+    }
+    else // d==0
+    {
+      // for point topology, regular refinement is same as no refinement
+      _refPatterns[key] = regularRefinementPatternPoint();
+    }
   }
-  return knownRefinementPatterns[key];
+  return _refPatterns[key];
 }
 
 RefinementPatternPtr RefinementPattern::noRefinementPattern(Teuchos::RCP< shards::CellTopology > shardsTopoPtr)
@@ -1358,6 +1392,15 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::noRefinementPatternQuad()
 unsigned RefinementPattern::numChildren()
 {
   return _nodes.dimension(0);
+}
+
+RefinementPatternPtr RefinementPattern::refinementPattern(RefinementPatternKey key)
+{
+  if (_refPatterns.find(key) == _refPatterns.end())
+  {
+    CellTopoPtr cellTopo = CellTopology::cellTopology(key.first);
+  }
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unfinished method!");
 }
 
 RefinementPatternPtr RefinementPattern::refPatternExtrudedInTime(RefinementPatternPtr spaceRefPattern)
@@ -1439,7 +1482,9 @@ RefinementPatternPtr RefinementPattern::refPatternExtrudedInTime(RefinementPatte
     }
   }
   
-  RefinementPatternPtr refPattern = Teuchos::rcp( new RefinementPattern(tensorTopo,tensorRefNodes,sideRefPatterns) );
+  int spaceRefinementOrdinal = spaceRefPattern->getKey().second;
+  int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_TIME_EXTRUSION(spaceRefinementOrdinal);
+  RefinementPatternPtr refPattern = Teuchos::rcp( new RefinementPattern(tensorTopo,tensorRefNodes,sideRefPatterns,refinementOrdinal) );
   return refPattern;
 }
 
@@ -1456,7 +1501,8 @@ RefinementPatternPtr RefinementPattern::regularRefinementPatternPoint()
     const int spaceDim = 0;
 
     FieldContainer<double> points(numChildren,numNodesPerChild,spaceDim);
-    refPattern = Teuchos::rcp( new RefinementPattern(point,points,vector< RefinementPatternPtr >()) );
+    int refinementOrdinal = 0;
+    refPattern = Teuchos::rcp( new RefinementPattern(point,points,vector< RefinementPatternPtr >(), refinementOrdinal) );
   }
   return refPattern;
 }
@@ -1474,7 +1520,8 @@ RefinementPatternPtr RefinementPattern::regularRefinementPatternLine()
     linePoints(0,1,0) =  0.0;
     linePoints(1,0,0) =  0.0;
     linePoints(1,1,0) =  1.0;
-    refPattern = Teuchos::rcp( new RefinementPattern(line,linePoints,vector< RefinementPatternPtr >()) );
+    int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_1D(1);
+    refPattern = Teuchos::rcp( new RefinementPattern(line,linePoints,vector< RefinementPatternPtr >(),refinementOrdinal) );
   }
   return refPattern;
 }
@@ -1513,7 +1560,8 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::regularRefinementPatternTrian
     triPoints(3,2,1) = 1.0;
     CellTopoPtr triangle = CellTopology::triangle();
 
-    refPattern = Teuchos::rcp( new RefinementPattern(triangle,triPoints,vector<RefinementPatternPtr>(3,regularRefinementPatternLine())) );
+    int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(1,1);
+    refPattern = Teuchos::rcp( new RefinementPattern(triangle,triPoints,vector<RefinementPatternPtr>(3,regularRefinementPatternLine()),refinementOrdinal) );
   }
   return refPattern;
 }
@@ -1524,7 +1572,6 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::regularRefinementPatternQuad(
 
   if (refPattern.get() == NULL)
   {
-
     // order of the sub-elements is CCW starting at bottom left
     FieldContainer<double> quadPoints(4,4,2);
     quadPoints(0,0,0) = -1.0; // x1
@@ -1561,7 +1608,8 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::regularRefinementPatternQuad(
     quadPoints(3,3,1) = 1.0;
     CellTopoPtr quad = CellTopology::quad();
 
-    refPattern = Teuchos::rcp( new RefinementPattern(quad,quadPoints,vector<RefinementPatternPtr>(4,regularRefinementPatternLine())) );
+    int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(1,1);
+    refPattern = Teuchos::rcp( new RefinementPattern(quad,quadPoints,vector<RefinementPatternPtr>(4,regularRefinementPatternLine()),refinementOrdinal) );
   }
   return refPattern;
 }
@@ -1572,7 +1620,6 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::regularRefinementPatternHexah
 
   if (refPattern.get() == NULL)
   {
-
     // order of the sub-elements is CCW starting at bottom left
     unsigned spaceDim = 3;
 
@@ -1613,8 +1660,8 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::regularRefinementPatternHexah
     }
 
 //    cout << "regular hex refinement, hexPoints:\n" << hexPoints;
-
-    refPattern = Teuchos::rcp( new RefinementPattern(hexTopo,hexPoints,vector<RefinementPatternPtr>(6,regularRefinementPatternQuad())) );
+    int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(1,1,1);
+    refPattern = Teuchos::rcp( new RefinementPattern(hexTopo,hexPoints,vector<RefinementPatternPtr>(6,regularRefinementPatternQuad()),refinementOrdinal) );
   }
   return refPattern;
 }
@@ -1641,19 +1688,22 @@ RefinementPatternPtr RefinementPattern::regularRefinementPattern(unsigned cellTo
 
 RefinementPatternPtr RefinementPattern::regularRefinementPattern(Camellia::CellTopologyKey cellTopoKey)
 {
+  int refPatternOrdinal = 0; // by convention, 0 means regular refinement
+  RefinementPatternKey refPatternKey = {cellTopoKey,refPatternOrdinal};
+  
+  if (_refPatterns.find(refPatternKey) != _refPatterns.end())
+  {
+    return _refPatterns[refPatternKey];
+  }
+  
   unsigned shardsKey = cellTopoKey.first;
   unsigned tensorialDegree = cellTopoKey.second;
-
-  if (_refPatternForKeyTensorialDegree.find(cellTopoKey) != _refPatternForKeyTensorialDegree.end())
-  {
-    return _refPatternForKeyTensorialDegree[cellTopoKey];
-  }
 
   RefinementPatternPtr shardsRefPattern = regularRefinementPattern(shardsKey);
 
   if (tensorialDegree == 0)
   {
-    _refPatternForKeyTensorialDegree[cellTopoKey] = shardsRefPattern;
+    _refPatterns[refPatternKey] = shardsRefPattern;
   }
   else
   {
@@ -1662,13 +1712,13 @@ RefinementPatternPtr RefinementPattern::regularRefinementPattern(Camellia::CellT
     RefinementPatternPtr tensorRefPattern = shardsRefPattern;
     pair<unsigned,unsigned> priorLookupKey = make_pair(shardsKey, 0);
     // make sure that the degree 0 guy is in place
-    if (_refPatternForKeyTensorialDegree.find(priorLookupKey) == _refPatternForKeyTensorialDegree.end())
+    if (_refPatterns.find({priorLookupKey,refPatternOrdinal}) == _refPatterns.end())
     {
-      _refPatternForKeyTensorialDegree[priorLookupKey] = shardsRefPattern;
+      _refPatterns[{priorLookupKey,0}] = shardsRefPattern;
     }
-    while (_refPatternForKeyTensorialDegree.find(priorLookupKey) != _refPatternForKeyTensorialDegree.end())
+    while (_refPatterns.find({priorLookupKey,refPatternOrdinal}) != _refPatterns.end())
     {
-      tensorRefPattern = _refPatternForKeyTensorialDegree[priorLookupKey];
+      tensorRefPattern = _refPatterns[{priorLookupKey,refPatternOrdinal}];
       priorLookupKey.second++;
     }
 
@@ -1733,12 +1783,12 @@ RefinementPatternPtr RefinementPattern::regularRefinementPattern(Camellia::CellT
 
 //      cout << "tensorRefNodes:\n" << tensorRefNodes;
 
-      RefinementPatternPtr refPattern = Teuchos::rcp( new RefinementPattern(tensorTopo,tensorRefNodes,sideRefPatterns) );
+      RefinementPatternPtr refPattern = Teuchos::rcp( new RefinementPattern(tensorTopo,tensorRefNodes,sideRefPatterns,refPatternOrdinal) );
       priorLookupKey.second = lineComponentOrdinal + 1;
-      _refPatternForKeyTensorialDegree[priorLookupKey] = refPattern;
+      _refPatterns[{priorLookupKey,refPatternOrdinal}] = refPattern;
     }
   }
-  return _refPatternForKeyTensorialDegree[cellTopoKey];
+  return _refPatterns[refPatternKey];
 }
 
 RefinementPatternPtr RefinementPattern::regularRefinementPattern(CellTopoPtr cellTopo)
@@ -1748,22 +1798,41 @@ RefinementPatternPtr RefinementPattern::regularRefinementPattern(CellTopoPtr cel
 
 RefinementPatternPtr RefinementPattern::timeExtrudedRegularRefinementPattern(CellTopoPtr cellTopo)
 {
-  if (_timeExtrudedRefPatternForKeyTensorialDegree.find(cellTopo->getKey()) == _timeExtrudedRefPatternForKeyTensorialDegree.end())
+  int refinementOrdinal;
+  switch (cellTopo->getDimension()) {
+    case 0:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_1D(0);
+      break;
+    case 1:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(1,0);
+      break;
+    case 2:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(1,1,0);
+      break;
+    case 3:
+      refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_4D(1,1,1,0);
+      break;
+      
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial dimenison");
+  }
+  RefinementPatternKey key = {cellTopo->getKey(),refinementOrdinal};
+  if (_refPatterns.find(key) == _refPatterns.end())
   {
     RefinementPatternPtr regularRefPattern = regularRefinementPattern(cellTopo);
-    _timeExtrudedRefPatternForKeyTensorialDegree[cellTopo->getKey()] = refPatternExtrudedInTime(regularRefPattern);
+    _refPatterns[key] = refPatternExtrudedInTime(regularRefPattern);
   }
-  return _timeExtrudedRefPatternForKeyTensorialDegree[cellTopo->getKey()];
+  return _refPatterns[key];
 }
 
 // cuts a quad vertically (x-refines the element)
 Teuchos::RCP<RefinementPattern> RefinementPattern::xAnisotropicRefinementPatternQuad()
 {
-  static RefinementPatternPtr refPattern;
-
-  if (refPattern.get() == NULL)
+  int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(1,0);
+  RefinementPatternKey key = {CellTopology::quad()->getKey(),refinementOrdinal};
+  
+  if (_refPatterns.find(key) == _refPatterns.end())
   {
-
     // order of the sub-elements is CCW starting at bottom left
     FieldContainer<double> quadPoints(2,4,2);
     quadPoints(0,0,0) = -1.0; // x1
@@ -1790,33 +1859,37 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::xAnisotropicRefinementPattern
     sideRefinements.push_back(regularRefinementPatternLine());
     sideRefinements.push_back(     noRefinementPatternLine());
 
-    refPattern = Teuchos::rcp( new RefinementPattern(quad,quadPoints,sideRefinements) );
+    int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(1,0);
+    _refPatterns[key] = Teuchos::rcp( new RefinementPattern(quad,quadPoints,sideRefinements,refinementOrdinal) );
   }
-  return refPattern;
+  return _refPatterns[key];
 }
 
 // cuts a quad x time vertically (x-refines the element), leaving y and t untouched
 RefinementPatternPtr RefinementPattern::xAnisotropicRefinementPatternQuadTimeExtruded()
 {
-  static RefinementPatternPtr refPattern;
-
-  if (refPattern.get() == NULL)
+  int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(1,0,0);
+  CellTopoPtr cellTopo = CellTopology::cellTopology(CellTopology::quad(),1);
+  
+  RefinementPatternKey key = {cellTopo->getKey(),refinementOrdinal};
+  
+  if (_refPatterns.find(key) == _refPatterns.end())
   {
     RefinementPatternPtr spaceRefPattern = xAnisotropicRefinementPatternQuad();
-    refPattern = refPatternExtrudedInTime(spaceRefPattern);
+    _refPatterns[key] = refPatternExtrudedInTime(spaceRefPattern);
   }
   
-  return refPattern;
+  return _refPatterns[key];
 }
 
 // cuts a quad horizontally (y-refines the element)
 Teuchos::RCP<RefinementPattern> RefinementPattern::yAnisotropicRefinementPatternQuad()
 {
-  static RefinementPatternPtr refPattern;
-
-  if (refPattern.get() == NULL)
+  int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(0,1);
+  RefinementPatternKey key = {CellTopology::quad()->getKey(),refinementOrdinal};
+  
+  if (_refPatterns.find(key) == _refPatterns.end())
   {
-
     // order of the sub-elements is CCW starting at bottom left
     FieldContainer<double> quadPoints(2,4,2);
     quadPoints(0,0,0) = -1.0; // x1
@@ -1843,23 +1916,26 @@ Teuchos::RCP<RefinementPattern> RefinementPattern::yAnisotropicRefinementPattern
     sideRefinements.push_back(     noRefinementPatternLine());
     sideRefinements.push_back(regularRefinementPatternLine());
 
-    refPattern = Teuchos::rcp( new RefinementPattern(quad,quadPoints, sideRefinements) );
+    _refPatterns[key] = Teuchos::rcp( new RefinementPattern(quad,quadPoints, sideRefinements, refinementOrdinal) );
   }
-  return refPattern;
+  return _refPatterns[key];
 }
 
 // cuts a quad x time horizontally (y-refines the element), leaving x and t untouched
 RefinementPatternPtr RefinementPattern::yAnisotropicRefinementPatternQuadTimeExtruded()
 {
-  static RefinementPatternPtr refPattern;
+  int refinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(0,1,0);
+  CellTopoPtr cellTopo = CellTopology::cellTopology(CellTopology::quad(),1);
   
-  if (refPattern.get() == NULL)
+  RefinementPatternKey key = {cellTopo->getKey(),refinementOrdinal};
+  
+  if (_refPatterns.find(key) == _refPatterns.end())
   {
     RefinementPatternPtr spaceRefPattern = yAnisotropicRefinementPatternQuad();
-    refPattern = refPatternExtrudedInTime(spaceRefPattern);
+    _refPatterns[key] = refPatternExtrudedInTime(spaceRefPattern);
   }
   
-  return refPattern;
+  return _refPatterns[key];
 }
 
 

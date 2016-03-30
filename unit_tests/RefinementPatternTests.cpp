@@ -342,6 +342,79 @@ namespace
     int refLevels = 2;
     testGeneralizedRefinementPatternTiersAreCompatible(volumeTopo, refLevels, success, out);
   }
+  
+  TEUCHOS_UNIT_TEST( RefinementPattern, KeysAreDistinct )
+  {
+    vector<CellTopoPtr> shardsTopologies = getShardsTopologies();
+    vector<CellTopoPtr> cellTopologies = shardsTopologies;
+    for (CellTopoPtr shardsTopo : shardsTopologies)
+    {
+      // let's also include regular refinements of cell topologies of tensorial degree 1
+      int tensorialDegree = 1;
+      CellTopoPtr spaceTimeTopo = CellTopology::cellTopology(shardsTopo, tensorialDegree);
+      cellTopologies.push_back(spaceTimeTopo);
+    }
+    
+    vector<RefinementPatternPtr> regularRefinements;
+    map<RefinementPatternKey,RefinementPatternPtr> regularRefinementsMap;
+    for (CellTopoPtr cellTopo : cellTopologies)
+    {
+      if (cellTopo->getKey() == CellTopology::point()->getKey()) continue; // skip this one because it's the same as the null refinement we count below.
+      RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
+      regularRefinementsMap[refPattern->getKey()] = refPattern;
+      regularRefinements.push_back(refPattern);
+    }
+    // if there is no key collision, then the map size and the vector size will be the same
+    TEST_EQUALITY(regularRefinements.size(), regularRefinementsMap.size());
+    
+    vector<RefinementPatternPtr> noRefinements;
+    map<RefinementPatternKey,RefinementPatternPtr> noRefinementsMap;
+    for (CellTopoPtr cellTopo : cellTopologies)
+    {
+      RefinementPatternPtr refPattern = RefinementPattern::noRefinementPattern(cellTopo);
+      
+      if (noRefinementsMap.find(refPattern->getKey()) != noRefinementsMap.end())
+      {
+        out << "Key collision for null refinement pattern on cellTopo " << cellTopo->getName();
+        out << " and cellTopo " << noRefinementsMap[refPattern->getKey()]->parentTopology()->getName() << endl;
+      }
+      
+      noRefinementsMap[refPattern->getKey()] = refPattern;
+      noRefinements.push_back(refPattern);
+    }
+    // if there is no key collision, then the map size and the vector size will be the same
+    TEST_EQUALITY(noRefinements.size(), noRefinementsMap.size());
+    
+    // anisotropic refinements -- right now, these are supported for quads in 2D and for some space-time extrusions of 2D quads
+    vector<RefinementPatternPtr> anisotropicRefinements;
+    map<RefinementPatternKey,RefinementPatternPtr> anisotropicRefinementsMap;
+    anisotropicRefinements.push_back(RefinementPattern::xAnisotropicRefinementPatternQuad());
+    anisotropicRefinements.push_back(RefinementPattern::yAnisotropicRefinementPatternQuad());
+    anisotropicRefinements.push_back(RefinementPattern::xAnisotropicRefinementPatternQuadTimeExtruded());
+    anisotropicRefinements.push_back(RefinementPattern::yAnisotropicRefinementPatternQuadTimeExtruded());
+    for (RefinementPatternPtr refPattern : anisotropicRefinements)
+    {
+      if (anisotropicRefinementsMap.find(refPattern->getKey()) != anisotropicRefinementsMap.end())
+      {
+        out << "Key collision for anisotropic refinement pattern on cellTopo " << refPattern->parentTopology()->getName();
+        out << " and cellTopo " << anisotropicRefinementsMap[refPattern->getKey()]->parentTopology()->getName() << endl;
+      }
+      anisotropicRefinementsMap[refPattern->getKey()] = refPattern;
+    }
+    TEST_EQUALITY(anisotropicRefinements.size(), anisotropicRefinementsMap.size());
+    
+    // finally, put all refinements into one big container:
+    vector<RefinementPatternPtr> allRefinements;
+    map<RefinementPatternKey,RefinementPatternPtr> allRefinementsMap;
+    allRefinements.insert(allRefinements.end(), regularRefinements.begin(), regularRefinements.end());
+    allRefinements.insert(allRefinements.end(), noRefinements.begin(), noRefinements.end());
+    allRefinements.insert(allRefinements.end(), anisotropicRefinements.begin(), anisotropicRefinements.end());
+    for (RefinementPatternPtr refPattern : allRefinements)
+    {
+      allRefinementsMap[refPattern->getKey()] = refPattern;
+    }
+    TEST_EQUALITY(allRefinements.size(), allRefinementsMap.size());
+  }
 
   TEUCHOS_UNIT_TEST( RefinementPattern, MapSubcellFromChildToParent_CommonVertices )
   {
@@ -668,6 +741,37 @@ namespace
 
     double tol = 1e-15;
     TEST_COMPARE_FLOATING_ARRAYS_CAMELLIA(expectedPointsInParent,actualPoints,tol);
+  }
+  
+  TEUCHOS_UNIT_TEST( RefinementPattern, NullRefinementKey )
+  {
+    // the refinement ordinal of a null refinement for a d-dimensional cell topology
+    // should be 2^d - 1.
+    
+    vector<CellTopoPtr> shardsTopologies = getShardsTopologies();
+    vector<CellTopoPtr> cellTopologies = shardsTopologies;
+    for (CellTopoPtr shardsTopo : shardsTopologies)
+    {
+      // let's also include regular refinements of cell topologies of tensorial degree 1
+      int tensorialDegree = 1;
+      CellTopoPtr spaceTimeTopo = CellTopology::cellTopology(shardsTopo, tensorialDegree);
+      cellTopologies.push_back(spaceTimeTopo);
+    }
+    
+    vector<RefinementPatternPtr> noRefinements;
+    map<RefinementPatternKey,RefinementPatternPtr> noRefinementsMap;
+    for (CellTopoPtr cellTopo : cellTopologies)
+    {
+      RefinementPatternPtr refPattern = RefinementPattern::noRefinementPattern(cellTopo);
+      RefinementPatternKey key = refPattern->getKey();
+      unsigned refinementOrdinal = key.second;
+      unsigned expectedOrdinal = (1 << cellTopo->getDimension()) - 1;
+      TEST_EQUALITY(refinementOrdinal, expectedOrdinal);
+      
+      CellTopologyKey cellTopoKey = refPattern->getKey().first;
+      CellTopologyKey expectedKey = cellTopo->getKey();
+      TEST_EQUALITY(cellTopoKey, expectedKey);
+    }
   }
 
   TEUCHOS_UNIT_TEST( RefinementPattern, SpaceTimeTopology )
