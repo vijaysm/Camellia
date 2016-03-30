@@ -975,6 +975,14 @@ CellTopoPtr CellTopology::cellTopology(CellTopoPtr baseTopo, unsigned tensorialD
   return cellTopology(baseTopo->getShardsTopology(),tensorialDegree);
 }
 
+CellTopoPtr CellTopology::cellTopology(CellTopologyKey key)
+{
+  unsigned shardsKey = key.first;
+  unsigned tensorialDegree = key.second;
+  const shards::CellTopology* shardsTopo = &shardsTopology(shardsKey);
+  return cellTopology(*shardsTopo,tensorialDegree);
+}
+
 CellTopoPtr CellTopology::lineTensorTopology(CellTopoPtr camelliaCellTopo)
 {
   return cellTopology(camelliaCellTopo->getShardsTopology(), camelliaCellTopo->getTensorialDegree() + 1);
@@ -1002,6 +1010,29 @@ CellTopoPtr CellTopology::hexahedron()
 {
   static CellTopoPtr hex = cellTopology(shards::getCellTopologyData<shards::Hexahedron<8> >() );
   return hex;
+}
+
+const shards::CellTopology &CellTopology::shardsTopology(unsigned shardsKey)
+{
+  switch (shardsKey)
+  {
+    case shards::Node::key:
+      return point()->getShardsTopology();
+    case shards::Line<2>::key:
+      return line()->getShardsTopology();
+    case shards::Quadrilateral<4>::key:
+      return quad()->getShardsTopology();
+    case shards::Triangle<3>::key:
+      return triangle()->getShardsTopology();
+//    case shards::Pyramid<5>::key:
+//      return pyramid()->getShardsTopology();
+    case shards::Hexahedron<8>::key:
+      return hexahedron()->getShardsTopology();
+    case shards::Tetrahedron<4>::key:
+      return tetrahedron()->getShardsTopology();
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported shards topology");
+  }
 }
 
 CellTopoPtr CellTopology::triangle()
