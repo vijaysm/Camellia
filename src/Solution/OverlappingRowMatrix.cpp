@@ -268,7 +268,7 @@ std::set<GlobalIndexType> OverlappingRowMatrix::overlappingCells(GlobalIndexType
     {
       CellPtr cell = mesh->getTopology()->getCell(*cellIDIt);
       
-      bool useOldSideBasedNeighborRelation = true;
+      bool useOldSideBasedNeighborRelation = false;
       
       if (useOldSideBasedNeighborRelation)
       {
@@ -302,66 +302,9 @@ std::set<GlobalIndexType> OverlappingRowMatrix::overlappingCells(GlobalIndexType
         // if dimensionForNeighborRelation < 0, then use sideDim.
         int sideDim = cell->topology()->getDimension() - 1;
         if (dimensionForNeighborRelation < 0) dimensionForNeighborRelation = sideDim;
-        int numSubcells = cell->topology()->getSubcellCount(dimensionForNeighborRelation);
-        for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
-        {
-          IndexType subcellEntityIndex = cell->entityIndex(dimensionForNeighborRelation, subcellOrdinal);
-          set< pair<IndexType, unsigned> > cellPairs = mesh->getTopology()->getCellsContainingEntity(dimensionForNeighborRelation, subcellEntityIndex);
-          
-          CellPtr ancestor = cell->ancestralCellForSubcell(dimensionForNeighborRelation, subcellOrdinal, mesh->getTopology());
-          if (ancestor->cellIndex() != cell->cellIndex())
-          {
-            pair<unsigned, unsigned> ancestralInfo = cell->ancestralSubcellOrdinalAndDimension(dimensionForNeighborRelation,
-                                                                                               subcellOrdinal, mesh->getTopology());
-            IndexType ancestralEntityIndex = ancestor->entityIndex(ancestralInfo.second, ancestralInfo.first);
-            set< pair<IndexType, unsigned> > ancestralCellPairs = mesh->getTopology()->getCellsContainingEntity(ancestralInfo.second, ancestralEntityIndex);
-            cellPairs.insert(ancestralCellPairs.begin(),ancestralCellPairs.end());
-          }
-          
-          while (cellPairs.size() > 0)
-          {
-            set< pair<IndexType, unsigned> > newPairs;
-            for (pair<IndexType, unsigned> cellPair : cellPairs)
-            {
-              GlobalIndexType neighborCellID = cellPair.first;
-              if (mesh->cellIsActive(neighborCellID))
-              {
-                cellNeighbors.insert(neighborCellID);
-              }
-              else
-              {
-                if (dimensionForNeighborRelation == sideDim)
-                {
-                  // find the descendants of neighbor along the side
-                  unsigned neighborSideOrdinal = cellPair.second;
-                  CellPtr neighborCell = mesh->getTopology()->getCell(neighborCellID);
-                  vector< pair< GlobalIndexType, unsigned> > activeDescendants = neighborCell->getDescendantsForSide(neighborSideOrdinal, mesh->getTopology());
-                  for (auto descendantCellPair : activeDescendants)
-                  {
-                    cellNeighbors.insert(descendantCellPair.first);
-                  }
-                }
-                else
-                {
-                  static bool haveWarned = false;
-                  if (!haveWarned)
-                  {
-                    haveWarned = true;
-                    cout << "WARNING: In OverlappingRowMatrix::overlappingCells(), encountered hanging node when the dimension for the neighbor relation was not sideDim.  We still need to finish writing the code to find neighbors appropriately in this case!\n";
-                  }
-                  
-                  // TODO: finish this
-                  //       we need to proceed in two directions: find any descendants of subcellEntityIndex that have active cells that we haven't already seen, and any ancestors of subcellEntityIndex that have active cells that we haven't already seen.
-                  // we insert all such neighbors into cellPairs.
-                  // (to check what we've seen, should look both at cellNeighbors container and at cells container)
-                  // NOTE: It may be worth implementing Cell::getActiveNeighborsForSubcell(subcdim, subcord);
-                  //       -- This would allow us to replace everything to do with cellPairs above (though the new method would likely call getCellsContainingEntity)
-                }
-              }
-            }
-            cellPairs = newPairs;
-          }
-        }
+        
+        set<GlobalIndexType> thisCellNeighbors = cell->getActiveNeighborIndices(dimensionForNeighborRelation, mesh->getTopology());
+        cellNeighbors.insert(thisCellNeighbors.begin(),thisCellNeighbors.end());
       }
     }
     cells.insert(cellNeighbors.begin(), cellNeighbors.end());

@@ -123,6 +123,8 @@ public:
   std::vector< Teuchos::RCP<Cell> > getNeighbors(MeshTopologyViewPtr meshTopoViewForCellValidity);
   
   std::set<GlobalIndexType> getActiveNeighborIndices(MeshTopologyViewPtr meshTopoViewForCellValidity);
+  
+  std::set<GlobalIndexType> getActiveNeighborIndices(unsigned dimensionForNeighborRelationship, MeshTopologyViewPtr meshTopoViewForCellValidity);
 
   void printApproximateMemoryReport(); // in bytes
 
