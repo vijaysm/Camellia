@@ -2499,45 +2499,6 @@ unsigned MeshTopology::getSubEntityPermutation(unsigned d, IndexType entityIndex
   return CamelliaCellTools::permutationMatchingOrder(subEntityTopo, _canonicalEntityOrdering[subEntityDim][subEntityOrdinal], subEntityNodes);
 }
 
-//pair<IndexType,IndexType> MeshTopology::leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity(unsigned d, unsigned constrainingEntityIndex) {
-//  unsigned leastActiveCellIndex = (unsigned)-1; // unsigned cast of -1 makes maximal unsigned #
-//  set<IndexType> constrainedEntities = descendants(d,constrainingEntityIndex);
-//
-//  IndexType leastActiveCellConstrainedEntityIndex;
-//  for (set<IndexType>::iterator constrainedEntityIt = constrainedEntities.begin(); constrainedEntityIt != constrainedEntities.end(); constrainedEntityIt++) {
-//    IndexType constrainedEntityIndex = *constrainedEntityIt;
-//    if (_sidesForEntities[d].find(constrainingEntityIndex) == _sidesForEntities[d].end()) {
-//      cout << "ERROR: no sides found containing entityIndex " << constrainingEntityIndex << " of dimension " << d << endl;
-//      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "ERROR: no sides found containing entity");
-//    }
-//    set<IndexType> sideEntityIndices = _sidesForEntities[d][constrainedEntityIndex];
-//    for (set<IndexType>::iterator sideEntityIt = sideEntityIndices.begin(); sideEntityIt != sideEntityIndices.end(); sideEntityIt++) {
-//      IndexType sideEntityIndex = *sideEntityIt;
-//      typedef pair<IndexType, unsigned> CellPair;
-//      pair<CellPair,CellPair> cellsForSide = _cellsForSideEntities[sideEntityIndex];
-//      IndexType firstCellIndex = cellsForSide.first.first;
-//      if (_activeCells.find(firstCellIndex) != _activeCells.end()) {
-//        if (firstCellIndex < leastActiveCellIndex) {
-//          leastActiveCellConstrainedEntityIndex = constrainedEntityIndex;
-//          leastActiveCellIndex = firstCellIndex;
-//        }
-//      }
-//      IndexType secondCellIndex = cellsForSide.second.first;
-//      if (_activeCells.find(secondCellIndex) != _activeCells.end()) {
-//        if (secondCellIndex < leastActiveCellIndex) {
-//          leastActiveCellConstrainedEntityIndex = constrainedEntityIndex;
-//          leastActiveCellIndex = secondCellIndex;
-//        }
-//      }
-//    }
-//  }
-//  if (leastActiveCellIndex == -1) {
-//    cout << "WARNING: least active cell index not found.\n";
-//  }
-//
-//  return make_pair(leastActiveCellIndex, leastActiveCellConstrainedEntityIndex);
-//}
-
 IndexType MeshTopology::maxConstraint(unsigned d, IndexType entityIndex1, IndexType entityIndex2)
 {
   // if one of the entities is the ancestor of the other, returns that one.  Otherwise returns (unsigned) -1.
