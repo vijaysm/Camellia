@@ -98,6 +98,9 @@ public:
   RefinementPatternPtr refinementPattern();
   void setRefinementPattern(RefinementPatternPtr refPattern);
 
+  RefinementBranch refinementBranch();
+  GlobalIndexType rootCellIndex();
+  
   RefinementBranch refinementBranchForSide(unsigned sideOrdinal, MeshTopologyViewPtr meshTopoViewForCellValidity);
 
   RefinementBranch refinementBranchForSubcell(unsigned subcdim, unsigned subcord, MeshTopologyViewPtr meshTopoViewForCellValidity);

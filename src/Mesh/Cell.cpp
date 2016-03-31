@@ -160,6 +160,10 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighbo
         neighborIndices.insert(cellID);
       }
     }
+    if (neighborIndices.find(_cellIndex) != neighborIndices.end())
+    {
+      neighborIndices.erase(_cellIndex);
+    }
     return neighborIndices;
   }
 }
@@ -499,6 +503,29 @@ bool Cell::isParent(MeshTopologyViewPtr meshTopoViewForCellValidity)
 //  return _children.size() > 0;
 }
 
+RefinementBranch Cell::refinementBranch()
+{
+  RefinementBranch refBranch;
+  if (_parent == Teuchos::null)
+  {
+    refBranch.push_back({RefinementPattern::noRefinementPattern(_cellTopo).get(),0});
+  }
+  else
+  {
+    CellPtr parent = _parent;
+    GlobalIndexType cellIndex = _cellIndex;
+    while (parent != Teuchos::null) {
+      RefinementPatternPtr refPattern = parent->refinementPattern();
+      unsigned childOrdinal = parent->findChildOrdinal(cellIndex);
+      refBranch.insert(refBranch.begin(), {refPattern.get(),childOrdinal});
+      
+      cellIndex = parent->cellIndex();
+      parent = parent->getParent();
+    }
+  }
+  return refBranch;
+}
+
 RefinementBranch Cell::refinementBranchForSide(unsigned sideOrdinal, MeshTopologyViewPtr meshTopoViewForCellValidity)
 {
   // if this cell (on this side) is the finer side of a hanging node, returns the RefinementBranch starting
@@ -629,6 +656,25 @@ RefinementBranch Cell::refinementBranchForSubcell(unsigned subcdim, unsigned sub
     refBranch.push_back(make_pair(ancestors[i]->refinementPattern().get(), childOrdinals[i]));
   }
   return refBranch;
+}
+
+GlobalIndexType Cell::rootCellIndex()
+{
+  RefinementBranch refBranch;
+  if (_parent == Teuchos::null)
+  {
+    return _cellIndex;
+  }
+  else
+  {
+    CellPtr parent = _parent;
+    GlobalIndexType cellIndex = _cellIndex;
+    while (parent != Teuchos::null) {
+      cellIndex = parent->cellIndex();
+      parent = parent->getParent();
+    }
+    return cellIndex;
+  }
 }
 
 pair<unsigned, unsigned> Cell::ancestralSubcellOrdinalAndDimension(unsigned subcdim, unsigned subcord, MeshTopologyViewPtr meshTopoViewForCellValidity)

@@ -83,4 +83,39 @@ TEUCHOS_UNIT_TEST( Cell, Neighbors1D )
   }
   TEST_ASSERT(numBoundarySides == 2);
 }
+  
+  TEUCHOS_UNIT_TEST( Cell, VertexNeighbors_Triangles )
+  {
+    bool useTriangles = true;
+    
+    vector<double> dimensions = {1.0,1.0};
+    vector<int> elementCounts = {1,1};
+    
+    MeshTopologyPtr meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                                             elementCounts[0], elementCounts[1], useTriangles);
+    
+    GlobalIndexType cellID = 1, neighborCellID = 0;
+    CellPtr cell = meshTopo->getCell(cellID);
+    unsigned vertexDim = 0;
+    set<GlobalIndexType> neighborIDs = cell->getActiveNeighborIndices(vertexDim, meshTopo);
+    
+    TEST_EQUALITY(neighborIDs.size(), 1);
+    TEST_EQUALITY(*neighborIDs.begin(), neighborCellID);
+    
+    // something similar, but now use 2x2 quad mesh divided into triangles
+    // the "0" triangle (SE of bottom-left quad) shares a vertex with all but the top left triangle
+    cellID = 0;
+    elementCounts = {2,2};
+    
+    meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                             elementCounts[0], elementCounts[1], useTriangles);
+    
+    cell = meshTopo->getCell(cellID);
+    neighborIDs = cell->getActiveNeighborIndices(vertexDim, meshTopo);
+    
+    // "-2" below is to exclude cell 0 as well as the top left triangle
+    int neighborsExpected = elementCounts[0] * elementCounts[1] * 2 - 2;
+    
+    TEST_EQUALITY(neighborIDs.size(), neighborsExpected);
+  }
 } // namespace
