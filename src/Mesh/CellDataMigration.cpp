@@ -17,17 +17,244 @@
 using namespace Intrepid;
 using namespace Camellia;
 
+typedef pair<RefinementBranch,vector<GlobalIndexType>> LabeledRefinementBranch; // first cellID indicates the root cell ID; after that, each cellID indicates first child of each refinement
+typedef pair<LabeledRefinementBranch, vector<vector<double>> > RootedLabeledRefinementBranch; // second contains vertex coordinates for root cell
+
 int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID)
 {
-//  cout << "CellDataMigration::dataSize() called for cell " << cellID << endl;
+  int solutionSize = solutionDataSize(mesh, cellID);
+  int geometrySize = geometryDataSize(mesh, cellID);
+  return solutionSize + geometrySize;
+}
 
+int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
+{
   int size = 0;
+  
+  vector<RootedLabeledRefinementBranch> cellHaloGeometry = getCellHaloGeometry(mesh, cellID);
+  int numLabeledBranches = cellHaloGeometry.size();
+  size += sizeof(numLabeledBranches);
+  
+  for (int i=0; i<numLabeledBranches; i++)
+  {
+    // top level: labeledRefinementBranch, vertices
+    
+    // LabeledRefinementBranch has two entries: RefinementBranch, labels
+    int numLabels = cellHaloGeometry[i].first.second.size();
+    size += sizeof(numLabels);
+    size += numLabels * sizeof(GlobalIndexType);
+    
+    // at each level, RefinementBranch will yield two entries: RefinementPatternKey and childOrdinal
+    int numLevels = cellHaloGeometry[i].first.first.size();
+    size += numLevels * (sizeof(RefinementPatternKey) + sizeof(unsigned));
+    
+    // we are able to extract the number of vertices and the spaceDim from RefinementPatternKey and Mesh
+    int spaceDim = mesh->getDimension();
+    int numVertexEntries = spaceDim * cellHaloGeometry[i].second.size();
+    size += numVertexEntries * sizeof(double);
+  }
+  return size;
+}
 
+RootedLabeledRefinementBranch CellDataMigration::getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells)
+{
+  RootedLabeledRefinementBranch cellGeometry;
+  vector<vector<double>>* rootCellVertices = &cellGeometry.second;
+  RefinementBranch* cellRefBranch = &cellGeometry.first.first;
+  vector<GlobalIndexType>* cellLabels = &cellGeometry.first.second;
+  
+  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  *cellRefBranch = cell->refinementBranch();
+  
+  GlobalIndexType rootCellIndex = cell->rootCellIndex();
+  cellLabels->push_back(rootCellIndex);
+  CellPtr ancestralCell = mesh->getTopology()->getCell(cell->rootCellIndex());
+  int vertexCount = ancestralCell->vertices().size();
+  for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
+  {
+    rootCellVertices->push_back(mesh->getTopology()->getVertex(ancestralCell->vertices()[vertexOrdinal]));
+  }
+  
+  knownCells.insert(rootCellIndex); // keep track of cells already included in the data structure, to avoid redundancy
+  for (auto refEntry : *cellRefBranch)
+  {
+    RefinementPattern* refPattern = refEntry.first;
+    int childCount = refPattern->numChildren();
+    
+    if (childCount == 1)
+    {
+      // null refinement pattern -- child ID is the same as cell ID
+      cellLabels->push_back(ancestralCell->cellIndex());
+      knownCells.insert(ancestralCell->cellIndex());
+    }
+    else
+    {
+      unsigned firstChildOrdinal = 0;
+      GlobalIndexType firstChildCellIndex = ancestralCell->children()[firstChildOrdinal]->cellIndex();
+      cellLabels->push_back(firstChildCellIndex);
+      
+      for (int childOrdinal=0; childOrdinal<childCount; childOrdinal++)
+      {
+        knownCells.insert(firstChildCellIndex + childOrdinal);
+      }
+      ancestralCell = ancestralCell->children()[refEntry.second];
+    }
+  }
+  
+  return cellGeometry;
+}
+
+vector<RootedLabeledRefinementBranch> CellDataMigration::getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID)
+{
+  vector<RootedLabeledRefinementBranch> cellHaloGeometry(1);
+  
+  set<GlobalIndexType> knownCells;
+  cellHaloGeometry[0] = getCellGeometry(mesh, cellID, knownCells);
+  
   ElementTypePtr elemType = mesh->getElementType(cellID);
+  int dimForContinuity = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
+  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  
+  set<GlobalIndexType> cellHaloIndices = cell->getActiveNeighborIndices(dimForContinuity, mesh->getTopology());
 
+  for (GlobalIndexType neighborID : cellHaloIndices)
+  {
+    if (knownCells.find(neighborID) == knownCells.end())
+    {
+      cellHaloGeometry.push_back(getCellGeometry(mesh, neighborID, knownCells));
+    }
+  }
+  return cellHaloGeometry;
+}
+
+void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packParentDofs, char *dataBuffer, int size)
+{
+  // ideally, we'd pack the global coefficients for this cell and simply remap them when unpacking
+  // however, producing the map is an implementation challenge, particularly in the presence of refined elements
+  // so what we do instead is map local data, and then use the local to global mapper that we build anyway to map
+  // to global values when unpacking.
+  //  int myRank                    = mesh->Comm()->MyPID();
+  //  cout << "CellDataMigration::packData() called for cell " << cellID << " on rank " << myRank << endl;
+  char* dataLocation = dataBuffer;
+  if (size<dataSize(mesh, cellID))
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "undersized dataBuffer");
+  }
+  
+  // pack geometry info first
+  packGeometryData(mesh,cellID,dataLocation,size);
+  
+  packSolutionData(mesh, cellID, packParentDofs, dataLocation, size);
+}
+
+
+void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, char* &dataLocation, int size)
+{
+  vector<RootedLabeledRefinementBranch> cellHaloGeometry = getCellHaloGeometry(mesh, cellID);
+  int numLabeledBranches = cellHaloGeometry.size();
+  
+  memcpy(dataLocation, &numLabeledBranches, sizeof(numLabeledBranches));
+  dataLocation += sizeof(numLabeledBranches);
+  
+  for (int i=0; i<numLabeledBranches; i++)
+  {
+    // top level: LabeledRefinementBranch, vertices
+    // LabeledRefinementBranch has two entries: RefinementBranch, labels
+    int numLabels = cellHaloGeometry[i].first.second.size();
+    memcpy(dataLocation, &numLabels, sizeof(numLabels));
+    dataLocation += sizeof(numLabels);
+    
+    memcpy(dataLocation, &cellHaloGeometry[i].first.second[0], numLabels * sizeof(GlobalIndexType));
+    dataLocation += numLabels * sizeof(GlobalIndexType);
+    
+    // numLevels = numLabels - 1;
+    // at each level, RefinementBranch will yield two entries: RefinementPatternKey and childOrdinal
+    int numLevels = cellHaloGeometry[i].first.first.size();
+    TEUCHOS_TEST_FOR_EXCEPTION(numLevels != numLabels-1, std::invalid_argument, "numLevels != numLabels - 1");
+    for (int level=0; level<numLevels; level++)
+    {
+      RefinementPatternKey key = cellHaloGeometry[i].first.first[level].first->getKey();
+      memcpy(dataLocation, &key, sizeof(key));
+      dataLocation += sizeof(key);
+      
+      unsigned childOrdinal = cellHaloGeometry[i].first.first[level].second;
+      memcpy(dataLocation, &childOrdinal, sizeof(childOrdinal));
+      dataLocation += sizeof(childOrdinal);
+    }
+    
+    // we are able to extract the number of vertices and the spaceDim from RefinementPatternKey and Mesh
+    int spaceDim = mesh->getDimension();
+    int vertexCount = cellHaloGeometry[i].second.size();
+    for (int vertexOrdinal=0; vertexOrdinal < vertexCount; vertexOrdinal++)
+    {
+      memcpy(dataLocation, &cellHaloGeometry[i].second[vertexOrdinal][0], spaceDim * sizeof(double));
+      dataLocation += spaceDim * sizeof(double);
+    }
+  }
+}
+
+void CellDataMigration::packSolutionData(Mesh *mesh, GlobalIndexType cellID, bool packParentDofs, char* &dataLocation, int size)
+{
+  int packedDofsBelongToParent = packParentDofs ? 1 : 0;
+  memcpy(dataLocation, &packedDofsBelongToParent, sizeof(packedDofsBelongToParent));
+  dataLocation += sizeof(packedDofsBelongToParent);
+  
+  //  cout << "packed data for cell " << cellID << ": ";
+  //  ElementTypePtr elemType = mesh->getElementType(cellID);
+  vector<TSolutionPtr<double>> solutions = mesh->globalDofAssignment()->getRegisteredSolutions();
+  int numSolutions = solutions.size();
+  memcpy(dataLocation, &numSolutions, sizeof(numSolutions));
+  dataLocation += sizeof(numSolutions);
+  
+  GlobalIndexType cellIDForCoefficients;
+  if (packParentDofs)
+  {
+    CellPtr cell = mesh->getTopology()->getCell(cellID);
+    cellIDForCoefficients = cell->getParent()->cellIndex();
+  }
+  else
+  {
+    cellIDForCoefficients = cellID;
+  }
+  
+  //  cout << numSolutions << " ";
+  for (int i=0; i<numSolutions; i++)
+  {
+    if (! solutions[i]->cellHasCoefficientsAssigned(cellIDForCoefficients))
+    {
+      int localDofs = 0;
+      memcpy(dataLocation, &localDofs, sizeof(localDofs));
+      dataLocation += sizeof(localDofs);
+      continue; // no dofs to assign; proceed to next solution
+    }
+    // # dofs per solution
+    const FieldContainer<double>* solnCoeffs = &solutions[i]->allCoefficientsForCellID(cellIDForCoefficients, false); // false: don't warn
+    int localDofs = solnCoeffs->size();
+    //    int localDofs = elemType->trialOrderPtr->totalDofs();
+    memcpy(dataLocation, &localDofs, sizeof(localDofs));
+    //    cout << localDofs << " ";
+    dataLocation += sizeof(localDofs);
+    
+    memcpy(dataLocation, &(*solnCoeffs)[0], localDofs * sizeof(double));
+    // the dofs themselves
+    dataLocation += localDofs * sizeof(double);
+    //    for (int j=0; j<solnCoeffs->size(); j++) {
+    //      cout << (*solnCoeffs)[j] << " ";
+    //    }
+    //    cout << ";";
+  }
+  //  cout << endl;
+}
+
+int CellDataMigration::solutionDataSize(Mesh *mesh, GlobalIndexType cellID)
+{
+  int size = 0;
+  
+  ElementTypePtr elemType = mesh->getElementType(cellID);
+  
   int packedDofsBelongToParent = 0; // 0 for false, anything else for true
   size += sizeof(packedDofsBelongToParent);
-
+  
   vector<TSolutionPtr<double>> solutions = mesh->globalDofAssignment()->getRegisteredSolutions();
   // store # of solution objects
   int numSolutions = solutions.size();
@@ -44,84 +271,91 @@ int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID)
   return size;
 }
 
-void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packParentDofs, char *dataBuffer, int size)
-{
-  // ideally, we'd pack the global coefficients for this cell and simply remap them when unpacking
-  // however, producing the map is an implementation challenge, particularly in the presence of refined elements
-  // so what we do instead is map local data, and then use the local to global mapper that we build anyway to map
-  // to global values when unpacking.
-//  cout << "CellDataMigration::packData() called for cell " << cellID << " on rank " << myRank << endl;
-  char* dataLocation = dataBuffer;
-  if (size<dataSize(mesh, cellID))
-  {
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "undersized dataBuffer");
-  }
-
-  int packedDofsBelongToParent = packParentDofs ? 1 : 0;
-  memcpy(dataLocation, &packedDofsBelongToParent, sizeof(packedDofsBelongToParent));
-  dataLocation += sizeof(packedDofsBelongToParent);
-
-//  cout << "packed data for cell " << cellID << ": ";
-//  ElementTypePtr elemType = mesh->getElementType(cellID);
-  vector<TSolutionPtr<double>> solutions = mesh->globalDofAssignment()->getRegisteredSolutions();
-  int numSolutions = solutions.size();
-  memcpy(dataLocation, &numSolutions, sizeof(numSolutions));
-  dataLocation += sizeof(numSolutions);
-
-  GlobalIndexType cellIDForCoefficients;
-  if (packParentDofs)
-  {
-    CellPtr cell = mesh->getTopology()->getCell(cellID);
-    cellIDForCoefficients = cell->getParent()->cellIndex();
-  }
-  else
-  {
-    cellIDForCoefficients = cellID;
-  }
-//  cout << numSolutions << " ";
-  for (int i=0; i<numSolutions; i++)
-  {
-    if (! solutions[i]->cellHasCoefficientsAssigned(cellIDForCoefficients))
-    {
-      int localDofs = 0;
-      memcpy(dataLocation, &localDofs, sizeof(localDofs));
-      dataLocation += sizeof(localDofs);
-      continue; // no dofs to assign; proceed to next solution
-    }
-    // # dofs per solution
-    const FieldContainer<double>* solnCoeffs = &solutions[i]->allCoefficientsForCellID(cellIDForCoefficients, false); // false: don't warn
-    int localDofs = solnCoeffs->size();
-//    int localDofs = elemType->trialOrderPtr->totalDofs();
-    memcpy(dataLocation, &localDofs, sizeof(localDofs));
-//    cout << localDofs << " ";
-    dataLocation += sizeof(localDofs);
-
-    memcpy(dataLocation, &(*solnCoeffs)[0], localDofs * sizeof(double));
-    // the dofs themselves
-    dataLocation += localDofs * sizeof(double);
-//    for (int j=0; j<solnCoeffs->size(); j++) {
-//      cout << (*solnCoeffs)[j] << " ";
-//    }
-//    cout << ";";
-  }
-//  cout << endl;
-}
-
 void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const char *dataBuffer, int size)
 {
-//  cout << "CellDataMigration::unpackData() called for cell " << cellID << " on rank " << myRank << endl;
+  //  int myRank                    = mesh->Comm()->MyPID();
+  //  cout << "CellDataMigration::unpackData() called for cell " << cellID << " on rank " << myRank << endl;
   const char* dataLocation = dataBuffer;
-  if (size<dataSize(mesh, cellID))
-  {
-    cout << "undersized dataBuffer\n";
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "undersized dataBuffer");
-  }
+  
+  // we can't know what the right size is anymore, since that will depend on the geometry
+  // unpack geometry info first
+  unpackGeometryData(mesh, cellID, dataLocation, size);
+  
+  unpackSolutionData(mesh, cellID, dataLocation, size);
+}
 
+vector<RootedLabeledRefinementBranch> CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size)
+{
+  vector<RootedLabeledRefinementBranch> cellHaloGeometry;
+  int numLabeledBranches;
+  
+  memcpy(&numLabeledBranches, dataLocation, sizeof(numLabeledBranches));
+  dataLocation += sizeof(numLabeledBranches);
+  
+  for (int i=0; i<numLabeledBranches; i++)
+  {
+    // top level: LabeledRefinementBranch, vertices
+    // LabeledRefinementBranch has two entries: RefinementBranch, labels
+    int numLabels;
+    memcpy(&numLabels, dataLocation, sizeof(numLabels));
+    dataLocation += sizeof(numLabels);
+    
+    vector<GlobalIndexType> labels;
+    for (int labelOrdinal=0; labelOrdinal<numLabels; labelOrdinal++)
+    {
+      GlobalIndexType cellID;
+      memcpy(&cellID, dataLocation, sizeof(cellID));
+      dataLocation += sizeof(cellID);
+      labels.push_back(cellID);
+    }
+    
+    // numLevels = numLabels - 1;
+    // at each level, RefinementBranch will yield two entries: RefinementPatternKey and childOrdinal
+    RefinementBranch refBranch;
+    int numLevels = numLabels - 1;
+    for (int level=0; level<numLevels; level++)
+    {
+      RefinementPatternKey key;
+      memcpy(&key, dataLocation, sizeof(key));
+      dataLocation += sizeof(key);
+      
+      unsigned childOrdinal;
+      memcpy(&childOrdinal, dataLocation, sizeof(childOrdinal));
+      dataLocation += sizeof(childOrdinal);
+      
+      RefinementPatternPtr refPattern = RefinementPattern::refinementPattern(key);
+      if (refPattern == Teuchos::null)
+      {
+        // repeat the call for simple debugging
+        refPattern = RefinementPattern::refinementPattern(key);
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "RefinementPattern deserialization failed!");
+      }
+      refBranch.push_back({refPattern.get(), childOrdinal});
+    }
+    
+    // we are able to extract the number of vertices and the spaceDim from RefinementPatternKey and Mesh
+    int spaceDim = mesh->getDimension();
+    int vertexCount = refBranch[0].first->parentTopology()->getVertexCount();
+    vector<vector<double>> rootVertices(vertexCount,vector<double>(spaceDim));
+    for (int vertexOrdinal=0; vertexOrdinal < vertexCount; vertexOrdinal++)
+    {
+      memcpy(&rootVertices[vertexOrdinal][0], dataLocation, spaceDim * sizeof(double));
+      dataLocation += spaceDim * sizeof(double);
+    }
+    RootedLabeledRefinementBranch rootedBranch = {{refBranch,labels},rootVertices};
+    // TODO: do something with the branch!! (tell MeshTopology about it...)
+    cellHaloGeometry.push_back(rootedBranch);
+  }
+  return cellHaloGeometry;
+}
+
+void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size)
+{
   int parentDataPackedFlag;
   memcpy(&parentDataPackedFlag, dataLocation, sizeof(parentDataPackedFlag));
   dataLocation += sizeof(parentDataPackedFlag);
   bool coefficientsBelongToParent = parentDataPackedFlag != 0;
-
+  
   const set<GlobalIndexType>* rankLocalCellIDs = &mesh->cellIDsInPartition();
   if (rankLocalCellIDs->find(cellID) == rankLocalCellIDs->end())
   {
@@ -151,13 +385,13 @@ void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const cha
       // no dofs assigned -- proceed to next solution
       continue;
     }
-
+    
     if (localDofs != elemType->trialOrderPtr->totalDofs())
     {
       cout << "localDofs != elemType->trialOrderPtr->totalDofs().\n";
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "localDofs != elemType->trialOrderPtr->totalDofs()");
     }
-
+    
     FieldContainer<double> solnCoeffs(localDofs);
     memcpy(&solnCoeffs[0], dataLocation, localDofs * sizeof(double));
     // the dofs themselves
@@ -165,7 +399,7 @@ void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const cha
     if (!coefficientsBelongToParent)
     {
       solutions[solnOrdinal]->setSolnCoeffsForCellID(solnCoeffs, cellID);
-//      cout << "CellDataMigration: setting soln coefficients for cell " << cellID << endl;
+      //      cout << "CellDataMigration: setting soln coefficients for cell " << cellID << endl;
     }
     else
     {
@@ -183,9 +417,9 @@ void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const cha
         cout << "ERROR: child not found.\n";
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
       }
-//      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
+      //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
       solutions[solnOrdinal]->projectOldCellOntoNewCells(parent->cellIndex(), mesh->getElementType(parent->cellIndex()), solnCoeffs, childIndices);
     }
-//    cout << "setting solution coefficients for cellID " << cellID << endl << solnCoeffs;
+    //    cout << "setting solution coefficients for cellID " << cellID << endl << solnCoeffs;
   }
 }
