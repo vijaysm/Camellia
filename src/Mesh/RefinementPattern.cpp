@@ -1312,7 +1312,7 @@ RefinementPatternPtr RefinementPattern::noRefinementPattern(CellTopoPtr cellTopo
       break;
       
     default:
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial dimenison");
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial dimension");
   }
   RefinementPatternKey key = {cellTopo->getKey(),refinementOrdinal};
   
@@ -1398,9 +1398,94 @@ RefinementPatternPtr RefinementPattern::refinementPattern(RefinementPatternKey k
 {
   if (_refPatterns.find(key) == _refPatterns.end())
   {
+    RefinementPatternPtr refPattern;
     CellTopoPtr cellTopo = CellTopology::cellTopology(key.first);
+    int nullRefinementOrdinal, regularRefinementOrdinal;
+    switch (cellTopo->getDimension()) {
+      case 0:
+        regularRefinementOrdinal = 0;
+        nullRefinementOrdinal = 0;
+        break;
+      case 1:
+        regularRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_1D(1);
+        nullRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_1D(0);
+        break;
+      case 2:
+        regularRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(1,1);
+        nullRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_2D(0,0);
+        break;
+      case 3:
+        regularRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(1,1,1);
+        nullRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_3D(0,0,0);
+        break;
+      case 4:
+        regularRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_4D(1,1,1,1);
+        nullRefinementOrdinal = REFINEMENT_PATTERN_ORDINAL_4D(0,0,0,0);
+        break;
+        
+      default:
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported dimension");
+    }
+    int refinementOrdinal = key.second;
+    if (refinementOrdinal == nullRefinementOrdinal)
+    {
+      refPattern = noRefinementPattern(cellTopo);
+    }
+    else if (refinementOrdinal == regularRefinementOrdinal)
+    {
+      refPattern = regularRefinementPattern(cellTopo);
+    }
+    else
+    {
+      int dim = cellTopo->getDimension();
+      vector<bool> refinedOnAxis(dim);
+      for (int d=0; d<dim; d++)
+      {
+        refinedOnAxis[d] = ((refinementOrdinal >> (dim-1-d)) % 2) == 1;
+      }
+      
+      if (cellTopo->getTensorialDegree() > 0)
+      {
+        CellTopoPtr componentTopo = CellTopology::cellTopology(cellTopo, cellTopo->getTensorialDegree() - 1);
+        int componentRefOrdinal = refinementOrdinal >> 1; // remove last dimension information
+        RefinementPatternKey componentRefKey = {componentTopo->getKey(),componentRefOrdinal};
+        RefinementPatternPtr componentRefPattern = refinementPattern(componentRefKey);
+        bool refinedInLastDimension = refinedOnAxis[cellTopo->getDimension()-1];
+        if (!refinedInLastDimension)
+        {
+          refPattern = refPatternExtrudedInTime(componentRefPattern);
+        }
+        else
+        {
+          // not yet supported
+          cout << "Unsupported space-time refinement pattern (not null, not regular, and not extruded in time).\n";
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument,"Unsupported space-time refinement pattern (not null, not regular, and not extruded in time)");
+        }
+      }
+      else
+      {
+        if (cellTopo->getKey() == CellTopology::quad()->getKey())
+        {
+          if (refinedOnAxis[0])
+          {
+            refPattern = xAnisotropicRefinementPatternQuad();
+          }
+          else
+          {
+            refPattern = yAnisotropicRefinementPatternQuad();
+          }
+        }
+        else
+        {
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial refinement pattern (not null, not regular, and not on a quad).");
+        }
+      }
+    }
+    
+    TEUCHOS_TEST_FOR_EXCEPTION(refPattern == Teuchos::null, std::invalid_argument, "Internal error: refPattern is null");
+    _refPatterns[key] = refPattern;
   }
-  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unfinished method!");
+  return _refPatterns[key];
 }
 
 RefinementPatternPtr RefinementPattern::refPatternExtrudedInTime(RefinementPatternPtr spaceRefPattern)
@@ -1814,7 +1899,7 @@ RefinementPatternPtr RefinementPattern::timeExtrudedRegularRefinementPattern(Cel
       break;
       
     default:
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial dimenison");
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported spatial dimension");
   }
   RefinementPatternKey key = {cellTopo->getKey(),refinementOrdinal};
   if (_refPatterns.find(key) == _refPatterns.end())
