@@ -54,6 +54,92 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(MeshTopologyViewPtr meshTopo
   return neighborIndices;
 }
 
+std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned dimensionForNeighborRelation, MeshTopologyViewPtr meshTopoViewForCellValidity)
+{
+  int numSubcells = _cellTopo->getSubcellCount(dimensionForNeighborRelation);
+  
+  set< pair<unsigned, IndexType> > entitiesToMatch; // dim, entityIndex
+  
+  for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
+  {
+    IndexType subcellEntityIndex = entityIndex(dimensionForNeighborRelation, subcellOrdinal);
+    entitiesToMatch.insert({dimensionForNeighborRelation,subcellEntityIndex});
+    
+    CellPtr ancestor = ancestralCellForSubcell(dimensionForNeighborRelation, subcellOrdinal, meshTopoViewForCellValidity);
+    if (ancestor->cellIndex() != _cellIndex)
+    {
+      pair<unsigned, unsigned> ancestralInfo = ancestralSubcellOrdinalAndDimension(dimensionForNeighborRelation,
+                                                                                   subcellOrdinal, meshTopoViewForCellValidity);
+      unsigned ancestorDim = ancestralInfo.second;
+      unsigned ancestorSubcellOrdinal = ancestralInfo.first;
+      IndexType ancestralEntityIndex = ancestor->entityIndex(ancestorDim, ancestorSubcellOrdinal);
+      entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
+    }
+  }
+  
+  MeshTopology* baseMeshTopology = meshTopoViewForCellValidity->baseMeshTopology();
+  // add to entitiesToMatch any descendants of the entities to match:
+  set< pair<unsigned, IndexType> > descendantEntitiesToMatch;
+  
+  std::function<bool(pair<unsigned, IndexType>)> entityIsNew;
+  entityIsNew = [entitiesToMatch, descendantEntitiesToMatch](pair<unsigned, IndexType> entityInfo) {
+    return (descendantEntitiesToMatch.find(entityInfo) == descendantEntitiesToMatch.end())
+    && (entitiesToMatch.find(entityInfo) == entitiesToMatch.end());
+  };
+  
+  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+  {
+    unsigned entityDim = entityInfo.first;
+    IndexType entityIndex = entityInfo.second;
+    
+    set< pair<unsigned, IndexType> > newEntitiesToMatch = {{entityDim,entityIndex}};
+    
+    while (newEntitiesToMatch.size() > 0)
+    {
+      descendantEntitiesToMatch.insert(newEntitiesToMatch.begin(),newEntitiesToMatch.end());
+      set< pair<unsigned, IndexType> > previousNewEntities = newEntitiesToMatch;
+      newEntitiesToMatch.clear();
+      
+      for (pair<unsigned,IndexType> newEntityInfo : previousNewEntities)
+      {
+        unsigned newEntityDim = newEntityInfo.first;
+        IndexType newEntityIndex = newEntityInfo.second;
+        
+        bool isParent = baseMeshTopology->entityHasChildren(newEntityDim,newEntityIndex);
+        if (isParent)
+        {
+          vector<IndexType> childEntities = baseMeshTopology->getChildEntities(newEntityDim,newEntityIndex);
+          for (IndexType childEntityIndex : childEntities)
+          {
+            pair<unsigned,IndexType> childEntityInfo = {newEntityDim,childEntityIndex};
+            if (entityIsNew(childEntityInfo))
+            {
+              newEntitiesToMatch.insert(childEntityInfo);
+            }
+            // take subcells, too
+            for (int d=dimensionForNeighborRelation; d<newEntityDim; d++)
+            {
+              int subcellCount = baseMeshTopology->getSubEntityCount(newEntityDim, childEntityIndex, d);
+              for (int subcellOrdinal=0; subcellOrdinal<subcellCount; subcellOrdinal++)
+              {
+                IndexType subcellEntityIndex = baseMeshTopology->getSubEntityIndex(newEntityDim, childEntityIndex, d, subcellOrdinal);
+                pair<unsigned,IndexType> childEntitySubcellInfo = {d,subcellEntityIndex};
+                if (entityIsNew(childEntitySubcellInfo))
+                {
+                  newEntitiesToMatch.insert(childEntitySubcellInfo);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  entitiesToMatch.insert(descendantEntitiesToMatch.begin(),descendantEntitiesToMatch.end());
+  return entitiesToMatch;
+}
+
 set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighborRelation, MeshTopologyViewPtr meshTopoViewForCellValidity)
 {
   int sideDim = _cellTopo->getDimension() - 1;
@@ -63,92 +149,12 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighbo
   }
   else
   {
-    set<GlobalIndexType> neighborIndices;
-    int numSubcells = _cellTopo->getSubcellCount(dimensionForNeighborRelation);
-    
-    set< pair<unsigned, IndexType> > entitiesToMatch; // dim, entityIndex
-    
-    for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
-    {
-      IndexType subcellEntityIndex = entityIndex(dimensionForNeighborRelation, subcellOrdinal);
-      entitiesToMatch.insert({dimensionForNeighborRelation,subcellEntityIndex});
-      
-      CellPtr ancestor = ancestralCellForSubcell(dimensionForNeighborRelation, subcellOrdinal, meshTopoViewForCellValidity);
-      if (ancestor->cellIndex() != _cellIndex)
-      {
-        pair<unsigned, unsigned> ancestralInfo = ancestralSubcellOrdinalAndDimension(dimensionForNeighborRelation,
-                                                                                     subcellOrdinal, meshTopoViewForCellValidity);
-        unsigned ancestorDim = ancestralInfo.second;
-        unsigned ancestorSubcellOrdinal = ancestralInfo.first;
-        IndexType ancestralEntityIndex = ancestor->entityIndex(ancestorDim, ancestorSubcellOrdinal);
-        entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
-      }
-    }
-    
-    MeshTopology* baseMeshTopology = meshTopoViewForCellValidity->baseMeshTopology();
-    // add to entitiesToMatch any descendants of the entities to match:
-    set< pair<unsigned, IndexType> > descendantEntitiesToMatch;
-    
-    std::function<bool(pair<unsigned, IndexType>)> entityIsNew;
-    entityIsNew = [entitiesToMatch, descendantEntitiesToMatch](pair<unsigned, IndexType> entityInfo) {
-      return (descendantEntitiesToMatch.find(entityInfo) == descendantEntitiesToMatch.end())
-      && (entitiesToMatch.find(entityInfo) == entitiesToMatch.end());
-    };
-    
-    for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
-    {
-      unsigned entityDim = entityInfo.first;
-      IndexType entityIndex = entityInfo.second;
-      
-      set< pair<unsigned, IndexType> > newEntitiesToMatch = {{entityDim,entityIndex}};
-      
-      while (newEntitiesToMatch.size() > 0)
-      {
-        descendantEntitiesToMatch.insert(newEntitiesToMatch.begin(),newEntitiesToMatch.end());
-        set< pair<unsigned, IndexType> > previousNewEntities = newEntitiesToMatch;
-        newEntitiesToMatch.clear();
-        
-        for (pair<unsigned,IndexType> newEntityInfo : previousNewEntities)
-        {
-          unsigned newEntityDim = newEntityInfo.first;
-          IndexType newEntityIndex = newEntityInfo.second;
-          
-          bool isParent = baseMeshTopology->entityHasChildren(newEntityDim,newEntityIndex);
-          if (isParent)
-          {
-            vector<IndexType> childEntities = baseMeshTopology->getChildEntities(newEntityDim,newEntityIndex);
-            for (IndexType childEntityIndex : childEntities)
-            {
-              pair<unsigned,IndexType> childEntityInfo = {newEntityDim,childEntityIndex};
-              if (entityIsNew(childEntityInfo))
-              {
-                newEntitiesToMatch.insert(childEntityInfo);
-              }
-              // take subcells, too
-              for (int d=dimensionForNeighborRelation; d<newEntityDim; d++)
-              {
-                int subcellCount = baseMeshTopology->getSubEntityCount(newEntityDim, childEntityIndex, d);
-                for (int subcellOrdinal=0; subcellOrdinal<subcellCount; subcellOrdinal++)
-                {
-                  IndexType subcellEntityIndex = baseMeshTopology->getSubEntityIndex(newEntityDim, childEntityIndex, d, subcellOrdinal);
-                  pair<unsigned,IndexType> childEntitySubcellInfo = {d,subcellEntityIndex};
-                  if (entityIsNew(childEntitySubcellInfo))
-                  {
-                    newEntitiesToMatch.insert(childEntitySubcellInfo);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    entitiesToMatch.insert(descendantEntitiesToMatch.begin(),descendantEntitiesToMatch.end());
-    
+    set< pair<unsigned, IndexType> > entitiesToMatch = entitiesOnNeighborInterfaces(dimensionForNeighborRelation, meshTopoViewForCellValidity); // dim, entityIndex
+
     // at this point, we should have all the entities that we need to match; if we simply collect all the active cells
     // that match, that should do the trick...
     
+    set<GlobalIndexType> neighborIndices;
     for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
     {
       unsigned entityDim = entityInfo.first;
@@ -160,6 +166,7 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighbo
         neighborIndices.insert(cellID);
       }
     }
+    // don't include this cell among its neighbors...
     if (neighborIndices.find(_cellIndex) != neighborIndices.end())
     {
       neighborIndices.erase(_cellIndex);
