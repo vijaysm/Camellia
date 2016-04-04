@@ -2753,6 +2753,277 @@ FieldContainer<double> MeshTopology::physicalCellNodesForCell(unsigned int cellI
   return nodes;
 }
 
+void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, unsigned dimForNeighborRelation)
+{
+  // the cells passed in are the ones the user wants to include -- e.g. those owned by the MPI rank.
+  // we keep more than that; we keep all ancestors and siblings of the cells, as well as all cells that share
+  // dimForNeighborRelation-dimensional entities with the cells or their ancestors.
+  
+  MeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
+  
+  // first, let's find all the entities that our cells touch
+  set<pair<unsigned,IndexType>> entitiesToMatch;
+  for (GlobalIndexType cellID : cellIndices)
+  {
+    CellPtr cell = getCell(cellID);
+    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
+    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
+  }
+  
+  // now, determine which cells match those entities
+  set<GlobalIndexType> cellsThatMatch;
+  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+  {
+    unsigned entityDim = entityInfo.first;
+    IndexType entityIndex = entityInfo.second;
+    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
+    for (pair<IndexType, unsigned> cellPair : cellPairs)
+    {
+      IndexType cellID = cellPair.first;
+      cellsThatMatch.insert(cellID);
+    }
+  }
+  
+  // for now, manually prevent pruning cells with curved edges
+  // (we don't support pruning these yet)
+  cellsThatMatch.insert(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
+  
+  // now, for each cell, ascend the refinement hierarchy, adding ancestors and siblings
+  set<GlobalIndexType> cellsToInclude;
+  for (GlobalIndexType cellID : cellsThatMatch)
+  {
+    CellPtr cell = getCell(cellID);
+    cellsToInclude.insert(cellID);
+    while (cell->getParent() != Teuchos::null)
+    {
+      cell = cell->getParent();
+      cellsToInclude.insert(cell->cellIndex());
+      vector<IndexType> childCellIndices = cell->getChildIndices(thisPtr);
+      cellsToInclude.insert(childCellIndices.begin(),childCellIndices.end());
+    }
+  }
+  
+  // now, collect all the entities that belong to the cells
+  vector<set<IndexType>> entitiesToKeep(_spaceDim);
+  for (GlobalIndexType cellID : cellsThatMatch)
+  {
+    CellPtr cell = getCell(cellID);
+    for (int d=0; d<_spaceDim; d++)
+    {
+      int subcellCount = cell->topology()->getSubcellCount(d);
+      for (int scord=0; scord<subcellCount; scord++)
+      {
+        IndexType entityIndex = cell->entityIndex(d, scord);
+        entitiesToKeep[d].insert(entityIndex);
+      }
+    }
+  }
+  
+  // lookup table from the new, contiguous numbering, to the previous indices
+  vector<vector<IndexType>> oldEntityIndices(_spaceDim);
+  for (int d=0; d<_spaceDim; d++)
+  {
+    oldEntityIndices[d].insert(oldEntityIndices[d].begin(), entitiesToKeep[d].begin(), entitiesToKeep[d].end());
+  }
+  
+  vector<map<IndexType,IndexType>> reverseLookup(_spaceDim); // from old to new
+  
+  for (int d=0; d<_spaceDim; d++)
+  {
+    int prunedCount = oldEntityIndices[d].size();
+    for (int i=0; i<prunedCount; i++)
+    {
+      reverseLookup[d][oldEntityIndices[d][i]] = i;
+    }
+  }
+  
+  // now, the involved part: update all the lookup tables.
+  // (not hard, but we need to make sure we get them all!)
+  
+  int vertexDim = 0;
+  int sideDim = _spaceDim - 1;
+  vector< vector<double> > prunedVertices(oldEntityIndices[vertexDim].size(),vector<double>(_spaceDim));
+  int prunedVertexCount = oldEntityIndices[vertexDim].size();
+  map<IndexType,IndexType>* reverseVertexLookup = &reverseLookup[vertexDim];
+  map<IndexType,IndexType>* reverseSideLookup = &reverseLookup[sideDim]; // from old to new
+  map< vector<double>, IndexType > prunedVertexMap;
+  for (int i=0; i<prunedVertexCount; i++)
+  {
+    for (int d=0; d<_spaceDim; d++)
+    {
+      prunedVertices[i][d] = _vertices[oldEntityIndices[vertexDim][i]][d];
+    }
+    (*reverseVertexLookup)[oldEntityIndices[vertexDim][i]] = i;
+    prunedVertexMap[prunedVertices[i]] = i;
+  }
+  _vertices = prunedVertices;
+  _vertexMap = prunedVertexMap;
+  
+  map< IndexType, pair< pair<IndexType, unsigned>, pair<IndexType, unsigned> > > prunedCellsForSideEntities;
+  int prunedSideCount = oldEntityIndices[sideDim].size();
+  for (int prunedSideEntityIndex=0; prunedSideEntityIndex<prunedSideCount; prunedSideEntityIndex++)
+  {
+    IndexType oldSideEntityIndex = oldEntityIndices[sideDim][prunedSideEntityIndex];
+    (*reverseSideLookup)[oldSideEntityIndex] = prunedSideEntityIndex;
+    auto cellsForSideEntry = _cellsForSideEntities[oldSideEntityIndex];
+    // check if the cells listed are still present; if not, set default values
+    IndexType cellID1 = cellsForSideEntry.first.first;
+    IndexType cellID2 = cellsForSideEntry.second.first;
+    if (cellsToInclude.find(cellID1) == cellsToInclude.end())
+    {
+      cellsForSideEntry.first = {-1,-1};
+    }
+    if (cellsToInclude.find(cellID2) == cellsToInclude.end())
+    {
+      cellsForSideEntry.second = {-1,-1};
+    }
+    prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
+  }
+  _cellsForSideEntities = prunedCellsForSideEntities;
+  
+  vector< vector< vector<IndexType> > > prunedEntities(_spaceDim);
+  vector< map< vector<IndexType>, IndexType > > prunedKnownEntities;
+  vector< vector< vector<IndexType> > > prunedCanonicalEntityOrdering(_spaceDim);
+  vector< vector< vector< pair<IndexType, unsigned> > > > prunedActiveCellsForEntities(_spaceDim);
+  vector< vector< vector<IndexType> > > prunedSidesForEntities(_spaceDim);
+  vector< map< IndexType, vector< pair<IndexType, unsigned> > > > prunedParentEntities;
+  vector< map< IndexType, pair<IndexType, unsigned> > > prunedGeneralizedParentEntities;
+  vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > > prunedChildEntities;
+  vector< vector< Camellia::CellTopologyKey > > prunedEntityCellTopologyKeys;
+  for (int d=0; d<_spaceDim; d++)
+  {
+    int prunedEntityCount = oldEntityIndices[d].size();
+    prunedEntities[d].resize(prunedEntityCount);
+    prunedCanonicalEntityOrdering[d].resize(prunedEntityCount);
+    prunedActiveCellsForEntities[d].resize(prunedEntityCount);
+    prunedSidesForEntities[d].resize(prunedEntityCount);
+    for (int prunedEntityIndex=0; prunedEntityIndex<prunedEntityCount; prunedEntityIndex++)
+    {
+      IndexType oldEntityIndex = oldEntityIndices[d][prunedEntityIndex];
+      prunedEntityCellTopologyKeys[d][prunedEntityIndex] = _entityCellTopologyKeys[d][oldEntityIndex];
+      int nodeCount = _entities[d][oldEntityIndex].size();
+      prunedEntities[d][prunedEntityIndex].resize(nodeCount);
+      prunedCanonicalEntityOrdering[d][prunedEntityIndex].resize(nodeCount);
+      for (int nodeOrdinal=0; nodeOrdinal<nodeCount; nodeCount++)
+      {
+        // first, update entities
+        IndexType oldVertexIndex = _entities[d][oldEntityIndex][nodeOrdinal];
+        IndexType newVertexIndex = (*reverseVertexLookup)[oldVertexIndex];
+        prunedEntities[d][prunedEntityIndex][nodeOrdinal] = newVertexIndex;
+        
+        // next, canonical entity ordering
+        oldVertexIndex = _canonicalEntityOrdering[d][oldEntityIndex][nodeOrdinal];
+        newVertexIndex = (*reverseVertexLookup)[oldVertexIndex];
+        prunedCanonicalEntityOrdering[d][prunedEntityIndex][nodeOrdinal] = newVertexIndex;
+      }
+      prunedKnownEntities[d][prunedEntities[d][prunedEntityIndex]] = prunedEntityIndex;
+      
+      vector<pair<IndexType,unsigned>> oldActiveCellsForEntity = _activeCellsForEntities[d][oldEntityIndex];
+      for (auto entry : oldActiveCellsForEntity)
+      {
+        // cell IDs haven't changed, but which cells are around have
+        IndexType cellID = entry.first;
+        if (cellsToInclude.find(cellID) != cellsToInclude.end())
+        {
+          prunedActiveCellsForEntities[d][prunedEntityIndex].push_back(entry);
+        }
+      }
+      
+      vector<IndexType> oldSidesForEntity = _sidesForEntities[d][oldEntityIndex];
+      for (IndexType oldSideEntityIndex : oldSidesForEntity)
+      {
+        if (reverseSideLookup->find(oldSideEntityIndex) != reverseSideLookup->end())
+        {
+          IndexType prunedSideEntityIndex = (*reverseSideLookup)[oldSideEntityIndex];
+          prunedSidesForEntities[d][prunedEntityIndex].push_back(prunedSideEntityIndex);
+        }
+      }
+      
+      if (_parentEntities[d].find(oldEntityIndex) != _parentEntities[d].end())
+      {
+        vector<pair<IndexType,unsigned>> oldParents = _parentEntities[d][oldEntityIndex];
+        vector<pair<IndexType,unsigned>> newParents;
+        for (pair<IndexType,unsigned> oldParentEntry : oldParents)
+        {
+          auto newParentLookup = reverseLookup[d].find(oldParentEntry.first);
+          TEUCHOS_TEST_FOR_EXCEPTION(newParentLookup == reverseLookup[d].end(), std::invalid_argument, "reverseLookup does not contain parent entity");
+          pair<IndexType,unsigned> parentEntry = {newParentLookup->second,oldParentEntry.second};
+          newParents.push_back(parentEntry);
+        }
+        prunedParentEntities[d][prunedEntityIndex] = newParents;
+      }
+      if (_generalizedParentEntities[d].find(oldEntityIndex) != _generalizedParentEntities[d].end())
+      {
+        pair<IndexType, unsigned> oldEntry = _generalizedParentEntities[d][oldEntityIndex];
+        unsigned parentDim = oldEntry.second;
+        IndexType oldParentEntityIndex = oldEntry.first;
+        TEUCHOS_TEST_FOR_EXCEPTION(reverseLookup[parentDim].find(oldParentEntityIndex) == reverseLookup[parentDim].end(), std::invalid_argument,
+                                   "reverseLookup does not contain generalized parent entity");
+        IndexType prunedParentEntityIndex = reverseLookup[parentDim][oldParentEntityIndex];
+        prunedGeneralizedParentEntities[d][prunedEntityIndex] = {prunedParentEntityIndex,parentDim};
+      }
+      if (_childEntities[d].find(oldEntityIndex) != _childEntities[d].end())
+      {
+        for (auto refinementEntry : _childEntities[d][oldEntityIndex])
+        {
+          RefinementPatternPtr refPattern = refinementEntry.first;
+          vector<IndexType> oldChildEntityIndices = refinementEntry.second;
+          
+          vector<IndexType> newChildEntityIndices;
+          for (IndexType oldChildEntityIndex : oldChildEntityIndices)
+          {
+            TEUCHOS_TEST_FOR_EXCEPTION(reverseLookup[d].find(oldChildEntityIndex) == reverseLookup[d].end(), std::invalid_argument,
+                                       "reverseLookup does not contain child entity");
+            newChildEntityIndices.push_back(reverseLookup[d][oldChildEntityIndex]);
+          }
+          prunedChildEntities[d][prunedEntityIndex].push_back({refPattern,newChildEntityIndices});
+        }
+      }
+    }
+  }
+  _entities = prunedEntities;
+  _knownEntities = prunedKnownEntities;
+  _canonicalEntityOrdering = prunedCanonicalEntityOrdering;
+  _activeCellsForEntities = prunedActiveCellsForEntities;
+  _sidesForEntities = prunedSidesForEntities;
+  _parentEntities = prunedParentEntities;
+  _generalizedParentEntities = prunedGeneralizedParentEntities;
+  _childEntities = prunedChildEntities;
+  _entityCellTopologyKeys = prunedEntityCellTopologyKeys;
+  
+  set<IndexType> prunedBoundarySides;
+  for (IndexType oldBoundarySideIndex : _boundarySides)
+  {
+    if (reverseSideLookup->find(oldBoundarySideIndex) != reverseSideLookup->end())
+    {
+      prunedBoundarySides.insert((*reverseSideLookup)[oldBoundarySideIndex]);
+    }
+  }
+  _boundarySides = prunedBoundarySides;
+  
+  
+  // things we haven't done yet:
+  /*
+   map<GlobalIndexType, CellPtr> _cells; // the cells known on this MPI rank.  Right now, all cells are stored on every rank; soon, this will not be true anymore.
+   
+   // these guys presently only support 2D:
+   map< pair<IndexType, IndexType>, ParametricCurvePtr > _edgeToCurveMap;
+   */
+  
+  /*
+   EntityHandle _initialTimeEntityHandle = -1; // for space-time MeshTopologies: track the handle for the entity set corresponding to the space-time sides at the initial time.
+   
+   map< EntityHandle, EntitySetPtr > _entitySets;
+   map< string, vector<pair<EntityHandle, int> > > _tagSetsInteger; // tags with integer value, applied to EntitySets.
+   
+   vector< PeriodicBCPtr > _periodicBCs;
+   map<IndexType, set< pair<int, int> > > _periodicBCIndicesMatchingNode; // pair: first = index in _periodicBCs; second: 0 or 1, indicating first or second part of the identification matches.  IndexType is the vertex index.
+   map< pair<IndexType, pair<int,int> >, IndexType > _equivalentNodeViaPeriodicBC;
+   map<IndexType, IndexType> _canonicalVertexPeriodic; // key is a vertex *not* in _knownEntities; the value is the matching vertex in _knownEntities
+   */
+  
+}
+
 void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPattern, IndexType firstChildCellIndex)
 {
   // TODO: worry about the case (currently unsupported in RefinementPattern) of children that do not share topology with the parent.  E.g. quad broken into triangles.  (3D has better examples.)

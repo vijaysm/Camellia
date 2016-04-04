@@ -234,6 +234,9 @@ public:
   void printEntityVertices(unsigned d, IndexType entityIndex);
 
   void printAllEntities();
+  
+  // ! Removes all entities that do not belong to the "halo" of the cells indicated
+  void pruneToInclude(const std::set<GlobalIndexType> &cellIndices, unsigned dimForNeighborRelation);
 
   // not sure this should ultimately be exposed -- using it now to allow correctly timed call to updateCells()
   // (will be transitioning from having MeshTransformationFunction talk to Mesh to having it talk to MeshTopology)
