@@ -129,6 +129,23 @@ public:
 };
 }
 
+inline bool operator==(const Camellia::DofOrdering& lhs, const Camellia::DofOrdering& rhs)
+{
+  if (lhs.cellTopology()->getKey() != rhs.cellTopology()->getKey()) return false;
+  if (lhs.getVarIDs() != rhs.getVarIDs()) return false;
+  for (int varID : lhs.getVarIDs())
+  {
+    if (lhs.getSidesForVarID(varID) != rhs.getSidesForVarID(varID)) return false;
+    for (int side : lhs.getSidesForVarID(varID))
+    {
+      if (lhs.getDofIndices(varID,side) != rhs.getDofIndices(varID,side)) return false;
+    }
+  }
+  return true;
+}
+
+inline bool operator!=(const Camellia::DofOrdering& lhs, const Camellia::DofOrdering& rhs){ return !(lhs == rhs); }
+
 std::ostream& operator << (std::ostream& os, const Camellia::DofOrdering& dofOrdering);
 
 #endif
