@@ -29,7 +29,7 @@ class CellTopology
 
 //    static map< unsigned, CellTopoPtr > _trilinosTopologies; // trilinos key --> our CellTopoPtr
   static map< CellTopologyKey, CellTopoPtr > _tensorizedTrilinosTopologies; // (trilinos key, n) --> our CellTopoPtr for that cellTopo's nth-order tensor product with a line topology.  I.e. (shard::CellTopology::Line<2>::key, 2) --> a tensor-product hexahedron.  (This differs from the Trilinos hexahedron, because the enumeration of the sides of the quad in Shards goes counter-clockwise.)
-
+  
   // members:
   shards::CellTopology _shardsBaseTopology;
   unsigned _tensorialDegree; // number of times we've tensor-producted the base topology with the line topology
@@ -227,11 +227,15 @@ public:
 
   void initializeNodes(const std::vector< Intrepid::FieldContainer<double> > &tensorComponentNodes, Intrepid::FieldContainer<double> &cellNodes);
 
+  static const shards::CellTopology & shardsTopology(unsigned shardsKey);
+  
   /*** STATIC CONSTRUCTORS ***/
   // constructor from Trilinos CellTopology:
   static CellTopoPtr cellTopology(const shards::CellTopology &shardsCellTopo);
   static CellTopoPtr cellTopology(const shards::CellTopology &shardsCellTopo, unsigned tensorialDegree);
   static CellTopoPtr cellTopology(CellTopoPtr baseTopo, unsigned tensorialDegree);
+
+  static CellTopoPtr cellTopology(CellTopologyKey key);
 
   // constructor for tensor of existing topology with line topology
   static CellTopoPtr lineTensorTopology(CellTopoPtr camelliaCellTopo);
