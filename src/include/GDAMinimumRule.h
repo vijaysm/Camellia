@@ -191,7 +191,6 @@ public:
 
   void didChangePartitionPolicy();
   
-  ElementTypePtr elementType(GlobalIndexType cellID);
   GlobalIndexType globalDofCount();
   
   //!! Returns the global dof indices for the indicated cell.  Only guaranteed to provide correct values for cells that belong to the local partition.

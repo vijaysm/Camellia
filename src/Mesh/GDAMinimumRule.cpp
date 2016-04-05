@@ -85,14 +85,15 @@ CellPair GDAMinimumRule::cellContainingEntityWithLeastH1Order(int d, IndexType e
   for (set< CellPair >::iterator cellForSubcellIt = cellsForSubcell.begin(); cellForSubcellIt != cellsForSubcell.end(); cellForSubcellIt++)
   {
     IndexType subcellCellID = cellForSubcellIt->first;
-    if (_cellH1Orders[subcellCellID][0] == leastH1Order)
+    vector<int> subcellH1Order = getH1Order(subcellCellID);
+    if ( subcellH1Order[0] == leastH1Order)
     {
       cellsWithLeastH1Order.insert(*cellForSubcellIt);
     }
-    else if (_cellH1Orders[subcellCellID][0] < leastH1Order)
+    else if (subcellH1Order[0] < leastH1Order)
     {
       cellsWithLeastH1Order.clear();
-      leastH1Order = _cellH1Orders[subcellCellID][0];
+      leastH1Order = subcellH1Order[0];
       cellsWithLeastH1Order.insert(*cellForSubcellIt);
     }
     if (cellsWithLeastH1Order.size() == 0)
@@ -146,12 +147,12 @@ void GDAMinimumRule::didHRefine(const set<GlobalIndexType> &parentCellIDs)
 //    cout << "GDAMinimumRule: h-refining " << parentCellID << endl;
     CellPtr parentCell = _meshTopology->getCell(parentCellID);
     vector<IndexType> childIDs = parentCell->getChildIndices(_meshTopology);
-    vector<int> parentH1Order = _cellH1Orders[parentCellID];
+    vector<int> parentH1Order = getH1Order(parentCellID);
+    int parentDeltaP = getPRefinementDegree(parentCellID);
     for (vector<IndexType>::iterator childIDIt = childIDs.begin(); childIDIt != childIDs.end(); childIDIt++)
     {
       GlobalIndexType childCellID = *childIDIt;
-      _cellH1Orders[childCellID] = parentH1Order;
-      assignInitialElementType(childCellID);
+      setPRefinementDegree(childCellID, parentDeltaP);
       assignParities(childCellID);
       // determine neighbors, so their parities can be updated below:
       CellPtr childCell = _meshTopology->getCell(childCellID);
@@ -192,30 +193,19 @@ void GDAMinimumRule::didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP)
   this->GlobalDofAssignment::didPRefine(cellIDs, deltaP);
 
   // the above assigns _cellH1Orders for active elements; now we take minimums for parents (inactive elements)
-  for (set<GlobalIndexType>::const_iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    CellPtr cell = _meshTopology->getCell(*cellIDIt);
+    CellPtr cell = _meshTopology->getCell(cellID);
     CellPtr parent = cell->getParent();
     while (parent.get() != NULL)
     {
       vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
-      vector<int> minH1Order = _cellH1Orders[*cellIDIt];
+      int minDeltaP = getPRefinementDegree(cellID);
       for (int childOrdinal=0; childOrdinal<childIndices.size(); childOrdinal++)
       {
-        if (_cellH1Orders.find(childIndices[childOrdinal])==_cellH1Orders.end())
-        {
-          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "sibling H1 order not found");
-        }
-        else
-        {
-          // take minimum component-wise
-          for (int pComponent=0; pComponent < minH1Order.size(); pComponent++)
-          {
-            minH1Order[pComponent] = min(minH1Order[pComponent],_cellH1Orders[childIndices[childOrdinal]][pComponent]);
-          }
-        }
+        minDeltaP = min(getPRefinementDegree(childIndices[childOrdinal]), minDeltaP);
       }
-      _cellH1Orders[parent->cellIndex()] = minH1Order;
+      setPRefinementDegree(parent->cellIndex(), minDeltaP);
       parent = parent->getParent();
     }
   }
@@ -223,7 +213,6 @@ void GDAMinimumRule::didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP)
   for (set<GlobalIndexType>::const_iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
   {
     ElementTypePtr oldType = elementType(*cellIDIt);
-    assignInitialElementType(*cellIDIt);
     for (typename vector< TSolutionPtr<double> >::iterator solutionIt = _registeredSolutions.begin();
          solutionIt != _registeredSolutions.end(); solutionIt++)
     {
@@ -242,11 +231,6 @@ void GDAMinimumRule::didHUnrefine(const set<GlobalIndexType> &parentCellIDs)
   cout << "WARNING: GDAMinimumRule::didHUnrefine() unimplemented.\n";
   // will need to treat cell side parities here--probably suffices to redo those in parentCellIDs plus all their neighbors.
 //  rebuildLookups();
-}
-
-ElementTypePtr GDAMinimumRule::elementType(GlobalIndexType cellID)
-{
-  return _elementTypeForCell[cellID];
 }
 
 GlobalIndexType GDAMinimumRule::globalDofCount()
@@ -343,7 +327,7 @@ set<GlobalIndexType> GDAMinimumRule::ownedGlobalDofIndicesForCell(GlobalIndexTyp
 vector<int> GDAMinimumRule::H1Order(GlobalIndexType cellID, unsigned sideOrdinal)
 {
   // this is meant to track the cell's interior idea of what the H^1 order is along that side.  We're isotropic for now, but eventually we might want to allow anisotropy in p...
-  return _cellH1Orders[cellID];
+  return getH1Order(cellID);
 }
 
 void GDAMinimumRule::interpretGlobalCoefficients(GlobalIndexType cellID, Intrepid::FieldContainer<double> &localCoefficients,
@@ -634,7 +618,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
   SubBasisMapInfo subBasisMap;
 
   CellPtr cell = _meshTopology->getCell(cellID);
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   CellTopoPtr topo = cell->topology();
   unsigned spaceDim = topo->getDimension();
   unsigned sideDim = spaceDim - 1;
@@ -673,7 +657,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
     for (int subcord=0; subcord < subcellCount; subcord++)
     {
       AnnotatedEntity subcellConstraint = getCellConstraints(cellID).subcellConstraints[d][subcord];
-      DofOrderingPtr constrainingTrialOrdering = _elementTypeForCell[subcellConstraint.cellID]->trialOrderPtr;
+      DofOrderingPtr constrainingTrialOrdering = elementType(subcellConstraint.cellID)->trialOrderPtr;
       
       CellPtr constrainingCell = _meshTopology->getCell(subcellConstraint.cellID);
       BasisPtr constrainingBasis = constrainingTrialOrdering->getBasis(var->ID());
@@ -903,7 +887,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
             TEUCHOS_TEST_FOR_EXCEPTION(!equal, std::invalid_argument, "Something wrong with identity weights treatment");
           }
           
-          DofOrderingPtr sscConstrainingTrialOrdering = _elementTypeForCell[subsubcellConstraints.cellID]->trialOrderPtr;
+          DofOrderingPtr sscConstrainingTrialOrdering = elementType(subsubcellConstraints.cellID)->trialOrderPtr;
           BasisPtr sscConstrainingBasis = sscConstrainingTrialOrdering->getBasis(var->ID());
           
           RefinementPatternPtr noRefinementPattern = RefinementPattern::noRefinementPattern(constrainingBasis->domainTopology());
@@ -1170,7 +1154,7 @@ BasisMap GDAMinimumRule::getBasisMapDiscontinuousVolumeRestrictedToSide(GlobalIn
 
   // We're interested in the restriction of the map to the side
   
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   BasisPtr basis = trialOrdering->getBasis(var->ID());
   set<int> basisDofOrdinalsForSide = basis->dofOrdinalsForSide(sideOrdinal);
   
@@ -1255,7 +1239,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
   // TODO: move the permutation computation outside of this method -- might include in CellConstraints, e.g. -- this obviously will not change from one var to the next, but we compute it redundantly each time...
 
   CellPtr cell = _meshTopology->getCell(cellID);
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   CellTopoPtr topo = cell->topology();
   unsigned spaceDim = topo->getDimension();
   unsigned sideDim = spaceDim - 1;
@@ -1321,7 +1305,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
           followGeometricConstraints = false;
         }
         
-        DofOrderingPtr constrainingTrialOrdering = _elementTypeForCell[subcellConstraint->cellID]->trialOrderPtr;
+        DofOrderingPtr constrainingTrialOrdering = elementType(subcellConstraint->cellID)->trialOrderPtr;
 
         BasisPtr constrainingBasis = constrainingTrialOrdering->getBasis(var->ID(), subcellConstraint->sideOrdinal);
         unsigned subcellOrdinalInConstrainingCell = CamelliaCellTools::subcellOrdinalMap(constrainingCell->topology(), sideDim,
@@ -1736,7 +1720,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
 //                TEUCHOS_TEST_FOR_EXCEPTION(!equal, std::invalid_argument, "Something wrong with the identity map");
 //              }
 //            }
-            DofOrderingPtr sscConstrainingTrialOrdering = _elementTypeForCell[subsubcellConstraints->cellID]->trialOrderPtr;
+            DofOrderingPtr sscConstrainingTrialOrdering = elementType(subsubcellConstraints->cellID)->trialOrderPtr;
             BasisPtr sscConstrainingBasis = sscConstrainingTrialOrdering->getBasis(var->ID(), subsubcellConstraints->sideOrdinal);
             
             RefinementPatternPtr noRefinementPattern = RefinementPattern::noRefinementPattern(constrainingBasis->domainTopology());
@@ -1936,13 +1920,13 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
           unsigned subcordInAppliedConstraintCell = CamelliaCellTools::subcellOrdinalMap(appliedConstraintCell->topology(), sideDim,
               subcellInfo.sideOrdinal, d, subcellInfo.subcellOrdinal);
 
-          DofOrderingPtr appliedConstraintTrialOrdering = _elementTypeForCell[subcellInfo.cellID]->trialOrderPtr;
+          DofOrderingPtr appliedConstraintTrialOrdering = elementType(subcellInfo.cellID)->trialOrderPtr;
           BasisPtr appliedConstraintBasis = appliedConstraintTrialOrdering->getBasis(var->ID(), subcellInfo.sideOrdinal);
 
   //        CellConstraints cellConstraints = getCellConstraints(subcellInfo.cellID);
           AnnotatedEntity subcellConstraint = getCellConstraints(subcellInfo.cellID).subcellConstraints[d][subcordInAppliedConstraintCell];
 
-          DofOrderingPtr constrainingTrialOrdering = _elementTypeForCell[subcellConstraint.cellID]->trialOrderPtr;
+          DofOrderingPtr constrainingTrialOrdering = elementType(subcellConstraint.cellID)->trialOrderPtr;
           
   //        if (! constrainingTrialOrdering->hasBasisEntry(var->ID(), subcellConstraint.sideOrdinal))
   //        {
@@ -1951,7 +1935,7 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo
   //          subcellConstraint = subcellInfo;
   //          // TODO: check if this is reasonably treated below...
   //          cout << "WARNING: constrainingTrialOrdering->hasBasisEntry(var->ID(), subcellConstraint.sideOrdinal) returned false.\n";
-  //          constrainingTrialOrdering = _elementTypeForCell[subcellConstraint.sideOrdinal]->trialOrderPtr;
+  //          constrainingTrialOrdering = elementType(subcellConstraint.sideOrdinal)->trialOrderPtr;
   //        }
           
           CellPtr constrainingCell = _meshTopology->getCell(subcellConstraint.cellID);
@@ -2534,7 +2518,7 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
     typedef pair< IndexType, unsigned > CellPair;
 
     CellPtr cell = _meshTopology->getCell(cellID);
-    DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+    DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
     CellTopoPtr topo = cell->topology();
     unsigned spaceDim = topo->getDimension();
     unsigned sideDim = spaceDim - 1;
@@ -3004,9 +2988,9 @@ SubCellDofIndexInfo & GDAMinimumRule::getOwnedGlobalDofIndices(GlobalIndexType c
 
   SubCellDofIndexInfo scInfo(spaceDim+1);
 
-  CellTopoPtr topo = _elementTypeForCell[cellID]->cellTopoPtr;
+  CellTopoPtr topo = elementType(cellID)->cellTopoPtr;
 
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   const map<int, VarPtr>* trialVars = &_varFactory->trialVars();
 
 //  cout << "Owned global dof indices for cell " << cellID << endl;
@@ -3051,7 +3035,7 @@ SubCellDofIndexInfo & GDAMinimumRule::getOwnedGlobalDofIndices(GlobalIndexType c
         {
           GlobalIndexType constrainingCellID = constrainingEntityInfo->cellID;
           unsigned constrainingDimension = constrainingEntityInfo->dimension;
-          DofOrderingPtr trialOrdering = _elementTypeForCell[constrainingCellID]->trialOrderPtr;
+          DofOrderingPtr trialOrdering = elementType(constrainingCellID)->trialOrderPtr;
           BasisPtr basis; // the constraining basis for the subcell
           if (varHasSupportOnVolume)
           {
@@ -3173,7 +3157,7 @@ SubCellDofIndexInfo& GDAMinimumRule::getGlobalDofIndices(GlobalIndexType cellID,
     SubCellDofIndexInfo dofIndexInfo = getOwnedGlobalDofIndices(cellID, constraints);
     
     CellPtr cell = _meshTopology->getCell(cellID);
-    CellTopoPtr topo = _elementTypeForCell[cellID]->cellTopoPtr;
+    CellTopoPtr topo = cell->topology();
     
     int spaceDim = topo->getDimension();
     
@@ -3344,11 +3328,11 @@ LocalDofMapperPtr GDAMinimumRule::getDofMapper(GlobalIndexType cellID, CellConst
   }
 
   CellPtr cell = _meshTopology->getCell(cellID);
-  CellTopoPtr topo = _elementTypeForCell[cellID]->cellTopoPtr;
+  CellTopoPtr topo = cell->topology();
   int sideCount = topo->getSideCount();
   int spaceDim = topo->getDimension();
 
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   map<int, VarPtr> trialVars = _varFactory->trialVars();
 
   typedef vector< SubBasisDofMapperPtr > BasisMap;
@@ -3443,7 +3427,7 @@ LocalDofMapperPtr GDAMinimumRule::getDofMapper(GlobalIndexType cellID, CellConst
         else
         {
           // if the function space is not discontinuous, then we restrict the usual basis map to the global dof ordinals on the side
-          DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+          DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
           BasisPtr basis = trialOrdering->getBasis(var->ID());
           set<int> basisDofOrdinalsForSide = basis->dofOrdinalsForSide(sideOrdinalToMap);
           
@@ -3734,18 +3718,6 @@ void GDAMinimumRule::rebuildLookups()
           }
         }
       }
-    }
-  }
-  
-  _cellIDsForElementType = vector< map< ElementType*, vector<GlobalIndexType> > >(numRanks);
-  for (int i=0; i<numRanks; i++)
-  {
-    set<GlobalIndexType> cellIDs = _partitions[i];
-    for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
-    {
-      GlobalIndexType cellID = *cellIDIt;
-      ElementTypePtr elemType = _elementTypeForCell[cellID];
-      _cellIDsForElementType[i][elemType.get()].push_back(cellID);
     }
   }
 }

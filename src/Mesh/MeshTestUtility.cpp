@@ -229,23 +229,37 @@ bool MeshTestUtility::checkMeshConsistency(Teuchos::RCP<Mesh> mesh)
   bool success = true;
   success = checkMeshDofConnectivities(mesh);
   // now, check element types:
-  vector< ElementPtr > activeElements = mesh->activeElements();
-  GlobalIndexType numElements = activeElements.size();
-  for (GlobalIndexType cellIndex=0; cellIndex<numElements; cellIndex++)
+  const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+  map<ElementType*, vector<GlobalIndexType> > cellIDsForElementType; // build lookup tables
+  map<ElementType*, GlobalIndexType> partitionOffsetsForElementType; // to convert from globalCellIndex
+  int rank = mesh->Comm()->MyPID();
+  for (GlobalIndexType cellID : *myCellIDs)
   {
-    Teuchos::RCP<Element> elem = activeElements[cellIndex];
-    GlobalIndexType cellID = mesh->getElement(elem->cellID())->cellID();
+    Teuchos::RCP<Element> elem = mesh->getElement(cellID);
     if ( cellID != elem->cellID() )
     {
       success = false;
       cout << "cellID for element doesn't match its index in mesh->elements() --";
       cout <<  elem->cellID() << " != " << cellID << endl;
     }
-    if ( cellID != mesh->cellID(elem->elementType(), elem->globalCellIndex()) )
+    if (cellIDsForElementType.find(elem->elementType().get()) == cellIDsForElementType.end())
+    {
+      vector<GlobalIndexType> myCellIDsForElementType = mesh->globalDofAssignment()->cellIDsOfElementType(rank, elem->elementType());
+      cellIDsForElementType[elem->elementType().get()] = myCellIDsForElementType;
+      GlobalIndexType offset = 0;
+      for (int priorRank = 0; priorRank<rank; priorRank++)
+      {
+        offset += mesh->globalDofAssignment()->cellIDsOfElementType(priorRank, elem->elementType()).size();
+      }
+      partitionOffsetsForElementType[elem->elementType().get()] = offset;
+    }
+    GlobalIndexType partitionOffset = partitionOffsetsForElementType[elem->elementType().get()];
+    vector<GlobalIndexType>* cellIDs = &cellIDsForElementType[elem->elementType().get()];
+    if ( cellID != (*cellIDs)[elem->globalCellIndex() - partitionOffset] )
     {
       success = false;
       cout << "cellID index in mesh->elements() doesn't match what's reported by mesh->cellID(elemType,cellIndex): ";
-      cout <<  cellID << " != " << mesh->cellID(elem->elementType(), elem->globalCellIndex()) << endl;
+      cout <<  cellID << " != " << (*cellIDs)[elem->globalCellIndex()] << endl;
     }
     // check that the vertices are lined up correctly
     int numSides = elem->numSides();

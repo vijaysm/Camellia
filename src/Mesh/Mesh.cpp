@@ -313,7 +313,8 @@ Mesh::Mesh(MeshPtr mesh, GlobalIndexType cellID, Epetra_CommPtr Comm) : DofInter
   int delta_k = mesh->globalDofAssignment()->getTestOrderEnrichment();
   _gda = Teuchos::rcp( new GDAMinimumRule(thisPtr, _varFactory, dofOrderingFactoryPtr,
                                           partitionPolicy, H1Order, delta_k));
-  _gda->setElementType(cellIDZero,mesh->getElementType(cellID));
+  int deltaP = mesh->globalDofAssignment()->getPRefinementDegree(cellID);
+  _gda->didPRefine({cellIDZero}, deltaP);
   _gda->repartitionAndMigrate();
   
   _boundary.setMesh(Teuchos::rcp(this,false));
@@ -375,11 +376,6 @@ void Mesh::setBilinearForm( TBFPtr<double> bf)
 Boundary & Mesh::boundary()
 {
   return _boundary;
-}
-
-GlobalIndexType Mesh::cellID(Teuchos::RCP< ElementType > elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber)
-{
-  return _gda->cellID(elemTypePtr, cellIndex, partitionNumber);
 }
 
 vector< GlobalIndexType > Mesh::cellIDsOfType(ElementTypePtr elemType)
@@ -1525,26 +1521,6 @@ vector< vector<double> > Mesh::verticesForCell(GlobalIndexType cellID)
 void Mesh::verticesForCell(FieldContainer<double>& vertices, GlobalIndexType cellID)
 {
   _meshTopology->verticesForCell(vertices,cellID);
-}
-
-// global across all MPI nodes:
-void Mesh::verticesForElementType(FieldContainer<double>& vertices, ElementTypePtr elemTypePtr)
-{
-  int spaceDim = _meshTopology->getDimension();
-  int numVertices = elemTypePtr->cellTopoPtr->getNodeCount();
-  int numCells = numElementsOfType(elemTypePtr);
-  vertices.resize(numCells,numVertices,spaceDim);
-
-  Teuchos::Array<int> dim; // for an individual cell
-  dim.push_back(numVertices);
-  dim.push_back(spaceDim);
-
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-  {
-    int cellID = this->cellID(elemTypePtr,cellIndex);
-    FieldContainer<double> cellVertices(dim,&vertices(cellIndex,0,0));
-    this->verticesForCell(cellVertices, cellID);
-  }
 }
 
 void Mesh::verticesForCells(FieldContainer<double>& vertices, vector<GlobalIndexType> &cellIDs)

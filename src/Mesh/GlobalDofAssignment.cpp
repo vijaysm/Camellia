@@ -18,6 +18,7 @@
 #include "CamelliaCellTools.h"
 #include "CamelliaDebugUtility.h"
 #include "CondensedDofInterpreter.h"
+#include "ElementType.h"
 #include "Solution.h"
 
 using namespace Intrepid;
@@ -54,7 +55,6 @@ GlobalDofAssignment::GlobalDofAssignment(MeshPtr mesh, VarFactoryPtr varFactory,
 //      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "GlobalDofAssignment constructor only supports mesh topologies that are unrefined.\n");
 //    }
 
-    assignInitialElementType(cellID);
     assignParities(cellID);
   }
 
@@ -83,10 +83,8 @@ GlobalDofAssignment::GlobalDofAssignment( GlobalDofAssignment &otherGDA ) : DofI
   _initialH1OrderTrial = otherGDA._initialH1OrderTrial;
   _testOrderEnhancement = otherGDA._testOrderEnhancement;
 
-  _cellH1Orders = otherGDA._cellH1Orders;
-  _elementTypeForCell = otherGDA._elementTypeForCell;
-
-  _cellIDsForElementType = otherGDA._cellIDsForElementType;
+  _cellPRefinements = otherGDA._cellPRefinements;
+  _elementTypesForCellTopology = otherGDA._elementTypesForCellTopology;
 
   _partitions = otherGDA._partitions;
   _partitionForCellID = otherGDA._partitionForCellID;
@@ -103,32 +101,6 @@ GlobalDofAssignment::GlobalDofAssignment( GlobalDofAssignment &otherGDA ) : DofI
 GlobalIndexType GlobalDofAssignment::activeCellOffset()
 {
   return _activeCellOffset;
-}
-
-void GlobalDofAssignment::assignInitialElementType( GlobalIndexType cellID )
-{
-  if (_cellH1Orders.find(cellID) == _cellH1Orders.end())
-  {
-    _cellH1Orders[cellID] = _initialH1OrderTrial;
-  }
-  vector<int> testDegree(_cellH1Orders[cellID].size());
-  for (int pComponent=0; pComponent<_initialH1OrderTrial.size(); pComponent++)
-  {
-    testDegree[pComponent] = _cellH1Orders[cellID][pComponent] + _testOrderEnhancement;
-  }
-
-  CellPtr cell = _meshTopology->getCell(cellID);
-  DofOrderingPtr trialOrdering = _dofOrderingFactory->trialOrdering(_cellH1Orders[cellID], cell->topology(), _enforceConformityLocally);
-  DofOrderingPtr testOrdering = _dofOrderingFactory->testOrdering(testDegree, cell->topology());
-  ElementTypePtr elemType = _elementTypeFactory.getElementType(trialOrdering,testOrdering,cell->topology());
-  _elementTypeForCell[cellID] = elemType;
-
-  if (cell->getParent() != Teuchos::null)
-  {
-    GlobalIndexType parentCellID = cell->getParent()->cellIndex();
-    if (_elementTypeForCell.find(parentCellID) == _elementTypeForCell.end())
-      assignInitialElementType(parentCellID);
-  }
 }
 
 void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
@@ -212,51 +184,65 @@ void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
   }
 }
 
-GlobalIndexType GlobalDofAssignment::cellID(Teuchos::RCP< ElementType > elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber)
-{
-  if (partitionNumber == -1)
-  {
-    // determine the partition number for the cellIndex
-    int partitionCellOffset = 0;
-    for (PartitionIndexType i=0; i<partitionNumber; i++)
-    {
-      int numCellIDsForPartition = _cellIDsForElementType[i][elemTypePtr.get()].size();
-      if (partitionCellOffset + numCellIDsForPartition > cellIndex)
-      {
-        partitionNumber = i;
-        cellIndex -= partitionCellOffset; // rewrite as a local cellIndex
-        break;
-      }
-      partitionCellOffset += numCellIDsForPartition;
-    }
-    if (partitionNumber == -1)
-    {
-      cout << "cellIndex is out of bounds.\n";
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex is out of bounds.");
-    }
-  }
-  if ( ( _cellIDsForElementType[partitionNumber].find( elemTypePtr.get() ) != _cellIDsForElementType[partitionNumber].end() )
-       &&
-       (_cellIDsForElementType[partitionNumber][elemTypePtr.get()].size() > cellIndex ) )
-  {
-    return _cellIDsForElementType[partitionNumber][elemTypePtr.get()][cellIndex];
-  }
-  else return -1;
-}
+//GlobalIndexType GlobalDofAssignment::cellID(Teuchos::RCP< ElementType > elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber)
+//{
+//  if (partitionNumber == -1)
+//  {
+//    // determine the partition number for the cellIndex
+//    int partitionCellOffset = 0;
+//    for (PartitionIndexType i=0; i<partitionNumber; i++)
+//    {
+//      int numCellIDsForPartition = _cellIDsForElementType[i][elemTypePtr.get()].size();
+//      if (partitionCellOffset + numCellIDsForPartition > cellIndex)
+//      {
+//        partitionNumber = i;
+//        cellIndex -= partitionCellOffset; // rewrite as a local cellIndex
+//        break;
+//      }
+//      partitionCellOffset += numCellIDsForPartition;
+//    }
+//    if (partitionNumber == -1)
+//    {
+//      cout << "cellIndex is out of bounds.\n";
+//      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex is out of bounds.");
+//    }
+//  }
+//  if ( ( _cellIDsForElementType[partitionNumber].find( elemTypePtr.get() ) != _cellIDsForElementType[partitionNumber].end() )
+//       &&
+//       (_cellIDsForElementType[partitionNumber][elemTypePtr.get()].size() > cellIndex ) )
+//  {
+//    return _cellIDsForElementType[partitionNumber][elemTypePtr.get()][cellIndex];
+//  }
+//  else return -1;
+//}
 
-vector<GlobalIndexType> GlobalDofAssignment::cellIDsOfElementType(PartitionIndexType partitionNumber, ElementTypePtr elemTypePtr)
+vector<GlobalIndexType> GlobalDofAssignment::cellIDsOfElementType(PartitionIndexType partitionNumber, ElementTypePtr elemType)
 {
   if (partitionNumber == -1)
   {
     cout << "cellIDsOfElementType called with partitionNumber==-1.  Returning empty vector.\n";
     return vector<GlobalIndexType>();
   }
-  map<ElementType*, vector<GlobalIndexType> >::iterator cellIDsIt = _cellIDsForElementType[partitionNumber].find(elemTypePtr.get());
-  if (cellIDsIt == _cellIDsForElementType[partitionNumber].end())
+  // first, let's find the key that corresponds to elemType
+  pair<CellTopologyKey,int> key;
+  for (auto entry : _elementTypesForCellTopology)
   {
-    return vector<GlobalIndexType>();
+    if (entry.second->equals(*elemType))
+    {
+      key = entry.first;
+      break;
+    }
   }
-  return cellIDsIt->second;
+  vector<GlobalIndexType> cellsForElementType;
+  const set<GlobalIndexType>* cellsInPartition = &_partitions[partitionNumber];
+  for (GlobalIndexType cellID : *cellsInPartition)
+  {
+    if (getElementTypeLookupKey(cellID) == key)
+    {
+      cellsForElementType.push_back(cellID);
+    }
+  }
+  return cellsForElementType;
 }
 
 const set< GlobalIndexType > & GlobalDofAssignment::cellsInPartition(PartitionIndexType partitionNumber) const
@@ -320,6 +306,12 @@ void GlobalDofAssignment::constructActiveCellMap2()
                                     myCellIDsAV, indexBase, _partitionPolicy->TeuchosComm()) );
 }
 
+ElementTypePtr GlobalDofAssignment::elementType(GlobalIndexType cellID)
+{
+  pair<CellTopologyKey, int> key = getElementTypeLookupKey(cellID);
+  return getElementTypeForKey(key);
+}
+
 void GlobalDofAssignment::repartitionAndMigrate()
 {
   _partitionPolicy->partitionMesh(_mesh.get(),_numPartitions);
@@ -363,14 +355,17 @@ void GlobalDofAssignment::didHRefine(const set<GlobalIndexType> &parentCellIDs) 
 
 void GlobalDofAssignment::didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP)   // subclasses should call super
 {
-  for (set<GlobalIndexType>::const_iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    for (int pComponent = 0; pComponent < _cellH1Orders[*cellIDIt].size(); pComponent++)
+    if (_cellPRefinements.find(cellID) == _cellPRefinements.end())
     {
-      _cellH1Orders[*cellIDIt][pComponent] += deltaP;
+      _cellPRefinements[cellID] = deltaP;
+    }
+    else
+    {
+      _cellPRefinements[cellID] += deltaP;
     }
   }
-  // the appropriate modifications to _elementTypeForCell are left to subclasses
 }
 
 void GlobalDofAssignment::didHUnrefine(const set<GlobalIndexType> &parentCellIDs)   // subclasses should call super
@@ -381,35 +376,46 @@ void GlobalDofAssignment::didHUnrefine(const set<GlobalIndexType> &parentCellIDs
 
 vector< ElementTypePtr > GlobalDofAssignment::elementTypes(PartitionIndexType partitionNumber)
 {
+  // Ultimately, it probably will be an error to call this with argument that is not equal to the current rank.
   if (partitionNumber != -1)
   {
-    vector< ElementTypePtr > elemTypes;
-    map< ElementType*, vector<GlobalIndexType> > cellIDsForElemType = _cellIDsForElementType[partitionNumber];
-    for (map< ElementType*, vector<GlobalIndexType> >::iterator elemTypeIt = cellIDsForElemType.begin(); elemTypeIt != cellIDsForElemType.end(); elemTypeIt++)
+    const set<GlobalIndexType>* cellIDsForPartition = &this->cellsInPartition(partitionNumber);
+    
+    set<pair<CellTopologyKey,int>> elementTypeKeys;
+    for (GlobalIndexType cellID : *cellIDsForPartition)
     {
-      elemTypes.push_back(Teuchos::rcp(elemTypeIt->first,false)); // false: doesn't own memory…
+      elementTypeKeys.insert(getElementTypeLookupKey(cellID));
+    }
+    
+    vector< ElementTypePtr > elemTypes;
+    for (auto key : elementTypeKeys)
+    {
+      elemTypes.push_back(getElementTypeForKey(key));
     }
     return elemTypes;
   }
   else
   {
-    int numRanks = Teuchos::GlobalMPISession::getNProc();
-    set< ElementType* > includedTypes;
-    vector< ElementTypePtr > types;
+    int numRanks = _mesh->Comm()->NumProc();
+    
+    set<pair<CellTopologyKey,int>> elementTypeKeys;
+    
     for (int rank=0; rank<numRanks; rank++)
     {
-      vector< ElementTypePtr > elemTypesForRank = elementTypes(rank);
-      for (vector< ElementTypePtr >::iterator typeForRankIt = elemTypesForRank.begin(); typeForRankIt != elemTypesForRank.end(); typeForRankIt++)
+      const set<GlobalIndexType>* cellIDsForPartition = &this->cellsInPartition(rank);
+      for (GlobalIndexType cellID : *cellIDsForPartition)
       {
-        ElementTypePtr elemType = *typeForRankIt;
-        if (includedTypes.find(elemType.get()) == includedTypes.end())
-        {
-          types.push_back(elemType);
-          includedTypes.insert(elemType.get());
-        }
+        elementTypeKeys.insert(getElementTypeLookupKey(cellID));
       }
     }
-    return types;
+    
+    vector< ElementTypePtr > elemTypes;
+    for (auto key : elementTypeKeys)
+    {
+      elemTypes.push_back(getElementTypeForKey(key));
+    }
+
+    return elemTypes;
   }
 }
 
@@ -439,9 +445,51 @@ ElementTypeFactory & GlobalDofAssignment::getElementTypeFactory()
   return _elementTypeFactory;
 }
 
+ElementTypePtr GlobalDofAssignment::getElementTypeForKey(pair<CellTopologyKey,int> key)
+{
+  if (_elementTypesForCellTopology.find(key) == _elementTypesForCellTopology.end())
+  {
+    int deltaP = key.second;
+    vector<int> H1Order = getH1OrderForPRefinement(deltaP);
+    vector<int> testDegree(H1Order.size());
+    for (int pComponent=0; pComponent<H1Order.size(); pComponent++)
+    {
+      testDegree[pComponent] = H1Order[pComponent] + _testOrderEnhancement;
+    }
+    
+    CellTopoPtr cellTopo = CellTopology::cellTopology(key.first);
+    DofOrderingPtr trialOrdering = _dofOrderingFactory->trialOrdering(H1Order, cellTopo, _enforceConformityLocally);
+    DofOrderingPtr testOrdering = _dofOrderingFactory->testOrdering(testDegree, cellTopo);
+    ElementTypePtr elemType = _elementTypeFactory.getElementType(trialOrdering,testOrdering,cellTopo);
+    _elementTypesForCellTopology[key] = elemType;
+  }
+  return _elementTypesForCellTopology[key];
+}
+
+pair<CellTopologyKey,int> GlobalDofAssignment::getElementTypeLookupKey(GlobalIndexType cellID)
+{
+  int deltaP = getPRefinementDegree(cellID);
+  CellTopologyKey cellTopoKey = _meshTopology->getCell(cellID)->topology()->getKey();
+  
+  pair<CellTopologyKey, int> key = {cellTopoKey,deltaP};
+  return key;
+}
+
 MeshPartitionPolicyPtr GlobalDofAssignment::getPartitionPolicy()
 {
   return _partitionPolicy;
+}
+
+int GlobalDofAssignment::getPRefinementDegree(GlobalIndexType cellID)
+{
+  if (_cellPRefinements.find(cellID) == _cellPRefinements.end())
+  {
+    return 0;
+  }
+  else
+  {
+    return _cellPRefinements[cellID];
+  }
 }
 
 GlobalIndexType GlobalDofAssignment::globalCellIndex(GlobalIndexType cellID)
@@ -453,18 +501,32 @@ GlobalIndexType GlobalDofAssignment::globalCellIndex(GlobalIndexType cellID)
     return -1;
   }
   GlobalIndexType cellIndex = partitionLocalCellIndex(cellID, partitionNumber);
-  ElementType* elemType = _elementTypeForCell[cellID].get();
+  ElementTypePtr elemType = elementType(cellID);
   
   for (PartitionIndexType i=0; i<partitionNumber; i++)
   {
-    cellIndex += _cellIDsForElementType[i][elemType].size();
+    cellIndex += cellIDsOfElementType(i, elemType).size();
   }
   return cellIndex;
 }
 
 vector<int> GlobalDofAssignment::getH1Order(GlobalIndexType cellID)
 {
-  return _cellH1Orders[cellID];
+  int deltaP = getPRefinementDegree(cellID);
+  return getH1OrderForPRefinement(deltaP);
+}
+
+vector<int> GlobalDofAssignment::getH1OrderForPRefinement(int deltaP)
+{
+  if (deltaP == 0) return _initialH1OrderTrial;
+  
+  vector<int> H1Order = _initialH1OrderTrial;
+  for (int d=0; d<H1Order.size(); d++)
+  {
+    H1Order[d] += deltaP;
+  }
+  
+  return H1Order;
 }
 
 vector<int> GlobalDofAssignment::getInitialH1Order()
@@ -585,13 +647,11 @@ template void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType ce
 // ! assumes that the function spaces for the bases defined on cells determine this (e.g. H^1-conforming basis --> 0).
 int GlobalDofAssignment::minimumSubcellDimensionForContinuityEnforcement() const
 {
-  const set<GlobalIndexType>* myCells = &cellsInPartition(-1);
   int myMinimumSubcellDimension = _meshTopology->getDimension();
   set<ElementType*> processedTypes;
-  for (GlobalIndexType cellID : *myCells)
+  for (auto entry : _elementTypesForCellTopology)
   {
-    auto entry = _elementTypeForCell.find(cellID);
-    ElementType* elemType = entry->second.get();
+    ElementType* elemType = entry.second.get();
     if (processedTypes.find(elemType) == processedTypes.end())
     {
       int elemMin = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
@@ -637,14 +697,9 @@ void GlobalDofAssignment::projectParentCoefficientsOntoUnsetChildren()
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
       }
 //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
-      soln->projectOldCellOntoNewCells(parent->cellIndex(), _elementTypeForCell[parentCellID], childIndices);
+      soln->projectOldCellOntoNewCells(parent->cellIndex(), elementType(parentCellID), childIndices);
     }
   }
-}
-
-void GlobalDofAssignment::setElementType(GlobalIndexType cellID, ElementTypePtr elemType)
-{
-  _elementTypeForCell[cellID] = elemType;
 }
 
 void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partitionedMesh)
@@ -755,8 +810,8 @@ IndexType GlobalDofAssignment::partitionLocalCellIndex(GlobalIndexType cellID, i
     partitionNumber     = _partitionPolicy->Comm()->MyPID();
   }
 
-  ElementType* elemType = _elementTypeForCell[cellID].get();
-  vector<GlobalIndexType> cellIDsOfType = _cellIDsForElementType[partitionNumber][elemType];
+  ElementTypePtr elemType = elementType(cellID);
+  vector<GlobalIndexType> cellIDsOfType = cellIDsOfElementType(partitionNumber, elemType);
   for (IndexType cellIndex = 0; cellIndex < cellIDsOfType.size(); cellIndex++)
   {
     if (cellIDsOfType[cellIndex] == cellID)
@@ -786,6 +841,18 @@ void GlobalDofAssignment::setMeshAndMeshTopology(MeshPtr mesh)
   _meshTopology = Teuchos::rcp(mesh->getTopology().get(), false);
 
   this->DofInterpreter::_mesh = _mesh;
+}
+
+void GlobalDofAssignment::setPRefinementDegree(GlobalIndexType cellID, int deltaP)
+{
+  if (deltaP == 0)
+  {
+    _cellPRefinements.erase(cellID);
+  }
+  else
+  {
+    _cellPRefinements[cellID] = deltaP;
+  }
 }
 
 void GlobalDofAssignment::unregisterSolution(TSolutionPtr<double> solution)

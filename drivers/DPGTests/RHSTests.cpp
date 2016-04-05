@@ -23,7 +23,7 @@
 
 #include "ConfusionBilinearForm.h"
 #include "ConfusionProblemLegacy.h"
-
+#include "GlobalDofAssignment.h"
 #include "InnerProductScratchPad.h"
 
 using namespace Camellia;
@@ -327,11 +327,9 @@ bool RHSTests::testIntegrateAgainstStandardBasis()
   bool success = true;
   double tol = 1e-14;
 
-  int rank     = Teuchos::GlobalMPISession::getRank();
-  int numProcs = Teuchos::GlobalMPISession::getNProc();
-
   Teuchos::RCP<ElementType> elemType = _mesh->getElement(0)->elementType();
 
+  int rank = _mesh->Comm()->MyPID();
   vector< Teuchos::RCP< Element > > elemsInPartitionOfType = _mesh->elementsOfType(rank, elemType);
   FieldContainer<double> physicalCellNodes = _mesh->physicalCellNodes(elemType);
 
@@ -352,12 +350,7 @@ bool RHSTests::testIntegrateAgainstStandardBasis()
   FieldContainer<double> rhsActual(numCells,numTestDofs);
 
   // determine cellIDs
-  vector<GlobalIndexType> cellIDs;
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-  {
-    int cellID = _mesh->cellID(elemType, cellIndex, rank);
-    cellIDs.push_back(cellID);
-  }
+  vector<GlobalIndexType> cellIDs = _mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemType);
 
   if (numCells > 0)
   {
@@ -386,7 +379,8 @@ bool RHSTests::testRHSEasy()
   bool success = true;
   double tol = 1e-14;
 
-  int rank     = Teuchos::GlobalMPISession::getRank();
+  int rank = _mesh->Comm()->MyPID();
+  
   int numProcs = Teuchos::GlobalMPISession::getNProc();
 
   Teuchos::RCP<ElementType> elemType = _mesh->getElement(0)->elementType();
@@ -401,12 +395,7 @@ bool RHSTests::testRHSEasy()
   FieldContainer<double> rhsActual(numCells,numTestDofs);
 
   // determine cellIDs
-  vector<GlobalIndexType> cellIDs;
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-  {
-    int cellID = _mesh->cellID(elemType, cellIndex, rank);
-    cellIDs.push_back(cellID);
-  }
+  vector<GlobalIndexType> cellIDs = _mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemType);
 
   // prepare basisCache and cellIDs
   if (numCells > 0)
@@ -439,8 +428,7 @@ bool RHSTests::testTrivialRHS()
   bool success = true;
   double tol = 1e-14;
 
-  int rank     = Teuchos::GlobalMPISession::getRank();
-  int numProcs = Teuchos::GlobalMPISession::getNProc();
+  int rank = _mesh->Comm()->MyPID();
 
   Teuchos::RCP<ElementType> elemType = _mesh->getElement(0)->elementType();
 
@@ -451,12 +439,7 @@ bool RHSTests::testTrivialRHS()
   int numTestDofs = elemType->testOrderPtr->totalDofs();
 
   // determine cellIDs
-  vector<GlobalIndexType> cellIDs;
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-  {
-    int cellID = _mesh->cellID(elemType, cellIndex, rank);
-    cellIDs.push_back(cellID);
-  }
+  vector<GlobalIndexType> cellIDs = _mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemType);
 
   if (numCells > 0)
   {

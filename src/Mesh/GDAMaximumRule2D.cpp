@@ -142,7 +142,7 @@ void GDAMaximumRule2D::buildLocalToGlobalMap()
   {
     GlobalIndexType cellID = *cellIDIt;
     CellPtr cell = _meshTopology->getCell(cellID);
-    ElementTypePtr elemTypePtr = _elementTypeForCell[cellID];
+    ElementTypePtr elemTypePtr = elementType(cellID);
     for (vector<int>::iterator trialIt=trialIDs.begin(); trialIt != trialIDs.end(); trialIt++)
     {
       int trialID = *(trialIt);
@@ -239,16 +239,14 @@ void GDAMaximumRule2D::buildTypeLookups()
 //    cout << "_partitions[" << partitionNumber << "] has " << _partitions[partitionNumber].size() << " cells.\n";
 
     // this should loop over the elements in the partition instead
-    for (elemIterator=_partitions[partitionNumber].begin();
-         elemIterator != _partitions[partitionNumber].end(); elemIterator++)
+    for (GlobalIndexType cellID : _partitions[partitionNumber])
     {
-      GlobalIndexType cellID = *elemIterator;
       if (! _meshTopology->isValidCellIndex(cellID) )
       {
         cout << "cellID " << cellID << " is invalid.\n";
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID is invalid.\n");
       }
-      ElementTypePtr elemTypePtr = _elementTypeForCell[cellID];
+      ElementTypePtr elemTypePtr = elementType(cellID);
       if ( _cellIDsForElementType[partitionNumber].find( elemTypePtr.get() ) == _cellIDsForElementType[partitionNumber].end() )
       {
         _elementTypesForPartition[partitionNumber].push_back(elemTypePtr);
@@ -367,9 +365,19 @@ void GDAMaximumRule2D::buildTypeLookups()
 //  }
 //}
 
+vector<GlobalIndexType> GDAMaximumRule2D::cellIDsOfElementType(unsigned partitionNumber, ElementTypePtr elemTypePtr)
+{
+  map<ElementType*, vector<GlobalIndexType> >::iterator cellIDsIt = _cellIDsForElementType[partitionNumber].find(elemTypePtr.get());
+  if (cellIDsIt == _cellIDsForElementType[partitionNumber].end())
+  {
+    return vector<GlobalIndexType>();
+  }
+  return cellIDsIt->second;
+}
+
 int GDAMaximumRule2D::cellPolyOrder(GlobalIndexType cellID)
 {
-  return _dofOrderingFactory->trialPolyOrder(_elementTypeForCell[cellID]->trialOrderPtr);
+  return _dofOrderingFactory->trialPolyOrder(elementType(cellID)->trialOrderPtr);
 }
 
 FieldContainer<double> & GDAMaximumRule2D::cellSideParities( ElementTypePtr elemTypePtr )
@@ -399,7 +407,7 @@ void GDAMaximumRule2D::determineDofPairings()
   {
     unsigned cellID = *cellIDIt;
     CellPtr cell = _meshTopology->getCell(cellID);
-    ElementTypePtr elemTypePtr = _elementTypeForCell[cellID];
+    ElementTypePtr elemTypePtr = elementType(cellID);
 
     if ( cell->isParent(_meshTopology) )
     {
@@ -431,7 +439,7 @@ void GDAMaximumRule2D::determineDofPairings()
             unsigned neighborCellID = neighbor->cellIndex();
             if ( ! neighbor->isParent(_meshTopology) )
             {
-              int neighborNumDofs = _elementTypeForCell[neighborCellID]->trialOrderPtr->getBasisCardinality(trialID,mySideIndexInNeighbor);
+              int neighborNumDofs = elementType(neighborCellID)->trialOrderPtr->getBasisCardinality(trialID,mySideIndexInNeighbor);
               if ( !hasMultiBasis && (myNumDofs != neighborNumDofs) )   // neither a multi-basis, and we differ: a problem
               {
                 cout << "Element and neighbor don't agree on basis along shared side.\n";
@@ -453,7 +461,7 @@ void GDAMaximumRule2D::determineDofPairings()
               neighborCellID = (*entryIt).first;
               mySideIndexInNeighbor = (*entryIt).second;
               neighbor = _meshTopology->getCell(neighborCellID);
-              int neighborNumDofs = _elementTypeForCell[neighborCellID]->trialOrderPtr->getBasisCardinality(trialID,mySideIndexInNeighbor);
+              int neighborNumDofs = elementType(neighborCellID)->trialOrderPtr->getBasisCardinality(trialID,mySideIndexInNeighbor);
 
               for (int dofOrdinal=0; dofOrdinal<neighborNumDofs; dofOrdinal++)
               {
@@ -472,7 +480,7 @@ void GDAMaximumRule2D::determineDofPairings()
                 // TODO: generalize this to some sort of permutation for 3D meshes...
                 int permutedDofOrdinal = neighborDofPermutation(dofOrdinal,neighborNumDofs);
 
-                int neighborLocalDofIndex = _elementTypeForCell[neighborCellID]->trialOrderPtr->getDofIndex(trialID,permutedDofOrdinal,mySideIndexInNeighbor);
+                int neighborLocalDofIndex = elementType(neighborCellID)->trialOrderPtr->getDofIndex(trialID,permutedDofOrdinal,mySideIndexInNeighbor);
                 addDofPairing(cellID, myLocalDofIndex, neighborCellID, neighborLocalDofIndex);
               }
             }
@@ -504,7 +512,7 @@ void GDAMaximumRule2D::determineDofPairings()
   {
     int cellID = *cellIDIt;
     CellPtr cell = _meshTopology->getCell(cellID);
-    ElementTypePtr elemTypePtr = _elementTypeForCell[cellID];
+    ElementTypePtr elemTypePtr = elementType(cellID);
     for (vector<int>::iterator trialIt=trialIDs.begin(); trialIt != trialIDs.end(); trialIt++)
     {
       int trialID = *(trialIt);
@@ -552,7 +560,7 @@ void GDAMaximumRule2D::determinePartitionDofIndices()
     for (cellIDIt =  _partitions[i].begin(); cellIDIt != _partitions[i].end(); cellIDIt++)
     {
       GlobalIndexType cellID = *cellIDIt;
-      ElementTypePtr elemTypePtr = _elementTypeForCell[cellID];
+      ElementTypePtr elemTypePtr = elementType(cellID);
       int numLocalDofs = elemTypePtr->trialOrderPtr->totalDofs();
       for (int localDofIndex=0; localDofIndex < numLocalDofs; localDofIndex++)
       {
@@ -601,15 +609,15 @@ void GDAMaximumRule2D::didHRefine(const set<GlobalIndexType> &parentCellIDs)
     }
     else
     {
-      elemType = _elementTypeForCell[parentCellID];
+      elemType = elementType(parentCellID);
     }
 
+    int parentDeltaP = getPRefinementDegree(parentCellID);
     vector< CellPtr > children = parent->children();
     for (vector< CellPtr >::iterator childIt = children.begin(); childIt != children.end(); childIt++)
     {
       CellPtr child = *childIt;
-      _cellH1Orders[child->cellIndex()] = _cellH1Orders[parentCellID];
-      assignInitialElementType(child->cellIndex());
+      setPRefinementDegree(child->cellIndex(), parentDeltaP);
     }
     for (vector< CellPtr >::iterator childIt = children.begin(); childIt != children.end(); childIt++)
     {
@@ -649,15 +657,14 @@ void GDAMaximumRule2D::didHRefine(const set<GlobalIndexType> &parentCellIDs)
 
 void GDAMaximumRule2D::didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP)
 {
-  this->GlobalDofAssignment::didPRefine(cellIDs,deltaP);
-
   set<GlobalIndexType>::const_iterator cellIt;
   map<GlobalIndexType, ElementTypePtr > oldTypes;
   for (cellIt=cellIDs.begin(); cellIt != cellIDs.end(); cellIt++)
   {
     GlobalIndexType cellID = *cellIt;
-    oldTypes[cellID] = _elementTypeForCell[cellID];
+    oldTypes[cellID] = elementType(cellID);
   }
+  
   for (cellIt=cellIDs.begin(); cellIt != cellIDs.end(); cellIt++)
   {
     GlobalIndexType cellID = *cellIt;
@@ -666,8 +673,8 @@ void GDAMaximumRule2D::didPRefine(const set<GlobalIndexType> &cellIDs, int delta
     CellTopoPtr cellTopo = cell->topology();
     //   a. create new DofOrderings for trial and test
     Teuchos::RCP<DofOrdering> currentTrialOrdering, currentTestOrdering;
-    currentTrialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
-    currentTestOrdering  = _elementTypeForCell[cellID]->testOrderPtr;
+    currentTrialOrdering = elementType(cellID)->trialOrderPtr;
+    currentTestOrdering  = elementType(cellID)->testOrderPtr;
     Teuchos::RCP<DofOrdering> newTrialOrdering = _dofOrderingFactory->pRefineTrial(currentTrialOrdering,
         cellTopo,deltaP);
 //    cout << "in p-refinement, old poly order is " << _dofOrderingFactory->trialPolyOrder(currentTrialOrdering) << endl;
@@ -691,8 +698,6 @@ void GDAMaximumRule2D::didPRefine(const set<GlobalIndexType> &cellIDs, int delta
                              cell->topology() );
     setElementType(cellID,newType,false); // false: *not* sideUpgradeOnly
 
-    //    elem->setElementType( _elementTypeFactory.getElementType(newTrialOrdering, newTestOrdering,
-    //                                                             elem->elementType()->cellTopoPtr ) );
     int numSides = cell->getSideCount();
     for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
     {
@@ -717,6 +722,8 @@ void GDAMaximumRule2D::didPRefine(const set<GlobalIndexType> &cellIDs, int delta
     _cellSideUpgrades.clear(); // these have been processed by all solutions that will ever have a chance to process them.
   }
 
+  this->GlobalDofAssignment::didPRefine(cellIDs,deltaP);
+  
 //  rebuildLookups();
 }
 
@@ -740,7 +747,13 @@ void GDAMaximumRule2D::didHUnrefine(const set<GlobalIndexType> &parentCellIDs)
 
 ElementTypePtr GDAMaximumRule2D::elementType(GlobalIndexType cellID)
 {
-  return _elementTypeForCell[cellID];
+  // if we have something in _elementTypeForCell container, use that
+  if (_elementTypeForCell.find(cellID) != _elementTypeForCell.end())
+  {
+    return _elementTypeForCell[cellID];
+  }
+  // otherwise, return GlobalDofAssignment's idea of what the element type should be
+  return GlobalDofAssignment::elementType(cellID);
 }
 
 vector< Teuchos::RCP< ElementType > > GDAMaximumRule2D::elementTypes(PartitionIndexType partitionNumber)
@@ -763,7 +776,7 @@ vector< Teuchos::RCP< ElementType > > GDAMaximumRule2D::elementTypes(PartitionIn
 // ! get the global dof indices corresponding to the specified cellID/varID/sideOrdinal.  GDAMinimumRule's implementation overrides to return only "fittable" dof indices, as required by CondensedDofInterpreter.
 set<GlobalIndexType> GDAMaximumRule2D::getGlobalDofIndices(GlobalIndexType cellID, int varID, int sideOrdinal)
 {
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   int numDofs = trialOrdering->getBasisCardinality(varID, sideOrdinal);
   set<GlobalIndexType> globalDofIndices;
   for (int basisDofOrdinal=0; basisDofOrdinal<numDofs; basisDofOrdinal++)
@@ -778,7 +791,7 @@ set<GlobalIndexType> GDAMaximumRule2D::getGlobalDofIndices(GlobalIndexType cellI
 // ! For minimum-rule meshes, may throw an exception if invoked with a continuous variable's ID as argument.
 vector<GlobalIndexType> GDAMaximumRule2D::globalDofIndicesForFieldVariable(GlobalIndexType cellID, int varID)
 {
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   int numDofs = trialOrdering->getBasisCardinality(varID, VOLUME_INTERIOR_SIDE_ORDINAL);
   vector<GlobalIndexType> globalDofIndices;
   for (int basisDofOrdinal=0; basisDofOrdinal<numDofs; basisDofOrdinal++)
@@ -798,7 +811,7 @@ void GDAMaximumRule2D::getMultiBasisOrdering(DofOrderingPtr &originalNonParentOr
     CellPtr parent, unsigned sideIndex, unsigned parentSideIndexInNeighbor,
     CellPtr nonParent)
 {
-  unsigned nonParentPolyOrder = _dofOrderingFactory->trialPolyOrder( _elementTypeForCell[nonParent->cellIndex()]->trialOrderPtr );
+  unsigned nonParentPolyOrder = _dofOrderingFactory->trialPolyOrder( elementType(nonParent->cellIndex())->trialOrderPtr );
 
   map< int, BasisPtr > varIDsToUpgrade = multiBasisUpgradeMap(parent,sideIndex,nonParentPolyOrder);
   originalNonParentOrdering = _dofOrderingFactory->upgradeSide(originalNonParentOrdering,
@@ -1115,7 +1128,7 @@ void GDAMaximumRule2D::interpretLocalBasisCoefficients(GlobalIndexType cellID, i
   }
   int numDofs = basisCoefficients.dimension(0);
   globalDofIndices.resize(numDofs);
-  DofOrderingPtr trialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
+  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
 
   if (trialOrdering->hasBasisEntry(varID, sideOrdinal))
   {
@@ -1250,12 +1263,12 @@ void GDAMaximumRule2D::matchNeighbor(GlobalIndexType cellID, int sideIndex)
       {
         {
           // MultiBasis
-          Teuchos::RCP<DofOrdering> nonParentTrialOrdering = _elementTypeForCell[nonParent->cellIndex()]->trialOrderPtr;
+          Teuchos::RCP<DofOrdering> nonParentTrialOrdering = elementType(nonParent->cellIndex())->trialOrderPtr;
 
           getMultiBasisOrdering( nonParentTrialOrdering, parent, neighborSideIndexInParent,
                                  parentSideIndexInNeighbor, nonParent );
           ElementTypePtr nonParentType = _elementTypeFactory.getElementType(nonParentTrialOrdering,
-                                         _elementTypeForCell[nonParent->cellIndex()]->testOrderPtr,
+                                         elementType(nonParent->cellIndex())->testOrderPtr,
                                          nonParent->topology() );
           setElementType(nonParent->cellIndex(), nonParentType, true); // true: only a side upgrade
           //nonParent->setElementType(nonParentType);
@@ -1276,11 +1289,11 @@ void GDAMaximumRule2D::matchNeighbor(GlobalIndexType cellID, int sideIndex)
   }
   // p-refinement handling:
   CellTopoPtr neighborTopo = neighbor->topology();
-  Teuchos::RCP<DofOrdering> elemTrialOrdering = _elementTypeForCell[cellID]->trialOrderPtr;
-  Teuchos::RCP<DofOrdering> elemTestOrdering = _elementTypeForCell[cellID]->testOrderPtr;
+  Teuchos::RCP<DofOrdering> elemTrialOrdering = elementType(cellID)->trialOrderPtr;
+  Teuchos::RCP<DofOrdering> elemTestOrdering = elementType(cellID)->testOrderPtr;
 
-  Teuchos::RCP<DofOrdering> neighborTrialOrdering = _elementTypeForCell[neighborCellID]->trialOrderPtr;
-  Teuchos::RCP<DofOrdering> neighborTestOrdering = _elementTypeForCell[neighborCellID]->testOrderPtr;
+  Teuchos::RCP<DofOrdering> neighborTrialOrdering = elementType(neighborCellID)->trialOrderPtr;
+  Teuchos::RCP<DofOrdering> neighborTestOrdering = elementType(neighborCellID)->testOrderPtr;
 
   int changed = _dofOrderingFactory->matchSides(elemTrialOrdering, sideIndex, cellTopo,
                 neighborTrialOrdering, sideIndexInNeighbor, neighborTopo);
@@ -1326,7 +1339,7 @@ void GDAMaximumRule2D::matchNeighbor(GlobalIndexType cellID, int sideIndex)
     TEUCHOS_TEST_FOR_EXCEPTION(fluxTraceCount == 0,
                                std::invalid_argument,
                                "BilinearForm has no traces or fluxes, but somehow neighbor was upgraded...");
-    TEUCHOS_TEST_FOR_EXCEPTION(neighborTrialOrdering.get() == _elementTypeForCell[neighborCellID]->trialOrderPtr.get(),
+    TEUCHOS_TEST_FOR_EXCEPTION(neighborTrialOrdering.get() == elementType(neighborCellID)->trialOrderPtr.get(),
                                std::invalid_argument,
                                "neighborTrialOrdering was supposed to be upgraded, but remains unchanged...");
     int boundaryVarID = tracesAndFluxes[0]->ID();
@@ -1381,7 +1394,7 @@ map< int, BasisPtr > GDAMaximumRule2D::multiBasisUpgradeMap(CellPtr parent, unsi
     }
     else
     {
-      DofOrderingPtr childTrialOrder = _elementTypeForCell[childCell->cellIndex()]->trialOrderPtr;
+      DofOrderingPtr childTrialOrder = elementType(childCell->cellIndex())->trialOrderPtr;
 
       int childPolyOrder = _dofOrderingFactory->trialPolyOrder( childTrialOrder );
 
@@ -1391,8 +1404,8 @@ map< int, BasisPtr > GDAMaximumRule2D::multiBasisUpgradeMap(CellPtr parent, unsi
         // NOTE: THIS is ugly--a side effect
         childTrialOrder = _dofOrderingFactory->setSidePolyOrder(childTrialOrder, childSideIndex, bigNeighborPolyOrder, false);
         ElementTypePtr newChildType = _elementTypeFactory.getElementType(childTrialOrder,
-                                      _elementTypeForCell[childCell->cellIndex()]->testOrderPtr,
-                                      _elementTypeForCell[childCell->cellIndex()]->cellTopoPtr );
+                                      elementType(childCell->cellIndex())->testOrderPtr,
+                                      elementType(childCell->cellIndex())->cellTopoPtr );
         setElementType(childCell->cellIndex(), newChildType, true); // true: only a side upgrade
       }
 
@@ -1506,7 +1519,7 @@ void GDAMaximumRule2D::setElementType(GlobalIndexType cellID, ElementTypePtr new
     }
     else
     {
-      oldType = _elementTypeForCell[cellID];
+      oldType = elementType(cellID);
       if (oldType.get() == newType.get())
       {
         // no change is actually happening
