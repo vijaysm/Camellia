@@ -36,7 +36,10 @@ class GDAMaximumRule2D : public GlobalDofAssignment
   map< ElementType*, map<IndexType, GlobalIndexType> > _globalCellIndexToCellID;
   vector< vector< ElementTypePtr > > _elementTypesForPartition;
   vector< ElementTypePtr > _elementTypeList;
+  std::map<GlobalIndexType, ElementTypePtr> _elementTypeForCell; // keys are cellIDs
 
+  vector< map< ElementType*, vector<GlobalIndexType> > > _cellIDsForElementType; // divided by partition
+  
   map<GlobalIndexType, PartitionIndexType> _partitionForGlobalDofIndex;
   map<GlobalIndexType, IndexType> _partitionLocalIndexForGlobalDofIndex;
   vector< map< ElementType*, Intrepid::FieldContainer<double> > > _partitionedPhysicalCellNodesForElementType;
@@ -70,6 +73,8 @@ public:
   GDAMaximumRule2D(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderingFactoryPtr dofOrderingFactory, MeshPartitionPolicyPtr partitionPolicy,
                    unsigned initialH1OrderTrial, unsigned testOrderEnhancement, bool enforceMBFluxContinuity = false);
 
+  virtual vector<GlobalIndexType> cellIDsOfElementType(unsigned partitionNumber, ElementTypePtr elemTypePtr);
+  
   //  GlobalIndexType cellID(ElementTypePtr elemType, IndexType cellIndex, PartitionIndexType partitionNumber);
   Intrepid::FieldContainer<double> & cellSideParities( ElementTypePtr elemTypePtr );
 

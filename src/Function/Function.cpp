@@ -1115,17 +1115,16 @@ template <typename Scalar>
 Scalar TFunction<Scalar>::integralOfJump(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment)
 {
   Scalar integral = 0.0;
-  vector<ElementPtr> elems = mesh->activeElements();
-  for (vector<ElementPtr>::iterator elemIt=elems.begin(); elemIt!=elems.end(); elemIt++)
+  const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : *myCellIDs)
   {
-    ElementPtr elem = *elemIt;
-    int numSides = elem->numSides();
+    int numSides = mesh->getTopology()->getCell(cellID)->getSideCount();
     for (int sideIndex = 0; sideIndex < numSides; sideIndex++)
     {
-      integral+= this->integralOfJump(mesh,elem->cellID(),sideIndex,cubatureDegreeEnrichment);
+      integral+= this->integralOfJump(mesh,cellID,sideIndex,cubatureDegreeEnrichment);
     }
   }
-  return integral;
+  return MPIWrapper::sum(*mesh->Comm(), integral);
 }
 
 template <typename Scalar>
@@ -1426,10 +1425,11 @@ void TFunction<Scalar>::writeBoundaryValuesToMATLABFile(Teuchos::RCP<Mesh> mesh,
   vector< ElementTypePtr >::iterator elemTypeIt;
   int spaceDim = 2; // TODO: generalize to 3D...
 
+  PartitionIndexType rank = mesh->Comm()->MyPID();
+  
   BasisCachePtr basisCache;
-  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)
+  for (ElementTypePtr elemTypePtr : elementTypes)
   {
-    ElementTypePtr elemTypePtr = *(elemTypeIt);
     basisCache = Teuchos::rcp( new BasisCache(elemTypePtr, mesh, true) );
     CellTopoPtr cellTopo = elemTypePtr->cellTopoPtr;
     int numSides = cellTopo->getSideCount();
@@ -1437,12 +1437,7 @@ void TFunction<Scalar>::writeBoundaryValuesToMATLABFile(Teuchos::RCP<Mesh> mesh,
     Intrepid::FieldContainer<double> physicalCellNodes = mesh->physicalCellNodesGlobal(elemTypePtr);
     int numCells = physicalCellNodes.dimension(0);
     // determine cellIDs
-    vector<GlobalIndexType> cellIDs;
-    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-    {
-      GlobalIndexType cellID = mesh->cellID(elemTypePtr, cellIndex, -1); // -1: "global" lookup (independent of MPI node)
-      cellIDs.push_back(cellID);
-    }
+    vector<GlobalIndexType> cellIDs = mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemTypePtr);
     basisCache->setPhysicalCellNodes(physicalCellNodes, cellIDs, true); // true: create side caches
 
     int num1DPts = 15;
@@ -1526,21 +1521,18 @@ void TFunction<Scalar>::writeValuesToMATLABFile(Teuchos::RCP<Mesh> mesh, const s
   fout << "end" << endl;
   int globalCellInd = 1; //matlab indexes from 1
   BasisCachePtr basisCache;
-  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)   //thru quads/triangles/etc
+  
+  int rank = mesh->Comm()->MyPID();
+  
+  for (ElementTypePtr elemTypePtr : elementTypes)   //thru quads/triangles/etc
   {
-    ElementTypePtr elemTypePtr = *(elemTypeIt);
     basisCache = Teuchos::rcp( new BasisCache(elemTypePtr, mesh) );
     basisCache->setRefCellPoints(refPoints);
 
     Intrepid::FieldContainer<double> physicalCellNodes = mesh->physicalCellNodesGlobal(elemTypePtr);
     int numCells = physicalCellNodes.dimension(0);
     // determine cellIDs
-    vector<GlobalIndexType> cellIDs;
-    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-    {
-      int cellID = mesh->cellID(elemTypePtr, cellIndex, -1); // -1: "global" lookup (independent of MPI node)
-      cellIDs.push_back(cellID);
-    }
+    vector<GlobalIndexType> cellIDs = mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemTypePtr);
     basisCache->setPhysicalCellNodes(physicalCellNodes, cellIDs, false); // false: don't create side cache
 
     Intrepid::FieldContainer<double> physCubPoints = basisCache->getPhysicalCubaturePoints();

@@ -46,10 +46,10 @@ protected:
   std::vector<int> _initialH1OrderTrial;
   int _testOrderEnhancement;
 
-  std::map<GlobalIndexType, std::vector<int> > _cellH1Orders;
-  std::map<GlobalIndexType, ElementTypePtr> _elementTypeForCell; // keys are cellIDs
-
-  vector< map< ElementType*, vector<GlobalIndexType> > > _cellIDsForElementType; // divided by partition
+//  std::map<GlobalIndexType, std::vector<int> > _cellH1Orders;
+//  std::map<GlobalIndexType, ElementTypePtr> _elementTypeForCell; // keys are cellIDs
+  std::map<GlobalIndexType, int> _cellPRefinements; // key: cellID; value: deltaP.  0 assumed for cells not present.
+  std::map<pair<CellTopologyKey,int>, ElementTypePtr> _elementTypesForCellTopology; // key.second: deltaP (may be negative)
 
   vector< set< GlobalIndexType > > _partitions; // GlobalIndexType: cellIDs
   map<GlobalIndexType, IndexType> _partitionForCellID;
@@ -61,14 +61,23 @@ protected:
 
   vector< TSolutionPtr<double> > _registeredSolutions; // solutions that should be modified upon refinement (by subclasses--maximum rule has to worry about cell side upgrades, whereas minimum rule does not, so there's not a great way to do this in the abstract superclass.)
 
-  void assignInitialElementType( GlobalIndexType cellID ); // this is the "natural" element type, before side modifications for constraints (when using maximum rule)
   void assignParities( GlobalIndexType cellID );
+  
+  ElementTypePtr getElementTypeForKey(pair<CellTopologyKey,int> key);
 
   void constructActiveCellMap();
   void constructActiveCellMap2();
 
+  // ! Returns the key for the specified cell, suitable for lookups in _elementTypesForCellTopology
+  pair<CellTopologyKey,int> getElementTypeLookupKey(GlobalIndexType cellID);
+  
+  vector<int> getH1OrderForPRefinement(int deltaP);
+  
   void projectParentCoefficientsOntoUnsetChildren();
   virtual void rebuildLookups() = 0;
+  
+  // for subclasses to let super know about changes to the p-refinement degree...
+  void setPRefinementDegree(GlobalIndexType cellID, int deltaP);
 
   // private constructor for subclass's implementation of deepCopy()
   GlobalDofAssignment( GlobalDofAssignment& otherGDA );
@@ -85,7 +94,7 @@ public:
   // ! copies
   virtual GlobalDofAssignmentPtr deepCopy() = 0;
 
-  virtual GlobalIndexType cellID(ElementTypePtr elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber);
+//  virtual GlobalIndexType cellID(ElementTypePtr elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber);
   virtual vector<GlobalIndexType> cellIDsOfElementType(unsigned partitionNumber, ElementTypePtr elemTypePtr);
   const set< GlobalIndexType > &cellsInPartition(PartitionIndexType partitionNumber) const;
   Intrepid::FieldContainer<double> cellSideParitiesForCell( GlobalIndexType cellID );
@@ -97,9 +106,9 @@ public:
 
   virtual void didChangePartitionPolicy() = 0; // called by superclass after setPartitionPolicy() is invoked
 
-  virtual ElementTypePtr elementType(GlobalIndexType cellID) = 0;
+  virtual ElementTypePtr elementType(GlobalIndexType cellID);
   virtual vector< ElementTypePtr > elementTypes(PartitionIndexType partitionNumber);
-  virtual void setElementType(GlobalIndexType cellID, ElementTypePtr elem);
+//  virtual void setElementType(GlobalIndexType cellID, ElementTypePtr elem);
 
   DofOrderingFactoryPtr getDofOrderingFactory();
   ElementTypeFactory & getElementTypeFactory();
@@ -115,6 +124,7 @@ public:
   bool getPartitions(Intrepid::FieldContainer<GlobalIndexType> &partitions);
   PartitionIndexType getPartitionCount();
 
+  int getPRefinementDegree(GlobalIndexType cellID);
   int getTestOrderEnrichment();
 
   virtual GlobalIndexType globalCellIndex(GlobalIndexType cellID);

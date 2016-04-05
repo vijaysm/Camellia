@@ -59,12 +59,26 @@ public: // TODO: create accessors for these Ptrs, and make them private...
               Teuchos::RCP< DofOrdering > testOrderPtr,
               CellTopoPtr cellTopoPtr)
   {
-    // TODO: for adaptivity: add bool [] sidesBroken??
     this->trialOrderPtr = trialOrderPtr;
     this->testOrderPtr = testOrderPtr;
     this->cellTopoPtr = cellTopoPtr;
   }
+  
+  bool equals(const ElementType &rhs) const
+  {
+    if (*this->trialOrderPtr != *rhs.trialOrderPtr) return false;
+    if (*this->testOrderPtr != *rhs.testOrderPtr) return false;
+    if (this->cellTopoPtr->getKey() != rhs.cellTopoPtr->getKey()) return false;
+    return true;
+  }
 };
 }
+
+inline bool operator==(const Camellia::ElementType& lhs, const Camellia::ElementType& rhs)
+{
+  return lhs.equals(rhs);
+}
+
+inline bool operator!=(const Camellia::ElementType& lhs, const Camellia::ElementType& rhs){ return !(lhs == rhs); }
 
 #endif

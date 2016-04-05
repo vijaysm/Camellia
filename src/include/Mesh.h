@@ -233,8 +233,6 @@ public:
 
   Boundary &boundary();
 
-  GlobalIndexType cellID(ElementTypePtr elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber=-1);
-
   vector< GlobalIndexType > cellIDsOfType(ElementTypePtr elemType); // for current MPI node.
   vector< GlobalIndexType > cellIDsOfType(int partitionNumber, ElementTypePtr elemTypePtr);
   vector< GlobalIndexType > cellIDsOfTypeGlobal(ElementTypePtr elemTypePtr);
@@ -377,7 +375,6 @@ public:
   Intrepid::FieldContainer<double> vertexCoordinates(GlobalIndexType vertexIndex);
 
   void verticesForCell(Intrepid::FieldContainer<double>& vertices, GlobalIndexType cellID);
-  void verticesForElementType(Intrepid::FieldContainer<double>& vertices, ElementTypePtr elemTypePtr);
   void verticesForSide(Intrepid::FieldContainer<double>& vertices, GlobalIndexType cellID, int sideOrdinal);
 
   void unregisterObserver(RefinementObserver* observer);

@@ -154,13 +154,10 @@ public:
   void setDofInterpreter(Teuchos::RCP<DofInterpreter> dofInterpreter);
 
   Epetra_Map getPartitionMap();
-  Epetra_Map getPartitionMapSolutionDofsOnly(); // omits lagrange constraints, zmcs, etc.
   Epetra_Map getPartitionMap(PartitionIndexType rank, std::set<GlobalIndexType> &myGlobalIndicesSet,
                              GlobalIndexType numGlobalDofs, int zeroMeanConstraintsSize, Epetra_Comm* Comm );
 
   MapPtr getPartitionMap2();
-  // Not implemented for now
-  // MapPtr getPartitionMapSolutionDofsOnly2(); // omits lagrange constraints, zmcs, etc.
   MapPtr getPartitionMap2(PartitionIndexType rank, std::set<GlobalIndexType> &myGlobalIndicesSet,
                           GlobalIndexType numGlobalDofs, int zeroMeanConstraintsSize, Teuchos_CommPtr Comm );
 
@@ -222,10 +219,6 @@ public:
 
   const std::map< GlobalIndexType, Intrepid::FieldContainer<Scalar> > & solutionForCellIDGlobal() const;
 
-  Scalar integrateSolution(int trialID);
-  void integrateSolution(Intrepid::FieldContainer<Scalar> &values, ElementTypePtr elemTypePtr, int trialID);
-
-  Scalar meanValue(int trialID);
   double meshMeasure();
 
   double InfNormOfSolution(int trialID);
@@ -265,9 +258,6 @@ public:
   double energyErrorTotal();
   const map<GlobalIndexType,double> & globalEnergyError();
   const map<GlobalIndexType,double> & rankLocalEnergyError();
-
-  void writeToFile(int trialID, const std::string &filePath);
-  void writeQuadSolutionToFile(int trialID, const std::string &filePath);
 
   void setWriteMatrixToFile(bool value,const std::string &filePath);
   void setWriteMatrixToMatrixMarketFile(bool value,const std::string &filePath);
