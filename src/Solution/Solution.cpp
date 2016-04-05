@@ -1066,7 +1066,11 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
 
     if (totalCellsForType == 0) continue;
     // if we get here, there is at least one, so we find a sample cellID to help us set up prototype BasisCaches:
-    GlobalIndexType sampleCellID = _mesh->cellID(elemTypePtr, 0, rank);
+    
+    // determine cellIDs
+    vector<GlobalIndexType> cellIDsOfType = _mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemTypePtr);
+    
+    GlobalIndexType sampleCellID = cellIDsOfType[0];
     BasisCachePtr basisCache = BasisCache::basisCacheForCell(_mesh,sampleCellID,false,_cubatureEnrichmentDegree);
     BasisCachePtr ipBasisCache = BasisCache::basisCacheForCell(_mesh,sampleCellID,true,_cubatureEnrichmentDegree);
 
@@ -1087,11 +1091,10 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
       int cellsLeft = totalCellsForType - startCellIndexForBatch;
       int numCells = min(maxCellBatch,cellsLeft);
 
-      // determine cellIDs
       vector<GlobalIndexType> cellIDs;
       for (int cellIndex=0; cellIndex<numCells; cellIndex++)
       {
-        GlobalIndexType cellID = _mesh->cellID(elemTypePtr, cellIndex+startCellIndexForBatch, rank);
+        GlobalIndexType cellID = cellIDsOfType[cellIndex+startCellIndexForBatch];
         cellIDs.push_back(cellID);
       }
 
@@ -1143,10 +1146,13 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
       Intrepid::FieldContainer<Scalar> interpretedRHS;
 
       Teuchos::Array<int> dim;
-
+      // determine cellIDs
+      vector<GlobalIndexType> cellIDsOfType = _mesh->globalDofAssignment()->cellIDsOfElementType(rank, elemTypePtr);
+      
       for (int cellIndex=0; cellIndex<numCells; cellIndex++)
       {
-        GlobalIndexType cellID = _mesh->cellID(elemTypePtr,cellIndex+startCellIndexForBatch,rank);
+        GlobalIndexType cellID = cellIDsOfType[cellIndex+startCellIndexForBatch];
+        
         Intrepid::FieldContainer<Scalar> cellStiffness(localStiffnessDim,&localStiffness(cellIndex,0,0)); // shallow copy
         Intrepid::FieldContainer<Scalar> cellRHS(localRHSDim,&localRHSVector(cellIndex,0)); // shallow copy
 
@@ -1318,52 +1324,53 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   }
   else
   {
+    TEUCHOS_TEST_FOR_EXCEPTION(_zmcsAsRankOneUpdate, std::invalid_argument, "_zmcsAsRankOneUpdate is not supported.  It's too slow!");
     // NOTE: this code remains here as reference only; it's quite inefficient because it creates a lot of fill-in for A
     // we may want to implement the same idea, but with a separate Epetra_Operator that simply stores the vector and the weight
-    for (vector< int >::iterator trialIt = zeroMeanConstraints.begin(); trialIt != zeroMeanConstraints.end(); trialIt++)
-    {
-      int trialID = *trialIt;
-
-      // sample an element to make sure that the basis used for trialID is nodal
-      // (this is assumed in our imposition mechanism)
-      GlobalIndexType firstActiveCellID = *_mesh->getActiveCellIDs().begin();
-      ElementTypePtr elemTypePtr = _mesh->getElementType(firstActiveCellID);
-      BasisPtr trialBasis = elemTypePtr->trialOrderPtr->getBasis(trialID);
-      if (!trialBasis->isNodal())
-      {
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Zero-mean constraint imposition assumes a nodal basis, and this basis isn't nodal.");
-      }
-
-      GlobalIndexTypeToCast zmcIndex;
-      if (rank==0)
-        zmcIndex = partMap.GID(localRowIndex);
-      else
-        zmcIndex = 0;
-
-      zmcIndex = MPIWrapper::sum(*_mesh->Comm(), zmcIndex);
-
-      Intrepid::FieldContainer<Scalar> basisIntegrals;
-      Intrepid::FieldContainer<GlobalIndexTypeToCast> globalIndices;
-      integrateBasisFunctions(globalIndices,basisIntegrals, trialID);
-      int numValues = globalIndices.size();
-
-      Intrepid::FieldContainer<Scalar> product(numValues,numValues);
-      Scalar denominator = 0.0;
-      for (int i=0; i<numValues; i++)
-      {
-        denominator += basisIntegrals(i);
-      }
-      denominator *= denominator;
-
-      for (int i=0; i<numValues; i++)
-      {
-        for (int j=0; j<numValues; j++)
-        {
-          product(i,j) = _zmcRho * basisIntegrals(i) * basisIntegrals(j) / denominator;
-        }
-      }
-      globalStiffness->SumIntoGlobalValues(numValues, &globalIndices(0), numValues, &globalIndices(0), &product(0,0));
-    }
+//    for (vector< int >::iterator trialIt = zeroMeanConstraints.begin(); trialIt != zeroMeanConstraints.end(); trialIt++)
+//    {
+//      int trialID = *trialIt;
+//
+//      // sample an element to make sure that the basis used for trialID is nodal
+//      // (this is assumed in our imposition mechanism)
+//      GlobalIndexType firstActiveCellID = *_mesh->getActiveCellIDs().begin();
+//      ElementTypePtr elemTypePtr = _mesh->getElementType(firstActiveCellID);
+//      BasisPtr trialBasis = elemTypePtr->trialOrderPtr->getBasis(trialID);
+//      if (!trialBasis->isNodal())
+//      {
+//        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Zero-mean constraint imposition assumes a nodal basis, and this basis isn't nodal.");
+//      }
+//
+//      GlobalIndexTypeToCast zmcIndex;
+//      if (rank==0)
+//        zmcIndex = partMap.GID(localRowIndex);
+//      else
+//        zmcIndex = 0;
+//
+//      zmcIndex = MPIWrapper::sum(*_mesh->Comm(), zmcIndex);
+//
+//      Intrepid::FieldContainer<Scalar> basisIntegrals;
+//      Intrepid::FieldContainer<GlobalIndexTypeToCast> globalIndices;
+//      integrateBasisFunctions(globalIndices,basisIntegrals, trialID);
+//      int numValues = globalIndices.size();
+//
+//      Intrepid::FieldContainer<Scalar> product(numValues,numValues);
+//      Scalar denominator = 0.0;
+//      for (int i=0; i<numValues; i++)
+//      {
+//        denominator += basisIntegrals(i);
+//      }
+//      denominator *= denominator;
+//
+//      for (int i=0; i<numValues; i++)
+//      {
+//        for (int j=0; j<numValues; j++)
+//        {
+//          product(i,j) = _zmcRho * basisIntegrals(i) * basisIntegrals(j) / denominator;
+//        }
+//      }
+//      globalStiffness->SumIntoGlobalValues(numValues, &globalIndices(0), numValues, &globalIndices(0), &product(0,0));
+//    }
   }
   // end of ZMC imposition
 
@@ -2211,12 +2218,6 @@ void TSolution<Scalar>::integrateBasisFunctions(Intrepid::FieldContainer<Scalar>
 }
 
 template <typename Scalar>
-Scalar TSolution<Scalar>::meanValue(int trialID)
-{
-  return integrateSolution(trialID) / meshMeasure();
-}
-
-template <typename Scalar>
 double TSolution<Scalar>::meshMeasure()
 {
   double value = 0.0;
@@ -2340,72 +2341,6 @@ template <typename Scalar>
 TVectorPtr<Scalar> TSolution<Scalar>::getLHSVector2()
 {
   return _lhsVector2;
-}
-
-template <typename Scalar>
-Scalar TSolution<Scalar>::integrateSolution(int trialID)
-{
-  Scalar value = 0.0;
-  vector<ElementTypePtr> elemTypes = _mesh->elementTypes();
-  vector<ElementTypePtr>::iterator elemTypeIt;
-  for (elemTypeIt = elemTypes.begin(); elemTypeIt != elemTypes.end(); elemTypeIt++)
-  {
-    ElementTypePtr elemTypePtr = *(elemTypeIt);
-    int numCellsOfType = _mesh->numElementsOfType(elemTypePtr);
-    Intrepid::FieldContainer<Scalar> valuesForType(numCellsOfType);
-    integrateSolution(valuesForType,elemTypePtr,trialID);
-    for (int cellIndex=0; cellIndex<numCellsOfType; cellIndex++)
-    {
-      value += valuesForType(cellIndex);
-    }
-  }
-  return value;
-}
-
-template <typename Scalar>
-void TSolution<Scalar>::integrateSolution(Intrepid::FieldContainer<Scalar> &values, ElementTypePtr elemTypePtr, int trialID)
-{
-  int numCellsOfType = _mesh->numElementsOfType(elemTypePtr);
-  int sideIndex = VOLUME_INTERIOR_SIDE_ORDINAL;
-  int basisCardinality = elemTypePtr->trialOrderPtr->getBasisCardinality(trialID,sideIndex);
-  TEUCHOS_TEST_FOR_EXCEPTION(values.dimension(0) != numCellsOfType,
-                             std::invalid_argument, "values must have dimensions (_mesh.numCellsOfType(elemTypePtr))");
-  TEUCHOS_TEST_FOR_EXCEPTION(values.rank() != 1,
-                             std::invalid_argument, "values must have dimensions (_mesh.numCellsOfType(elemTypePtr))");
-  BasisPtr trialBasis;
-  trialBasis = elemTypePtr->trialOrderPtr->getBasis(trialID);
-
-  int cubDegree = trialBasis->getDegree();
-
-  BasisCache basisCache(_mesh->physicalCellNodesGlobal(elemTypePtr), elemTypePtr->cellTopoPtr, cubDegree);
-
-  Teuchos::RCP < const Intrepid::FieldContainer<Scalar> > trialValuesTransformedWeighted;
-
-  trialValuesTransformedWeighted = basisCache.getTransformedWeightedValues(trialBasis, OP_VALUE);
-
-  if (trialValuesTransformedWeighted->rank() != 3)
-  {
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "integrateSolution only supports scalar-valued field variables at present.");
-  }
-
-  // integrate:
-  Intrepid::FieldContainer<double> physicalCubaturePoints = basisCache.getPhysicalCubaturePoints();
-
-  Intrepid::FieldContainer<Scalar> solnCoeffs(basisCardinality);
-
-  int numPoints = trialValuesTransformedWeighted->dimension(2);
-  for (int cellIndex=0; cellIndex<numCellsOfType; cellIndex++)
-  {
-    int cellID = _mesh->cellID(elemTypePtr,cellIndex);
-    solnCoeffsForCellID(solnCoeffs, cellID, trialID, sideIndex);
-    for (int basisIndex=0; basisIndex < basisCardinality; basisIndex++)
-    {
-      for (int pointIndex=0; pointIndex < numPoints; pointIndex++)
-      {
-        values(cellIndex) += solnCoeffs(basisIndex) * (*trialValuesTransformedWeighted)(cellIndex,basisIndex,pointIndex);
-      }
-    }
-  }
 }
 
 template <typename Scalar>
@@ -3058,205 +2993,6 @@ void TSolution<Scalar>::writeStatsToFile(const string &filePath, int precision)
 }
 
 template <typename Scalar>
-void TSolution<Scalar>::writeToFile(int trialID, const string &filePath)
-{
-  // writes out rows of the format: "cellID patchID x y solnValue"
-  ofstream fout(filePath.c_str());
-  fout << setprecision(15);
-  vector< ElementTypePtr > elementTypes = _mesh->elementTypes();
-  vector< ElementTypePtr >::iterator elemTypeIt;
-  int spaceDim = 2; // TODO: generalize to 3D...
-
-  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)
-  {
-    ElementTypePtr elemTypePtr = *(elemTypeIt);
-
-    CellTopoPtr cellTopo = elemTypePtr->cellTopoPtr;
-    Intrepid::FieldContainer<double> vertexPoints(cellTopo->getVertexCount(),cellTopo->getDimension());
-    CamelliaCellTools::refCellNodesForTopology(vertexPoints, cellTopo);
-
-    int numVertices = vertexPoints.dimension(1);
-
-    int numDivisionsPerEdge = 1; //basisDegree*basisDegree;
-    int numPatchesPerCell = numDivisionsPerEdge*numDivisionsPerEdge;
-
-    Intrepid::FieldContainer<double> refPoints(numPatchesPerCell*numVertices,spaceDim);
-
-    if (numVertices == 4)   // only quads supported by the multi-patch cell stuff below...
-    {
-      //if (   ( elemTypePtr->cellTopoPtr->getKey() == shards::Quadrilateral<4>::key )
-      //    || (elemTypePtr->cellTopoPtr->getKey() == shards::Triangle<3>::key ) ) {
-
-      Intrepid::FieldContainer<double> iVertex(spaceDim), jVertex(spaceDim);
-      Intrepid::FieldContainer<double> v1(spaceDim), v2(spaceDim), v3(spaceDim);
-
-      if (numVertices == 4)
-      {
-        double yWeights[numVertices], xWeights[numVertices];
-        for (int i=0; i<numDivisionsPerEdge; i++)
-        {
-          for (int j=0; j<numDivisionsPerEdge; j++)
-          {
-            //cout << "weights: " << xWeights[0]*yWeights[0] << " " << xWeights[1]*yWeights[1] << " " << xWeights[2]*yWeights[2] << " " << xWeights[3]*yWeights[3] << "\n";
-            int patchIndex = (i*numDivisionsPerEdge + j);
-            refPoints.initialize(0.0);
-            for (int patchVertexIndex=0; patchVertexIndex < numVertices; patchVertexIndex++)
-            {
-              int xOffset = ((patchVertexIndex==0) || (patchVertexIndex==3)) ? 0 : 1;
-              int yOffset = ((patchVertexIndex==0) || (patchVertexIndex==1)) ? 0 : 1;
-              determineQuadEdgeWeights(xWeights,i+xOffset,numDivisionsPerEdge,true);
-              determineQuadEdgeWeights(yWeights,j+yOffset,numDivisionsPerEdge,false);
-
-              for (int vertexIndex=0; vertexIndex < numVertices; vertexIndex++)
-              {
-                double weight = xWeights[vertexIndex] * yWeights[vertexIndex];
-                for (int dim=0; dim<spaceDim; dim++)
-                {
-                  refPoints(patchIndex*numVertices + patchVertexIndex, dim) += weight*vertexPoints(vertexIndex, dim);
-                }
-              }
-            }
-          }
-        }
-      }
-
-    }
-    else
-    {
-      refPoints = vertexPoints;
-      numPatchesPerCell = 1;
-    }
-
-    BasisCachePtr basisCache = BasisCache::basisCacheForCellType(_mesh, elemTypePtr);
-
-    basisCache->setPhysicalCellNodes(_mesh->physicalCellNodesGlobal(elemTypePtr), _mesh->cellIDsOfType(elemTypePtr), false);
-    basisCache->setRefCellPoints(refPoints);
-    int numCells = basisCache->cellIDs().size();
-
-    Intrepid::FieldContainer<double> values(numCells, numPatchesPerCell * numVertices);
-    this->solutionValues(values, trialID, basisCache);
-
-    Intrepid::FieldContainer<double> physPoints = basisCache->getPhysicalCubaturePoints();
-
-    for (int cellIndex=0; cellIndex < numCells; cellIndex++)
-    {
-      for (int patchIndex=0; patchIndex < numPatchesPerCell; patchIndex++)
-      {
-        for (int ptIndex=0; ptIndex< numVertices; ptIndex++)
-        {
-          double x = physPoints(cellIndex,patchIndex*numVertices + ptIndex,0);
-          double y = physPoints(cellIndex,patchIndex*numVertices + ptIndex,1);
-          double z = values(cellIndex,patchIndex*numVertices + ptIndex);
-          fout << _mesh->cellID(elemTypePtr,cellIndex) << " " << patchIndex << " " << x << " " << y << " " << z << endl;
-        }
-      }
-    }
-  }
-  fout.close();
-}
-
-template <typename Scalar>
-void TSolution<Scalar>::writeQuadSolutionToFile(int trialID, const string &filePath)
-{
-  // writes out rows of the format: "cellID xIndex yIndex x y solnValue"
-  // it's a goofy thing, largely because the MATLAB routine we're using
-  // wants a cartesian product with every combo (x_i, y_j) somewhere in the mix...
-  // The upshot is that the following will work reasonably only so long as our element
-  // boundaries are in a nice Cartesian grid.  But that's more a problem for MATLAB
-  // than it is for us...
-  ofstream fout(filePath.c_str());
-  fout << setprecision(15);
-  vector< ElementTypePtr > elementTypes = _mesh->elementTypes();
-  vector< ElementTypePtr >::iterator elemTypeIt;
-  int spaceDim = 2; // TODO: generalize to 3D...
-
-  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)
-  {
-    ElementTypePtr elemTypePtr = *(elemTypeIt);
-    int numCellsOfType = _mesh->numElementsOfType(elemTypePtr);
-    int basisDegree = elemTypePtr->trialOrderPtr->getBasis(trialID)->getDegree();
-    CellTopoPtr cellTopoPtr = elemTypePtr->cellTopoPtr;
-    // 0. Set up Cubature
-    // Get numerical integration points--these will be the points we compute the solution values for...
-    CubatureFactory  cubFactory;
-    int cubDegree = 2*basisDegree;
-    Teuchos::RCP<Intrepid::Cubature<double> > cellTopoCub = cubFactory.create(cellTopoPtr, cubDegree);
-
-    int cubDim       = cellTopoCub->getDimension();
-    int numCubPoints = cellTopoCub->getNumPoints();
-
-    Intrepid::FieldContainer<double> cubPoints(numCubPoints, cubDim);
-    Intrepid::FieldContainer<double> cubWeights(numCubPoints);
-
-    cellTopoCub->getCubature(cubPoints, cubWeights);
-
-    // here's a hackish bit: collect all the x and y coordinates, and add the vertices
-    set<double> xCoords, yCoords;
-    for (int ptIndex=0; ptIndex<numCubPoints; ptIndex++)
-    {
-      xCoords.insert(cubPoints(ptIndex,0));
-      yCoords.insert(cubPoints(ptIndex,1));
-    }
-
-    // add vertices (for ref quad)
-    xCoords.insert(-1.0);
-    xCoords.insert(1.0);
-    yCoords.insert(-1.0);
-    yCoords.insert(1.0);
-
-    // now, make ourselves a new set of "cubature" points:
-    numCubPoints = xCoords.size() * yCoords.size();
-    cubPoints.resize(numCubPoints,cubDim);
-    int ptIndex = 0;
-    set<double>::iterator xIt, yIt;
-    for (xIt = xCoords.begin(); xIt != xCoords.end(); xIt++)
-    {
-      for (yIt = yCoords.begin(); yIt != yCoords.end(); yIt++)
-      {
-        cubPoints(ptIndex,0) = *xIt;
-        cubPoints(ptIndex,1) = *yIt;
-        ptIndex++;
-      }
-    }
-    BasisCachePtr basisCache = BasisCache::basisCacheForCellType(_mesh, elemTypePtr);
-
-    basisCache->setPhysicalCellNodes(_mesh->physicalCellNodesGlobal(elemTypePtr), _mesh->cellIDsOfType(elemTypePtr), false);
-    basisCache->setRefCellPoints(cubPoints);
-
-    Intrepid::FieldContainer<double> physCubPoints = basisCache->getPhysicalCubaturePoints();
-
-    Intrepid::FieldContainer<double> values(numCellsOfType, numCubPoints);
-    solutionValues(values,trialID,basisCache);
-
-    map<float,int> xIndices;
-    map<float,int> yIndices; // use floats to truncate insignificant digits...
-    for (int cellIndex=0; cellIndex < numCellsOfType; cellIndex++)
-    {
-      xIndices.clear();
-      yIndices.clear();
-      for (int ptIndex=0; ptIndex< numCubPoints; ptIndex++)
-      {
-        double x = physCubPoints(cellIndex,ptIndex,0);
-        double y = physCubPoints(cellIndex,ptIndex,1);
-        double z = values(cellIndex,ptIndex);
-        if (xIndices.find(x) == xIndices.end())
-        {
-          int xIndex = xIndices.size();
-          xIndices[x] = xIndex;
-        }
-        if (yIndices.find(y) == yIndices.end())
-        {
-          int yIndex = yIndices.size();
-          yIndices[y] = yIndex;
-        }
-        fout << _mesh->cellID(elemTypePtr,cellIndex) << " " << xIndices[x] << " " << yIndices[y] << " " << x << " " << y << " " << z << endl;
-      }
-    }
-  }
-  fout.close();
-}
-
-template <typename Scalar>
 Intrepid::FieldContainer<Scalar> TSolution<Scalar>::solutionForElementTypeGlobal(ElementTypePtr elemType)
 {
   vector< ElementPtr > elementsOfType = _mesh->elementsOfTypeGlobal(elemType);
@@ -3530,127 +3266,128 @@ void TSolution<Scalar>::condensedSolve(TSolverPtr<Scalar> globalSolver, bool red
 template <typename Scalar>
 void TSolution<Scalar>::writeFieldsToFile(int trialID, const string &filePath)
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Solution::writeFieldsToFile is no longer supported");
 
   //  cout << "writeFieldsToFile for trialID: " << trialID << endl;
-
-  ofstream fout(filePath.c_str());
-  fout << setprecision(15);
-  vector< ElementTypePtr > elementTypes = _mesh->elementTypes();
-  vector< ElementTypePtr >::iterator elemTypeIt;
-  int spaceDim = 2; // TODO: generalize to 3D...
-  int num1DPts = 5;
-
-  fout << "numCells = " << _mesh->activeElements().size() << endl;
-  fout << "x=cell(numCells,1);y=cell(numCells,1);z=cell(numCells,1);" << endl;
-
-  // initialize storage
-  fout << "for i = 1:numCells" << endl;
-  fout << "x{i} = zeros(" << num1DPts << ",1);"<<endl;
-  fout << "y{i} = zeros(" << num1DPts << ",1);"<<endl;
-  fout << "z{i} = zeros(" << num1DPts << ");"<<endl;
-  fout << "end" << endl;
-  int globalCellInd = 1; //matlab indexes from 1
-  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)   //thru quads/triangles/etc
-  {
-    ElementTypePtr elemTypePtr = *(elemTypeIt);
-    CellTopoPtr cellTopo = elemTypePtr->cellTopoPtr;
-
-    Intrepid::FieldContainer<double> vertexPoints, physPoints;
-    _mesh->verticesForElementType(vertexPoints,elemTypePtr); //stores vertex points for this element
-    Intrepid::FieldContainer<double> physicalCellNodes = _mesh()->physicalCellNodesGlobal(elemTypePtr);
-
-    int numCells = physicalCellNodes.dimension(0);
-    bool createSideCacheToo = false;
-    BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemTypePtr,_mesh, createSideCacheToo));
-
-    vector<GlobalIndexType> cellIDs;
-    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-    {
-      GlobalIndexType cellID = _mesh->cellID(elemTypePtr, cellIndex, -1); // -1: global cellID
-      cellIDs.push_back(cellID);
-    }
-
-    int numPoints = num1DPts * num1DPts;
-    Intrepid::FieldContainer<double> refPoints(numPoints,spaceDim);
-    for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
-    {
-      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
-      {
-        int pointIndex = xPointIndex*num1DPts + yPointIndex;
-        double x = -1.0 + 2.0*(double)xPointIndex/((double)num1DPts-1.0);
-        double y = -1.0 + 2.0*(double)yPointIndex/((double)num1DPts-1.0);
-        refPoints(pointIndex,0) = x;
-        refPoints(pointIndex,1) = y;
-      }
-    }
-
-    basisCache->setRefCellPoints(refPoints);
-    basisCache->setPhysicalCellNodes(physicalCellNodes, cellIDs, createSideCacheToo);
-    Intrepid::FieldContainer<double> computedValues(numCells,numPoints);
-
-    this->solutionValues(computedValues, trialID, basisCache);
-    const Intrepid::FieldContainer<double> *physicalPoints = &basisCache->getPhysicalCubaturePoints();
-
-    for (int cellIndex=0; cellIndex<numCells; cellIndex++ )
-    {
-      for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
-      {
-        int yPointIndex = 0;
-        int pointIndex = xPointIndex*num1DPts + yPointIndex;
-        fout << "x{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<")=" << (*physicalPoints)(cellIndex,pointIndex,0) << ";" << endl;
-      }
-      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
-      {
-        int xPointIndex = 0;
-        int pointIndex = xPointIndex*num1DPts + yPointIndex;
-        fout << "y{"<<globalCellInd+cellIndex<< "}("<<yPointIndex+1<<")=" << (*physicalPoints)(cellIndex,pointIndex,1) << ";" << endl;
-      }
-    }
-
-    for (int cellIndex=0; cellIndex < numCells; cellIndex++)
-    {
-      for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
-      {
-        for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
-        {
-          int ptIndex = xPointIndex*num1DPts + yPointIndex;
-          fout << "z{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<","<<yPointIndex+1<<")=" << computedValues(cellIndex,ptIndex) << ";" << endl;
-        }
-      }
-    }
-
-    //    // NOW loop over all cells to write solution to file
-    //    for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++){
-    //      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++){
-    //
-    //        // for some odd reason, I cannot compute the ref-to-phys map for more than 1 point at a time
-    //        int numPoints = 1;
-    //        Intrepid::FieldContainer<double> refPoints(numPoints,spaceDim);
-    //        double x = -1.0 + 2.0*(double)xPointIndex/((double)num1DPts-1.0);
-    //        double y = -1.0 + 2.0*(double)yPointIndex/((double)num1DPts-1.0);
-    //        refPoints(0,0) = x;
-    //        refPoints(0,1) = y;
-    //
-    //        // map side cubature points in reference parent cell domain to physical space
-    //        Intrepid::FieldContainer<double> physicalPoints(numCells, numPoints, spaceDim);
-    //        CellTools::mapToPhysicalFrame(physicalPoints, refPoints, physicalCellNodes, cellTopo);
-    //
-    //        cout << "physicalPoints:\n" <<  physicalPoints;
-    //
-    //        Intrepid::FieldContainer<double> computedValues(numCells,numPoints); // first arg = 1 cell only
-    //        solutionValues(computedValues, elemTypePtr, trialID, physicalPoints);
-    //
-    //        for (int cellIndex=0;cellIndex < numCells;cellIndex++){
-    //          fout << "x{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<")=" << physicalPoints(cellIndex,0,0) << ";" << endl;
-    //          fout << "y{"<<globalCellInd+cellIndex<< "}("<<yPointIndex+1<<")=" << physicalPoints(cellIndex,0,1) << ";" << endl;
-    //          fout << "z{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<","<<yPointIndex+1<<")=" << computedValues(cellIndex,0) << ";" << endl;
-    //        }
-    //      }
-    //    }
-    globalCellInd+=numCells;
-
-  } //end of element type loop
-  fout.close();
+//
+//  ofstream fout(filePath.c_str());
+//  fout << setprecision(15);
+//  vector< ElementTypePtr > elementTypes = _mesh->elementTypes();
+//  vector< ElementTypePtr >::iterator elemTypeIt;
+//  int spaceDim = 2; // TODO: generalize to 3D...
+//  int num1DPts = 5;
+//
+//  fout << "numCells = " << _mesh->activeElements().size() << endl;
+//  fout << "x=cell(numCells,1);y=cell(numCells,1);z=cell(numCells,1);" << endl;
+//
+//  // initialize storage
+//  fout << "for i = 1:numCells" << endl;
+//  fout << "x{i} = zeros(" << num1DPts << ",1);"<<endl;
+//  fout << "y{i} = zeros(" << num1DPts << ",1);"<<endl;
+//  fout << "z{i} = zeros(" << num1DPts << ");"<<endl;
+//  fout << "end" << endl;
+//  int globalCellInd = 1; //matlab indexes from 1
+//  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)   //thru quads/triangles/etc
+//  {
+//    ElementTypePtr elemTypePtr = *(elemTypeIt);
+//    CellTopoPtr cellTopo = elemTypePtr->cellTopoPtr;
+//
+//    Intrepid::FieldContainer<double> vertexPoints, physPoints;
+//    _mesh->verticesForElementType(vertexPoints,elemTypePtr); //stores vertex points for this element
+//    Intrepid::FieldContainer<double> physicalCellNodes = _mesh()->physicalCellNodesGlobal(elemTypePtr);
+//
+//    int numCells = physicalCellNodes.dimension(0);
+//    bool createSideCacheToo = false;
+//    BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemTypePtr,_mesh, createSideCacheToo));
+//
+//    vector<GlobalIndexType> cellIDs;
+//    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+//    {
+//      GlobalIndexType cellID = _mesh->cellID(elemTypePtr, cellIndex, -1); // -1: global cellID
+//      cellIDs.push_back(cellID);
+//    }
+//
+//    int numPoints = num1DPts * num1DPts;
+//    Intrepid::FieldContainer<double> refPoints(numPoints,spaceDim);
+//    for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
+//    {
+//      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
+//      {
+//        int pointIndex = xPointIndex*num1DPts + yPointIndex;
+//        double x = -1.0 + 2.0*(double)xPointIndex/((double)num1DPts-1.0);
+//        double y = -1.0 + 2.0*(double)yPointIndex/((double)num1DPts-1.0);
+//        refPoints(pointIndex,0) = x;
+//        refPoints(pointIndex,1) = y;
+//      }
+//    }
+//
+//    basisCache->setRefCellPoints(refPoints);
+//    basisCache->setPhysicalCellNodes(physicalCellNodes, cellIDs, createSideCacheToo);
+//    Intrepid::FieldContainer<double> computedValues(numCells,numPoints);
+//
+//    this->solutionValues(computedValues, trialID, basisCache);
+//    const Intrepid::FieldContainer<double> *physicalPoints = &basisCache->getPhysicalCubaturePoints();
+//
+//    for (int cellIndex=0; cellIndex<numCells; cellIndex++ )
+//    {
+//      for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
+//      {
+//        int yPointIndex = 0;
+//        int pointIndex = xPointIndex*num1DPts + yPointIndex;
+//        fout << "x{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<")=" << (*physicalPoints)(cellIndex,pointIndex,0) << ";" << endl;
+//      }
+//      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
+//      {
+//        int xPointIndex = 0;
+//        int pointIndex = xPointIndex*num1DPts + yPointIndex;
+//        fout << "y{"<<globalCellInd+cellIndex<< "}("<<yPointIndex+1<<")=" << (*physicalPoints)(cellIndex,pointIndex,1) << ";" << endl;
+//      }
+//    }
+//
+//    for (int cellIndex=0; cellIndex < numCells; cellIndex++)
+//    {
+//      for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
+//      {
+//        for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
+//        {
+//          int ptIndex = xPointIndex*num1DPts + yPointIndex;
+//          fout << "z{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<","<<yPointIndex+1<<")=" << computedValues(cellIndex,ptIndex) << ";" << endl;
+//        }
+//      }
+//    }
+//
+//    //    // NOW loop over all cells to write solution to file
+//    //    for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++){
+//    //      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++){
+//    //
+//    //        // for some odd reason, I cannot compute the ref-to-phys map for more than 1 point at a time
+//    //        int numPoints = 1;
+//    //        Intrepid::FieldContainer<double> refPoints(numPoints,spaceDim);
+//    //        double x = -1.0 + 2.0*(double)xPointIndex/((double)num1DPts-1.0);
+//    //        double y = -1.0 + 2.0*(double)yPointIndex/((double)num1DPts-1.0);
+//    //        refPoints(0,0) = x;
+//    //        refPoints(0,1) = y;
+//    //
+//    //        // map side cubature points in reference parent cell domain to physical space
+//    //        Intrepid::FieldContainer<double> physicalPoints(numCells, numPoints, spaceDim);
+//    //        CellTools::mapToPhysicalFrame(physicalPoints, refPoints, physicalCellNodes, cellTopo);
+//    //
+//    //        cout << "physicalPoints:\n" <<  physicalPoints;
+//    //
+//    //        Intrepid::FieldContainer<double> computedValues(numCells,numPoints); // first arg = 1 cell only
+//    //        solutionValues(computedValues, elemTypePtr, trialID, physicalPoints);
+//    //
+//    //        for (int cellIndex=0;cellIndex < numCells;cellIndex++){
+//    //          fout << "x{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<")=" << physicalPoints(cellIndex,0,0) << ";" << endl;
+//    //          fout << "y{"<<globalCellInd+cellIndex<< "}("<<yPointIndex+1<<")=" << physicalPoints(cellIndex,0,1) << ";" << endl;
+//    //          fout << "z{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<","<<yPointIndex+1<<")=" << computedValues(cellIndex,0) << ";" << endl;
+//    //        }
+//    //      }
+//    //    }
+//    globalCellInd+=numCells;
+//
+//  } //end of element type loop
+//  fout.close();
 }
 
 template <typename Scalar>
@@ -3818,25 +3555,25 @@ Epetra_Map TSolution<Scalar>::getPartitionMap()
   return partMap;
 }
 
-template <typename Scalar>
-Epetra_Map TSolution<Scalar>::getPartitionMapSolutionDofsOnly()   // omits lagrange multipliers, ZMCs, etc.
-{
-  Epetra_Map partMapWithZMC = getPartitionMap();
-  vector<int> myGlobalIndices(partMapWithZMC.NumMyElements());
-  partMapWithZMC.MyGlobalElements(&myGlobalIndices[0]);
-  GlobalIndexType numGlobalDofs = _dofInterpreter->globalDofCount();
-  vector<int> myGlobalDofs;
-  for (vector<int>::iterator myEntry = myGlobalIndices.begin(); myEntry != myGlobalIndices.end(); myEntry++)
-  {
-    if (*myEntry < numGlobalDofs)
-    {
-      myGlobalDofs.push_back(*myEntry);
-    }
-  }
-  int indexBase = 0;
-  Epetra_Map partMap(numGlobalDofs, myGlobalDofs.size(), &myGlobalDofs[0], indexBase, partMapWithZMC.Comm());
-  return partMap;
-}
+//template <typename Scalar>
+//Epetra_Map TSolution<Scalar>::getPartitionMapSolutionDofsOnly()   // omits lagrange multipliers, ZMCs, etc.
+//{
+//  Epetra_Map partMapWithZMC = getPartitionMap();
+//  vector<int> myGlobalIndices(partMapWithZMC.NumMyElements());
+//  partMapWithZMC.MyGlobalElements(&myGlobalIndices[0]);
+//  GlobalIndexType numGlobalDofs = _dofInterpreter->globalDofCount();
+//  vector<int> myGlobalDofs;
+//  for (vector<int>::iterator myEntry = myGlobalIndices.begin(); myEntry != myGlobalIndices.end(); myEntry++)
+//  {
+//    if (*myEntry < numGlobalDofs)
+//    {
+//      myGlobalDofs.push_back(*myEntry);
+//    }
+//  }
+//  int indexBase = 0;
+//  Epetra_Map partMap(numGlobalDofs, myGlobalDofs.size(), &myGlobalDofs[0], indexBase, partMapWithZMC.Comm());
+//  return partMap;
+//}
 
 template <typename Scalar>
 Epetra_Map TSolution<Scalar>::getPartitionMap(PartitionIndexType rank, set<GlobalIndexType> & myGlobalIndicesSet, GlobalIndexType numGlobalDofs,
@@ -4115,29 +3852,10 @@ void TSolution<Scalar>::projectOntoCell(const map<int, TFunctionPtr<Scalar> > &f
       }
       for (int sideIndex : sides)
       {
-//        if (! elemTypePtr->trialOrderPtr->hasBasisEntry(trialID, sideIndex)) continue;
         BasisPtr basis = elemTypePtr->trialOrderPtr->getBasis(trialID, sideIndex);
         Intrepid::FieldContainer<Scalar> basisCoefficients(1,basis->getCardinality());
         Projector<Scalar>::projectFunctionOntoBasis(basisCoefficients, function, basis, basisCache->getSideBasisCache(sideIndex));
         basisCoefficients.resize(basis->getCardinality());
-
-//        { // DEBUGGING
-//          if ((sideIndex==2) || (sideIndex == 3)) {
-//            cout << "cell " << cellID << ", side " << sideIndex << ":\n";
-//            cout << "function: " << function->displayString() << endl;
-//
-//            BasisCachePtr sideCache = basisCache->getSideBasisCache(sideIndex);
-//
-//            cout << "basisCoefficients:\n" << basisCoefficients;
-//            cout << "physicalCubaturePoints:\n" << sideCache->getPhysicalCubaturePoints();
-//
-//            int numCells = 1;
-//            Intrepid::FieldContainer<double> values(numCells, basisCache->getSideBasisCache(sideIndex)->getPhysicalCubaturePoints().dimension(1));
-//            function->values(values, sideCache);
-//
-//            cout << "function values:\n" << values;
-//          }
-//        }
 
         // at present, we understand it to be caller's responsibility to include parity in Function if the varType is a flux.
         // if we wanted to change that semantic, we'd use the below.
