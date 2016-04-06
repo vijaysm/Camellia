@@ -226,7 +226,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     MeshTopologyPtr originalMesh = meshTopo->deepCopy();
     unsigned originalMemoryFootprint = originalMesh->approximateMemoryFootprint();
     
-    const set<GlobalIndexType>* activeCellIDs = &meshTopo->getActiveCellIndices();
+    const set<GlobalIndexType>* activeCellIDs = &originalMesh->getActiveCellIndices();
     
     int vertexDim = 0; // for now, let's just test the vertex-continuity case
     for (GlobalIndexType cellID : *activeCellIDs)
@@ -256,7 +256,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
       activeCellsToKeep.insert(cellID);
       
       // check if there are any missing active cells; if not, then we shouldn't expect a memory footprint reduction
-      bool someCellsShouldBeDeleted = (activeCellsToKeep.size()) != activeCellIDs->size();
+      bool someCellsShouldBeDeleted = (activeCellsToKeep.size() != activeCellIDs->size());
       meshTopo->pruneToInclude({cellID}, vertexDim);
       unsigned prunedMemoryFootprint = meshTopo->approximateMemoryFootprint();
       if (someCellsShouldBeDeleted)
@@ -342,11 +342,6 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
           afterPruningIt++;
         }
       }
-      
-      
-//      vector<GlobalIndexType> neighborsVector(neighbors.begin(),neighbors.end());
-//      vector<GlobalIndexType> neighborsAfterPruningVector(neighborsAfterPruning.begin(),neighborsAfterPruning.end());
-//      TEST_COMPARE_ARRAYS(neighborsVector,neighborsAfterPruningVector);
       
       // restore the original mesh for the next cell to test
       meshTopo = originalMesh->deepCopy();
