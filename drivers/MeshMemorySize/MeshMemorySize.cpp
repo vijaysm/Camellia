@@ -1,5 +1,6 @@
 #include "MeshTopology.h"
 
+using namespace Camellia;
 using namespace std;
 
 vector<double> makeVertex(double v0)
@@ -65,7 +66,7 @@ MeshTopologyPtr makeQuadMesh(double x0, double y0, double width, double height,
     {
       double y = y0 + dy * j;
       vector< vector<double> > vertices = quadPoints(x, y, dx, dy);
-      mesh->addCell(quadTopo, vertices);
+      mesh->addCell(mesh->cellCount(), quadTopo, vertices);
     }
   }
   return mesh;
@@ -90,7 +91,7 @@ MeshTopologyPtr makeHexMesh(double x0, double y0, double z0, double width, doubl
       {
         double z = z0 + dz * k;
         vector< vector<double> > vertices = hexPoints(x, y, z, dx, dy, dz);
-        mesh->addCell(hexTopo, vertices);
+        mesh->addCell(mesh->cellCount(), hexTopo, vertices);
       }
     }
   }
@@ -102,7 +103,7 @@ void refineUniformly(MeshTopologyPtr mesh)
   set<unsigned> cellIndices = mesh->getActiveCellIndices();
   for (set<unsigned>::iterator cellIt = cellIndices.begin(); cellIt != cellIndices.end(); cellIt++)
   {
-    mesh->refineCell(*cellIt, RefinementPattern::regularRefinementPatternHexahedron());
+    mesh->refineCell(*cellIt, RefinementPattern::regularRefinementPatternHexahedron(), mesh->cellCount());
   }
 }
 
@@ -169,7 +170,7 @@ int main(int argc, char *argv[])
       set<IndexType> activeCells = mesh->getActiveCellIndices();
       for (set<IndexType>::iterator cellIDIt = activeCells.begin(); cellIDIt != activeCells.end(); cellIDIt++)
       {
-        mesh->refineCell(*cellIDIt, regularQuadRefPattern);
+        mesh->refineCell(*cellIDIt, regularQuadRefPattern, mesh->cellCount());
       }
 
       horizontalCells *= 2;
@@ -236,7 +237,7 @@ int main(int argc, char *argv[])
       set<IndexType> activeCells = mesh->getActiveCellIndices();
       for (set<IndexType>::iterator cellIDIt = activeCells.begin(); cellIDIt != activeCells.end(); cellIDIt++)
       {
-        mesh->refineCell(*cellIDIt, regularHexRefPattern);
+        mesh->refineCell(*cellIDIt, regularHexRefPattern, mesh->cellCount());
       }
 
       horizontalCells *= 2;
@@ -252,11 +253,20 @@ int main(int argc, char *argv[])
 
     mesh->printApproximateMemoryReport();
 
-    CellPtr cell = mesh->getCell(0);
-    cell->printApproximateMemoryReport();
+//    CellPtr cell = mesh->getCell(0);
+//    cell->printApproximateMemoryReport();
 
+    IndexType someActiveCell = *mesh->getActiveCellIndices().begin();
+    int vertexDim = 0;
+    mesh->pruneToInclude({someActiveCell}, vertexDim);
+    
+    cout << "Approximate size of same mesh, but pruned to include first active cell, is ";
+    memoryFootprintInBytes = mesh->approximateMemoryFootprint();
+    double memoryFootprintInKilobytes = (double)memoryFootprintInBytes / 1024;
+    cout << setprecision(4) << memoryFootprintInKilobytes << " KB.\n";
+    mesh->printApproximateMemoryReport();
+    
     mesh = Teuchos::null;
-    cell = Teuchos::null;
   }
 
 }
