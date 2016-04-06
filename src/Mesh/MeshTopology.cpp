@@ -3037,6 +3037,7 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   _boundarySides = prunedBoundarySides;
   
   map<GlobalIndexType, CellPtr> _prunedCells;
+  set<IndexType> prunedActiveCells;
   for (GlobalIndexType cellID : cellsToInclude)
   {
     CellPtr cell = getCell(cellID);
@@ -3048,8 +3049,13 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
     }
     cell->setVertices(newVertexIndices);
     _prunedCells[cellID] = cell;
+    if (!cell->isParent(thisPtr))
+    {
+      prunedActiveCells.insert(cellID);
+    }
   }
   _cells = _prunedCells;
+  _activeCells = prunedActiveCells;
   // things we haven't done yet:
   /*
    // these guys presently only support 2D:
