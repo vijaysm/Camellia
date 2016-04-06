@@ -36,6 +36,20 @@ namespace Camellia
   void print(std::string name, std::set<long long> data);
   void print(std::string name, std::set<double> data);
   
+  void print(std::ostream &out, std::string name, std::map<unsigned, unsigned> data);
+  void print(std::ostream &out, std::string name, std::map<unsigned, double> data);
+  void print(std::ostream &out, std::string name, std::map<int, double> data);
+  
+  void print(std::ostream &out, std::string name, std::vector<int> data);
+  void print(std::ostream &out, std::string name, std::vector<unsigned> data);
+  void print(std::ostream &out, std::string name, std::vector<long long> data);
+  void print(std::ostream &out, std::string name, std::vector<double> data);
+  
+  void print(std::ostream &out, std::string name, std::set<unsigned> data);
+  void print(std::ostream &out, std::string name, std::set<int> data);
+  void print(std::ostream &out, std::string name, std::set<long long> data);
+  void print(std::ostream &out, std::string name, std::set<double> data);
+  
   // ! prints out the coefficients for each variable, labelled using the names from the VarFactory.
   // ! If the trialSpaceDofs boolean is set to true, interprets the variable IDs as trial space variables;
   // ! otherwise, interprets them as test space variables.

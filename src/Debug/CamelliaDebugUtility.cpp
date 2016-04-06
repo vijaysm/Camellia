@@ -19,38 +19,60 @@ using namespace std;
 using namespace Intrepid;
 namespace Camellia
 {
-  
-  template<typename data_type>
-  void print(string name, vector<data_type> &data)
+  template<typename container_type>
+  void print(ostream &out, string name, container_type &data)
   {
-    cout << name << ": ";
-    for (int i=0; i<data.size(); i++)
+    out << name << ": ";
+    for (typename container_type::iterator dataIt=data.begin(); dataIt != data.end(); dataIt++)
     {
-      cout << data[i] << " ";
+      out << *dataIt << " ";
     }
-    cout << endl;
+    out << endl;
   }
   
-  template<typename data_type>
-  void print(string name, set<data_type> &data)
+  template<typename key_type, typename value_type>
+  void print(ostream &out, string name, map<key_type, value_type> &data)
   {
-    cout << name << ": ";
-    for (typename set<data_type>::iterator dataIt=data.begin(); dataIt != data.end(); dataIt++)
+    out << name << ": ";
+    for (typename map<key_type, value_type>::iterator dataIt=data.begin(); dataIt != data.end(); dataIt++)
     {
-      cout << *dataIt << " ";
+      out << "(" << dataIt->first << " => " << dataIt->second << ") ";
     }
-    cout << endl;
+    out << endl;
+  }
+  
+//  template<typename data_type>
+//  void print(string name, vector<data_type> &data)
+//  {
+//    cout << name << ": ";
+//    for (int i=0; i<data.size(); i++)
+//    {
+//      cout << data[i] << " ";
+//    }
+//    cout << endl;
+//  }
+//  
+//  template<typename data_type>
+//  void print(string name, set<data_type> &data)
+//  {
+//    cout << name << ": ";
+//    for (typename set<data_type>::iterator dataIt=data.begin(); dataIt != data.end(); dataIt++)
+//    {
+//      cout << *dataIt << " ";
+//    }
+//    cout << endl;
+//  }
+  
+  template<typename container_type>
+  void print(string name, container_type &data)
+  {
+    print<container_type>(cout,name,data);
   }
   
   template<typename key_type, typename value_type>
   void print(string name, map<key_type, value_type> &data)
   {
-    cout << name << ": ";
-    for (typename map<key_type, value_type>::iterator dataIt=data.begin(); dataIt != data.end(); dataIt++)
-    {
-      cout << "(" << dataIt->first << " => " << dataIt->second << ") ";
-    }
-    cout << endl;
+    print<key_type,value_type>(cout,name,data);
   }
   
   void print(string name, map<int, double> data)
@@ -70,36 +92,85 @@ namespace Camellia
   
   void print(string name, vector<long long> data)
   {
-    print<long long>(name, data);
+    print<vector<long long>>(name, data);
   }
   
   void print(string name, vector<int> data)
   {
-    print<int>(name, data);
+    print<vector<int>>(name, data);
   }
   void print(string name, vector<unsigned> data)
   {
-    print<unsigned>(name, data);
+    print<vector<unsigned>>(name, data);
   }
   void print(string name, vector<double> data)
   {
-    print<double>(name,data);
+    print<vector<double>>(name,data);
   }
   void print(string name, set<unsigned> data)
   {
-    print<unsigned>(name, data);
+    print<set<unsigned>>(name, data);
   }
   void print(string name, set<int> data)
   {
-    print<int>(name, data);
+    print<set<int>>(name, data);
   }
   void print(string name, set<long long> data)
   {
-    print<long long>(name, data);
+    print<set<long long>>(name, data);
   }
   void print(string name, set<double> data)
   {
-    print<double>(name, data);
+    print<set<double>>(name, data);
+  }
+  
+  void print(ostream &out, string name, map<int, double> data)
+  {
+    print<int, double>(out, name, data);
+  }
+  
+  void print(ostream &out, string name, map<unsigned, double> data)
+  {
+    print<unsigned, double>(out, name, data);
+  }
+  
+  void print(ostream &out, string name, map<unsigned, unsigned> data)
+  {
+    print<unsigned, unsigned>(out, name, data);
+  }
+  
+  void print(ostream &out, string name, vector<long long> data)
+  {
+    print<vector<long long>>(out, name, data);
+  }
+  
+  void print(ostream &out, string name, vector<int> data)
+  {
+    print<vector<int>>(out, name, data);
+  }
+  void print(ostream &out, string name, vector<unsigned> data)
+  {
+    print<vector<unsigned>>(out, name, data);
+  }
+  void print(ostream &out, string name, vector<double> data)
+  {
+    print<vector<double>>(out, name, data);
+  }
+  void print(ostream &out, string name, set<unsigned> data)
+  {
+    print<set<unsigned>>(out, name, data);
+  }
+  void print(ostream &out, string name, set<int> data)
+  {
+    print<set<int>>(out, name, data);
+  }
+  void print(ostream &out, string name, set<long long> data)
+  {
+    print<set<long long>>(out, name, data);
+  }
+  void print(ostream &out, string name, set<double> data)
+  {
+    print<set<double>>(out, name, data);
   }
   
   void printLabeledDofCoefficients(VarFactoryPtr vf, DofOrderingPtr dofOrdering,
