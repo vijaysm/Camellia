@@ -221,6 +221,156 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     }
   }
 
+  void testPrune(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
+  {
+    MeshTopologyPtr originalMesh = meshTopo->deepCopy();
+    unsigned originalMemoryFootprint = originalMesh->approximateMemoryFootprint();
+    
+    const set<GlobalIndexType>* activeCellIDs = &meshTopo->getActiveCellIndices();
+    
+    int vertexDim = 0; // for now, let's just test the vertex-continuity case
+    for (GlobalIndexType cellID : *activeCellIDs)
+    {
+      CellPtr cell = meshTopo->getCell(cellID);
+      vector<GlobalIndexType> ancestors;
+      CellPtr ancestorCell = cell->getParent();
+      while (ancestorCell != Teuchos::null)
+      {
+        ancestors.push_back(ancestorCell->cellIndex());
+        ancestorCell = ancestorCell->getParent();
+      }
+      set<GlobalIndexType> neighbors = cell->getActiveNeighborIndices(vertexDim, meshTopo);
+      
+      set<GlobalIndexType> neighborAncestors;
+      for (GlobalIndexType neighborCellID : neighbors)
+      {
+        CellPtr ancestorCell = meshTopo->getCell(neighborCellID)->getParent();
+        while (ancestorCell != Teuchos::null)
+        {
+          neighborAncestors.insert(ancestorCell->cellIndex());
+          ancestorCell = ancestorCell->getParent();
+        }
+      }
+      
+      set<GlobalIndexType> activeCellsToKeep(neighbors.begin(),neighbors.end());
+      activeCellsToKeep.insert(cellID);
+      
+      // check if there are any missing active cells; if not, then we shouldn't expect a memory footprint reduction
+      bool someCellsShouldBeDeleted = (activeCellsToKeep.size()) != activeCellIDs->size();
+      meshTopo->pruneToInclude({cellID}, vertexDim);
+      unsigned prunedMemoryFootprint = meshTopo->approximateMemoryFootprint();
+      if (someCellsShouldBeDeleted)
+      {
+        TEST_COMPARE(prunedMemoryFootprint, <, originalMemoryFootprint);
+        
+        if (prunedMemoryFootprint >= originalMemoryFootprint)
+        {
+          out << "FAILURE: When pruning to include cell " << cellID << ", expected pruning to reduce memory footprint.\n";
+          out << "Original memory footprint: " << originalMemoryFootprint << "; pruned memory footprint: " << prunedMemoryFootprint << endl;
+          print(out, "Expected active cells to be included", activeCellsToKeep);
+        }
+      }
+      else
+      {
+        TEST_COMPARE(prunedMemoryFootprint, ==, originalMemoryFootprint);
+        
+        if (prunedMemoryFootprint != originalMemoryFootprint)
+        {
+          cout << "Expected original and pruned MeshTopology to be identical, but they differ in memory usage.\n";
+          cout << "Original memory report:\n";
+          originalMesh->printApproximateMemoryReport();
+          cout << "Pruned memory report:\n";
+          meshTopo->printApproximateMemoryReport();
+        }
+        
+      }
+      // test that all the cells we want to access are still valid:
+      if (! meshTopo->isValidCellIndex(cellID))
+      {
+        success = false;
+        out << "After pruning to include cell " << cellID << ", the cell itself is missing.\n";
+      }
+      for (GlobalIndexType neighborCellID : neighbors)
+      {
+        if (!meshTopo->isValidCellIndex(neighborCellID))
+        {
+          success = false;
+          out << "After pruning to include cell " << cellID << ", its neighbor, cell " << neighborCellID << ", is missing.\n";
+        }
+      }
+      for (GlobalIndexType ancestorCellID : ancestors)
+      {
+        if (!meshTopo->isValidCellIndex(ancestorCellID))
+        {
+          success = false;
+          out << "After pruning to include cell " << cellID << ", its ancestor, cell " << ancestorCellID << ", is missing.\n";
+        }
+      }
+      for (GlobalIndexType ancestorCellID : neighborAncestors)
+      {
+        if (!meshTopo->isValidCellIndex(ancestorCellID))
+        {
+          success = false;
+          out << "After pruning to include cell " << cellID << ", one of its neighbor's ancestors, cell " << ancestorCellID << ", is missing.\n";
+        }
+      }
+      
+      // test that the neighbor set has not changed:
+      set<GlobalIndexType> neighborsAfterPruning = cell->getActiveNeighborIndices(vertexDim,meshTopo);
+      if (neighbors.size() != neighborsAfterPruning.size())
+      {
+        success = false;
+        out << "FAILURE: neighbors of cell " << cellID << " after pruning do not match neighbors before pruning.\n";
+        print(out, "before pruning", neighbors);
+        print(out, "after pruning", neighborsAfterPruning);
+      }
+      else
+      {
+        auto beforePruningIt = neighbors.begin(), afterPruningIt = neighborsAfterPruning.begin();
+        while (beforePruningIt != neighbors.end())
+        {
+          if (*beforePruningIt != *afterPruningIt)
+          {
+            success = false;
+            out << *beforePruningIt << " != " << *afterPruningIt << " : " << "failed!\n";
+          }
+          else
+          {
+            out << *beforePruningIt << " == " << *afterPruningIt << " : " << "passed\n";
+          }
+          beforePruningIt++;
+          afterPruningIt++;
+        }
+      }
+      
+      
+//      vector<GlobalIndexType> neighborsVector(neighbors.begin(),neighbors.end());
+//      vector<GlobalIndexType> neighborsAfterPruningVector(neighborsAfterPruning.begin(),neighborsAfterPruning.end());
+//      TEST_COMPARE_ARRAYS(neighborsVector,neighborsAfterPruningVector);
+      
+      // restore the original mesh for the next cell to test
+      meshTopo = originalMesh->deepCopy();
+    }
+  }
+  
+  void testPruneAfterRefining(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
+  {
+    // do some refinements
+    GlobalIndexType cellID = 0;
+    GlobalIndexType nextChildIndex = meshTopo->cellCount();
+    int childOrdinal = 1; // in each refinement, take this child as the one to refine next
+    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(meshTopo->getCell(cellID)->topology());
+    int numRefinements = 1;
+    for (int i=0; i<numRefinements; i++)
+    {
+      meshTopo->refineCell(cellID, refPattern, nextChildIndex);
+      nextChildIndex += refPattern->numChildren();
+      CellPtr cell = meshTopo->getCell(cellID);
+      cellID = cell->children()[childOrdinal]->cellIndex();
+    }
+    testPrune(meshTopo, out, success);
+  }
+  
 TEUCHOS_UNIT_TEST( MeshTopology, InitialMeshEntitiesActiveCellCount)
 {
   // one easy way to create a quad mesh topology is to use MeshFactory
@@ -530,6 +680,69 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
     
     TEST_EQUALITY(bottomCell->getNeighbor(0, meshTopo)->cellIndex(), topCellIndex);
     TEST_EQUALITY(topCell->getNeighbor(2, meshTopo)->cellIndex(), bottomCellIndex);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneRefinedMesh_1D)
+  {
+    int meshWidth = 2;
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {meshWidth});
+    
+    testPruneAfterRefining(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneRefinedMesh_2D)
+  {
+    int meshWidth = 2;
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {meshWidth,meshWidth});
+    
+    testPruneAfterRefining(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneRefinedMesh_3D)
+  {
+    int meshWidth = 2;
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {meshWidth,meshWidth,meshWidth});
+    
+    testPruneAfterRefining(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneUnrefinedMesh_1D)
+  {
+    // start with one where no pruning should actually take place
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {2});
+    testPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in two out of three cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {3});
+    testPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {4});
+    testPrune(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneUnrefinedMesh_2D)
+  {
+    // start with one where no pruning should actually take place
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {2,2});
+    testPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all but one case
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {3,3});
+    testPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {4,4});
+    testPrune(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneUnrefinedMesh_3D)
+  {
+    // start with one where no pruning should actually take place
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {2,2,2});
+    testPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all but one case
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {3,3,3});
+    testPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {4,4,4});
+    testPrune(meshTopo, out, success);
   }
   
   TEUCHOS_UNIT_TEST( MeshTopology, UpdateNeighborsAfterAnisotropicRefinements)
