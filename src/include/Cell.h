@@ -35,11 +35,12 @@ class Cell
   MeshTopology* _meshTopo;
 
   // for parents:
-  vector< Teuchos::RCP< Cell > > _children;
+  vector<GlobalIndexType> _childIndices;
   RefinementPatternPtr _refPattern;
+  vector<CellPtr> _children;
 
   // for children:
-  Teuchos::RCP<Cell> _parent; // doesn't own memory (avoid circular reference issues)
+  CellPtr _parent; // doesn't own memory (avoid circular reference issues)
 
   //neighbors:
   vector< pair<GlobalIndexType, unsigned> > _neighbors; // cellIndex, neighborSideIndex (which may not refer to the same side)
@@ -66,7 +67,7 @@ public:
 
   IndexType cellIndex();
   const vector< Teuchos::RCP< Cell > > &children();
-  void setChildren(vector< Teuchos::RCP< Cell > > children);
+  void setChildren(const vector<GlobalIndexType> &childIndices);
   vector<IndexType> getChildIndices(MeshTopologyViewPtr meshTopoViewForCellValidity);
   vector< pair<IndexType, unsigned> > childrenForSide(unsigned sideOrdinal);
   // !! returns the ordinal of the specified child in the parent's children container (which matches the order in RefinementPattern).  Returns -1 if the cell has no child with the specified cellIndex.
@@ -133,7 +134,9 @@ public:
 
   const vector< vector< unsigned > > &subcellPermutations();
 
-  const vector< unsigned > &vertices();
+  const vector<unsigned> &vertices();
+  
+  void setVertices(const vector<unsigned> &vertexIndices);
 };
 }
 

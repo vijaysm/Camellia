@@ -163,7 +163,11 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighbo
       for (pair<IndexType, unsigned> cellPair : cellPairs)
       {
         IndexType cellID = cellPair.first;
-        neighborIndices.insert(cellID);
+        CellPtr neighborCell = meshTopoViewForCellValidity->getCell(cellID);
+        if (! meshTopoViewForCellValidity->isParent(cellID)) // if it is a parent, then it isn't active...
+        {
+          neighborIndices.insert(cellID);
+        }
       }
     }
     // don't include this cell among its neighbors...
@@ -243,11 +247,11 @@ vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideI
   {
     unsigned childOrdinal = (*entryIt).first;
     unsigned childSideOrdinal = (*entryIt).second;
-    IndexType childCellIndex = _children[childOrdinal]->cellIndex();
+    IndexType childCellIndex = _childIndices[childOrdinal];
     if ( ( !meshTopoViewForCellValidity->isParent(childCellIndex)) || (! leafNodesOnly ) )
     {
       // (            leaf node              ) || ...
-      descendantsForSide.push_back( {_children[childOrdinal]->cellIndex(), childSideOrdinal} );
+      descendantsForSide.push_back( {_childIndices[childOrdinal], childSideOrdinal} );
     }
     if ( _children[childOrdinal]->isParent(meshTopoViewForCellValidity) )
     {
@@ -301,13 +305,13 @@ map<string, long long> Cell::approximateMemoryCosts()
 
   variableCosts["_meshTopo"] += sizeof(MeshTopology*);
 
-  variableCosts["_children"] = VECTOR_OVERHEAD + _children.capacity() * sizeof(CellPtr);
+  variableCosts["_children"] = VECTOR_OVERHEAD + _children.size() * sizeof(CellPtr);
 
   variableCosts["_refPattern"] = sizeof(RefinementPatternPtr);
 
   variableCosts["_parent"] = sizeof(_parent);
 
-  variableCosts["_neighbors"] = VECTOR_OVERHEAD + _neighbors.capacity() * sizeof(pair<GlobalIndexType, unsigned>);
+  variableCosts["_neighbors"] = VECTOR_OVERHEAD + _neighbors.size() * sizeof(pair<GlobalIndexType, unsigned>);
 
   return variableCosts;
 }
@@ -331,9 +335,9 @@ unsigned Cell::cellIndex()
 
 unsigned Cell::childOrdinal(IndexType childIndex)
 {
-  for (unsigned childOrdinal=0; childOrdinal<_children.size(); childOrdinal++)
+  for (unsigned childOrdinal=0; childOrdinal<_childIndices.size(); childOrdinal++)
   {
-    if (_children[childOrdinal]->cellIndex() == childIndex)
+    if (_childIndices[childOrdinal] == childIndex)
     {
       return childOrdinal;
     }
@@ -343,32 +347,36 @@ unsigned Cell::childOrdinal(IndexType childIndex)
   return -1; // NOT FOUND
 }
 
-const vector< Teuchos::RCP< Cell > > &Cell::children()
+const vector< CellPtr > &Cell::children()
 {
   return _children;
 }
 
-void Cell::setChildren(vector< Teuchos::RCP< Cell > > children)
+void Cell::setChildren(const vector<GlobalIndexType> &childIndices)
 {
-  _children = children;
+  _childIndices = childIndices;
   Teuchos::RCP< Cell > thisPtr = Teuchos::rcp( this, false ); // doesn't own memory
-  for (vector< Teuchos::RCP< Cell > >::iterator childIt = children.begin(); childIt != children.end(); childIt++)
+  _children.resize(childIndices.size(),Teuchos::null);
+  for (int childOrdinal=0; childOrdinal < childIndices.size(); childOrdinal++)
   {
-    (*childIt)->setParent(thisPtr);
+    GlobalIndexType childCellIndex = childIndices[childOrdinal];
+    
+    if (_meshTopo->isValidCellIndex(childCellIndex))
+    {
+      CellPtr childCell = _meshTopo->getCell(childCellIndex);
+      childCell->setParent(thisPtr);
+      _children[childOrdinal] = childCell;
+    }
   }
 }
 
 vector<unsigned> Cell::getChildIndices(MeshTopologyViewPtr meshTopoViewForCellValidity)
 {
+  // if the mesh topo doesn't think we're a parent, then no children
   if (! isParent(meshTopoViewForCellValidity))
     return vector<unsigned>();
-  // if we are a parent, then assumption is *all* children are valid.
-  vector<unsigned> indices(_children.size());
-  for (unsigned childOrdinal=0; childOrdinal<_children.size(); childOrdinal++)
-  {
-    indices[childOrdinal] = _children[childOrdinal]->cellIndex();
-  }
-  return indices;
+  
+  return _childIndices;
 }
 
 unsigned Cell::entityIndex(unsigned subcdim, unsigned subcord)
@@ -462,9 +470,9 @@ vector<unsigned> Cell::getEntityIndices(unsigned subcdim)
 
 int Cell::findChildOrdinal(IndexType cellIndex)
 {
-  for (int childOrdinal=0; childOrdinal < _children.size(); childOrdinal++)
+  for (int childOrdinal=0; childOrdinal < _childIndices.size(); childOrdinal++)
   {
-    if (_children[childOrdinal]->cellIndex() == cellIndex) return childOrdinal;
+    if (_childIndices[childOrdinal] == cellIndex) return childOrdinal;
   }
   return -1;
 }
@@ -505,9 +513,23 @@ void Cell::setParent(Teuchos::RCP<Cell> parent)
 
 bool Cell::isParent(MeshTopologyViewPtr meshTopoViewForCellValidity)
 {
-  if (_children.size() == 0) return false;
-  return meshTopoViewForCellValidity->isValidCellIndex(_children[0]->cellIndex()); // if first child is not valid, then presumably not a parent from this MeshTopo's point of view
-//  return _children.size() > 0;
+  if (_childIndices.size() == 0) return false;
+  
+  /*
+   With distributed MeshTopology, isValidCellIndex() returns false for 
+   Cells that are not locally known.  It can happen that a parent is
+   known but not all of its children are.  But this should only happen
+   if there is *some* child that is locally known.  Therefore, we need
+   to check all children.  If some child is valid, then this is a parent.
+   */
+  
+  for (GlobalIndexType childCellIndex : _childIndices)
+  {
+    if (meshTopoViewForCellValidity->isValidCellIndex(childCellIndex))
+      return true;
+  }
+  // no valid child found: return false
+  return false;
 }
 
 RefinementBranch Cell::refinementBranch()
@@ -812,6 +834,12 @@ RefinementPatternPtr Cell::refinementPattern()
 void Cell::setRefinementPattern(RefinementPatternPtr refPattern)
 {
   _refPattern = refPattern;
+}
+
+void Cell::setVertices(const vector<unsigned> &vertexIndices)
+{
+  _vertices = vertexIndices;
+  _entityIndices.clear();
 }
 
 unsigned Cell::sideSubcellPermutation(unsigned int sideOrdinal, unsigned int sideSubcdim, unsigned int sideSubcord)

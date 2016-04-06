@@ -31,6 +31,8 @@ class GlobalDofAssignment;
 class MeshTopology : public MeshTopologyView
 {
   unsigned _spaceDim; // dimension of the mesh
+  
+  IndexType _nextCellIndex; // until we actually support cell coarsenings, this will be the same as the cell count
 
   map< vector<double>, IndexType > _vertexMap; // maps into indices in the vertices list -- here just for vertex identification (i.e. so we don't add the same vertex twice)
   vector< vector<double> > _vertices; // vertex locations

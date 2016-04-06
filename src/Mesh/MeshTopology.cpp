@@ -37,7 +37,8 @@ void MeshTopology::init(unsigned spaceDim)
   _generalizedParentEntities = vector< map<unsigned, pair<unsigned,unsigned> > >(numEntityDimensions);
   _childEntities = vector< map< unsigned, vector< pair<RefinementPatternPtr, vector<unsigned> > > > >(numEntityDimensions);
   _entityCellTopologyKeys = vector< vector< CellTopologyKey > >(numEntityDimensions);
-
+  _nextCellIndex = 0;
+  
   _gda = NULL;
 }
 
@@ -72,7 +73,7 @@ MeshTopology::MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> p
 
   int numElements = meshGeometry->cellTopos().size();
 
-  GlobalIndexType cellID = 0;
+  GlobalIndexType cellID = _nextCellIndex;
   for (int i=0; i<numElements; i++)
   {
     CellTopoPtr cellTopo = meshGeometry->cellTopos()[i];
@@ -134,7 +135,7 @@ long long approximateVectorSizeLLVM(vector<A> &someVector)   // in bytes
   vector<int> emptyVector;
   int VECTOR_OVERHEAD = sizeof(someVector);
 
-  return VECTOR_OVERHEAD + sizeof(A) * someVector.capacity();
+  return VECTOR_OVERHEAD + sizeof(A) * someVector.size();
 }
 
 map<string, long long> MeshTopology::approximateMemoryCosts()
@@ -161,7 +162,7 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
   {
     variableCost["_vertices"] += approximateVectorSizeLLVM(*entryIt);
   }
-  variableCost["_vertices"] += VECTOR_OVERHEAD * (_vertices.capacity() - _vertices.size());
+//  variableCost["_vertices"] += VECTOR_OVERHEAD * (_vertices.capacity() - _vertices.size());
 
   variableCost["_periodicBCs"] = approximateVectorSizeLLVM(_periodicBCs);
 
@@ -183,9 +184,9 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
     {
       variableCost["_entities"] += approximateVectorSizeLLVM(*entry2It);
     }
-    variableCost["_entities"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
+//    variableCost["_entities"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
   }
-  variableCost["_entities"] += VECTOR_OVERHEAD * (_entities.capacity() - _entities.size());
+//  variableCost["_entities"] += VECTOR_OVERHEAD * (_entities.capacity() - _entities.size());
 
   variableCost["_knownEntities"] = VECTOR_OVERHEAD; // for outer vector _knownEntities
   for (vector< map< vector<IndexType>, IndexType > >::iterator entryIt = _knownEntities.begin(); entryIt != _knownEntities.end(); entryIt++)
@@ -197,7 +198,7 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
       variableCost["_knownEntities"] += approximateVectorSizeLLVM(entryVector) + sizeof(IndexType);
     }
   }
-  variableCost["_knownEntities"] += MAP_OVERHEAD * (_knownEntities.capacity() - _knownEntities.size());
+//  variableCost["_knownEntities"] += MAP_OVERHEAD * (_knownEntities.capacity() - _knownEntities.size());
 
   variableCost["_canonicalEntityOrdering"] = VECTOR_OVERHEAD; // for outer vector _canonicalEntityOrdering
   for (vector< vector< vector<IndexType> > >::iterator entryIt = _canonicalEntityOrdering.begin(); entryIt != _canonicalEntityOrdering.end(); entryIt++)
@@ -207,9 +208,9 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
     {
       variableCost["_canonicalEntityOrdering"] += approximateVectorSizeLLVM(*entry2It);
     }
-    variableCost["_canonicalEntityOrdering"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
+//    variableCost["_canonicalEntityOrdering"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
   }
-  variableCost["_canonicalEntityOrdering"] += MAP_OVERHEAD * (_canonicalEntityOrdering.capacity() - _canonicalEntityOrdering.size());
+//  variableCost["_canonicalEntityOrdering"] += MAP_OVERHEAD * (_canonicalEntityOrdering.capacity() - _canonicalEntityOrdering.size());
 
   variableCost["_activeCellsForEntities"] += VECTOR_OVERHEAD; // for outer vector _activeCellsForEntities
   for (vector< vector< vector< pair<IndexType, unsigned> > > >::iterator entryIt = _activeCellsForEntities.begin(); entryIt != _activeCellsForEntities.end(); entryIt++)
@@ -219,9 +220,9 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
     {
       variableCost["_activeCellsForEntities"] += approximateVectorSizeLLVM(*entry2It);
     }
-    variableCost["_activeCellsForEntities"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
+//    variableCost["_activeCellsForEntities"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
   }
-  variableCost["_activeCellsForEntities"] += VECTOR_OVERHEAD * (_activeCellsForEntities.capacity() - _activeCellsForEntities.size());
+//  variableCost["_activeCellsForEntities"] += VECTOR_OVERHEAD * (_activeCellsForEntities.capacity() - _activeCellsForEntities.size());
 
   variableCost["_sidesForEntities"] = VECTOR_OVERHEAD; // _sidesForEntities
   for (vector< vector< vector<IndexType> > >::iterator entryIt = _sidesForEntities.begin(); entryIt != _sidesForEntities.end(); entryIt++)
@@ -232,9 +233,9 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
       variableCost["_sidesForEntities"] += sizeof(IndexType);
       variableCost["_sidesForEntities"] += approximateVectorSizeLLVM(*entry2It);
     }
-    variableCost["_sidesForEntities"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
+//    variableCost["_sidesForEntities"] += VECTOR_OVERHEAD * (entryIt->capacity() - entryIt->size());
   }
-  variableCost["_sidesForEntities"] += VECTOR_OVERHEAD * (_sidesForEntities.capacity() - _sidesForEntities.size());
+//  variableCost["_sidesForEntities"] += VECTOR_OVERHEAD * (_sidesForEntities.capacity() - _sidesForEntities.size());
 
   variableCost["_cellsForSideEntities"] = approximateMapSizeLLVM(_cellsForSideEntities);
 
@@ -251,14 +252,14 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
       variableCost["_parentEntities"] += approximateVectorSizeLLVM(entry2It->second);
     }
   }
-  variableCost["_parentEntities"] += MAP_OVERHEAD * (_parentEntities.capacity() - _parentEntities.size());
+//  variableCost["_parentEntities"] += MAP_OVERHEAD * (_parentEntities.capacity() - _parentEntities.size());
 
   variableCost["_generalizedParentEntities"] = VECTOR_OVERHEAD; // vector _generalizedParentEntities
   for (vector< map< IndexType, pair<IndexType, unsigned> > >::iterator entryIt = _generalizedParentEntities.begin(); entryIt != _generalizedParentEntities.end(); entryIt++)
   {
     variableCost["_generalizedParentEntities"] += approximateMapSizeLLVM(*entryIt);
   }
-  variableCost["_generalizedParentEntities"] += MAP_OVERHEAD * (_generalizedParentEntities.capacity() - _generalizedParentEntities.size());
+//  variableCost["_generalizedParentEntities"] += MAP_OVERHEAD * (_generalizedParentEntities.capacity() - _generalizedParentEntities.size());
 
   variableCost["_childEntities"] = VECTOR_OVERHEAD; // vector _childEntities
   for (vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > >::iterator entryIt = _childEntities.begin(); entryIt != _childEntities.end(); entryIt++)
@@ -275,17 +276,17 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
         variableCost["_childEntities"] += sizeof(RefinementPatternPtr);
         variableCost["_childEntities"] += approximateVectorSizeLLVM(entry3It->second);
       }
-      variableCost["_childEntities"] += sizeof(pair< RefinementPatternPtr, vector<IndexType> >) * (entry2It->second.capacity() - entry2It->second.size());
+//      variableCost["_childEntities"] += sizeof(pair< RefinementPatternPtr, vector<IndexType> >) * (entry2It->second.capacity() - entry2It->second.size());
     }
   }
-  variableCost["_childEntities"] += MAP_OVERHEAD * (_childEntities.capacity() - _childEntities.size());
+//  variableCost["_childEntities"] += MAP_OVERHEAD * (_childEntities.capacity() - _childEntities.size());
 
   variableCost["_entityCellTopologyKeys"] = VECTOR_OVERHEAD; // _entityCellTopologyKeys vector
   for (vector< vector< CellTopologyKey > >::iterator entryIt = _entityCellTopologyKeys.begin(); entryIt != _entityCellTopologyKeys.end(); entryIt++)
   {
     variableCost["_entityCellTopologyKeys"] += approximateVectorSizeLLVM(*entryIt);
   }
-  variableCost["_entityCellTopologyKeys"] += VECTOR_OVERHEAD * (_entityCellTopologyKeys.capacity() - _entityCellTopologyKeys.size());
+//  variableCost["_entityCellTopologyKeys"] += VECTOR_OVERHEAD * (_entityCellTopologyKeys.capacity() - _entityCellTopologyKeys.size());
 
   variableCost["_cells"] = approximateMapSizeLLVM(_cells); // _cells map
   for (auto cellEntry = _cells.begin(); cellEntry != _cells.end(); cellEntry++)
@@ -364,6 +365,23 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtrLegacy shardsTopo
 unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector<unsigned> &cellVertices, unsigned parentCellIndex)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(_cells.find(cellIndex) != _cells.end(), std::invalid_argument, "addCell: cell with specified cellIndex already exists!");
+ 
+  if (cellIndex < _nextCellIndex)
+  {
+    // then we take it that we're being told about a previously existing cell
+    // We may have pruned away either this cell or its ancestor.
+    // Upshot: we don't need to increase _nextCellIndex...
+  }
+  else if (cellIndex == _nextCellIndex)
+  {
+    _nextCellIndex++;
+  }
+  else
+  {
+    // should not get here
+    cout << "Error: adding cell " << cellIndex << ", which is greater than _nextCellIndex.\n";
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex must be <= _nextCellIndex.");
+  }
   
   vector< vector< unsigned > > cellEntityPermutations;
   
@@ -775,16 +793,16 @@ void MeshTopology::addChildren(IndexType firstChildIndex, CellPtr parentCell, co
 {
   int numChildren = childTopos.size();
   TEUCHOS_TEST_FOR_EXCEPTION(numChildren != childVertices.size(), std::invalid_argument, "childTopos and childVertices must be the same size");
-  vector< CellPtr > children;
-  IndexType cellIndex = firstChildIndex; // children get continguous cell indices
-  for (int childIndex=0; childIndex<numChildren; childIndex++)
+  vector<GlobalIndexType> childIndices;
+  IndexType childCellIndex = firstChildIndex; // children get continguous cell indices
+  for (int childOrdinal=0; childOrdinal<numChildren; childOrdinal++)
   {
-    addCell(cellIndex, childTopos[childIndex], childVertices[childIndex],parentCell->cellIndex());
-    children.push_back(_cells[cellIndex]);
-    _rootCells.erase(cellIndex);
-    cellIndex++;
+    addCell(childCellIndex, childTopos[childOrdinal], childVertices[childOrdinal],parentCell->cellIndex());
+    childIndices.push_back(childCellIndex);
+    _rootCells.erase(childCellIndex);
+    childCellIndex++;
   }
-  parentCell->setChildren(children);
+  parentCell->setChildren(childIndices);
   
   // if any entity sets contain parent cell, add child cells, too
   for (auto entry : _entitySets)
@@ -792,9 +810,9 @@ void MeshTopology::addChildren(IndexType firstChildIndex, CellPtr parentCell, co
     EntitySetPtr entitySet = entry.second;
     if (entitySet->containsEntity(this->getDimension(), parentCell->cellIndex()))
     {
-      for (CellPtr child : children)
+      for (IndexType childCellIndex : childIndices)
       {
-        entitySet->addEntity(this->getDimension(), child->cellIndex());
+        entitySet->addEntity(this->getDimension(), childCellIndex);
       }
     }
   }
@@ -954,7 +972,7 @@ bool MeshTopology::cellContainsPoint(GlobalIndexType cellID, const vector<double
 
 IndexType MeshTopology::cellCount()
 {
-  return _cells.size();
+  return _nextCellIndex;
 }
 
 vector<IndexType> MeshTopology::cellIDsForPoints(const FieldContainer<double> &physicalPoints)
@@ -1437,13 +1455,13 @@ void MeshTopology::deepCopyCells()
       newParent->setRefinementPattern(oldParent->refinementPattern());
       _cells[oldCellIndex]->setParent(newParent);
     }
-    vector<CellPtr> children;
+    vector<GlobalIndexType> childIndices;
     for (int childOrdinal=0; childOrdinal<oldCell->children().size(); childOrdinal++)
     {
-      CellPtr newChild = _cells[oldCell->children()[childOrdinal]->cellIndex()];
-      children.push_back(newChild);
+      GlobalIndexType newChildIndex = oldCell->children()[childOrdinal]->cellIndex();
+      childIndices.push_back(newChildIndex);
     }
-    _cells[oldCellIndex]->setChildren(children);
+    _cells[oldCellIndex]->setChildren(childIndices);
   }
 }
 
@@ -1548,10 +1566,16 @@ vector< pair<unsigned,unsigned> > MeshTopology::getActiveCellIndices(unsigned d,
 
 CellPtr MeshTopology::getCell(unsigned cellIndex)
 {
-  if (cellIndex > _cells.size())
+  if (_cells.find(cellIndex) == _cells.end())
   {
-    cout << "MeshTopology::getCell: cellIndex " << cellIndex << " out of bounds (0, " << _cells.size() - 1 << ").\n";
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex out of bounds.\n");
+    cout << "MeshTopology::getCell: cellIndex " << cellIndex << " is invalid.\n";
+    vector<GlobalIndexType> validIndices;
+    for (auto entry : _cells)
+    {
+      validIndices.push_back(entry.first);
+    }
+    print("valid cells", validIndices);
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex is invalid.\n");
   }
   return _cells[cellIndex];
 }
@@ -2382,7 +2406,7 @@ bool MeshTopology::isBoundarySide(IndexType sideEntityIndex)
 
 bool MeshTopology::isValidCellIndex(IndexType cellIndex)
 {
-  return cellIndex < _cells.size();
+  return _cells.find(cellIndex) != _cells.end();
 }
 
 pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex)
@@ -2788,7 +2812,7 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   // (we don't support pruning these yet)
   cellsThatMatch.insert(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
   
-  // now, for each cell, ascend the refinement hierarchy, adding ancestors and siblings
+  // now, for each cell, ascend the refinement hierarchy, adding ancestors
   set<GlobalIndexType> cellsToInclude;
   for (GlobalIndexType cellID : cellsThatMatch)
   {
@@ -2798,14 +2822,12 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
     {
       cell = cell->getParent();
       cellsToInclude.insert(cell->cellIndex());
-      vector<IndexType> childCellIndices = cell->getChildIndices(thisPtr);
-      cellsToInclude.insert(childCellIndices.begin(),childCellIndices.end());
     }
   }
   
   // now, collect all the entities that belong to the cells
   vector<set<IndexType>> entitiesToKeep(_spaceDim);
-  for (GlobalIndexType cellID : cellsThatMatch)
+  for (GlobalIndexType cellID : cellsToInclude)
   {
     CellPtr cell = getCell(cellID);
     for (int d=0; d<_spaceDim; d++)
@@ -2882,35 +2904,38 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   _cellsForSideEntities = prunedCellsForSideEntities;
   
   vector< vector< vector<IndexType> > > prunedEntities(_spaceDim);
-  vector< map< vector<IndexType>, IndexType > > prunedKnownEntities;
+  vector< map< vector<IndexType>, IndexType > > prunedKnownEntities(_spaceDim);
   vector< vector< vector<IndexType> > > prunedCanonicalEntityOrdering(_spaceDim);
   vector< vector< vector< pair<IndexType, unsigned> > > > prunedActiveCellsForEntities(_spaceDim);
   vector< vector< vector<IndexType> > > prunedSidesForEntities(_spaceDim);
-  vector< map< IndexType, vector< pair<IndexType, unsigned> > > > prunedParentEntities;
-  vector< map< IndexType, pair<IndexType, unsigned> > > prunedGeneralizedParentEntities;
-  vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > > prunedChildEntities;
-  vector< vector< Camellia::CellTopologyKey > > prunedEntityCellTopologyKeys;
+  vector< map< IndexType, vector< pair<IndexType, unsigned> > > > prunedParentEntities(_spaceDim);
+  vector< map< IndexType, pair<IndexType, unsigned> > > prunedGeneralizedParentEntities(_spaceDim);
+  vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > > prunedChildEntities(_spaceDim);
+  vector< vector< Camellia::CellTopologyKey > > prunedEntityCellTopologyKeys(_spaceDim);
   for (int d=0; d<_spaceDim; d++)
   {
     int prunedEntityCount = oldEntityIndices[d].size();
     prunedEntities[d].resize(prunedEntityCount);
-    prunedCanonicalEntityOrdering[d].resize(prunedEntityCount);
+    if (d > 0) prunedCanonicalEntityOrdering[d].resize(prunedEntityCount);
     prunedActiveCellsForEntities[d].resize(prunedEntityCount);
     prunedSidesForEntities[d].resize(prunedEntityCount);
+    prunedEntityCellTopologyKeys[d].resize(prunedEntityCount);
     for (int prunedEntityIndex=0; prunedEntityIndex<prunedEntityCount; prunedEntityIndex++)
     {
       IndexType oldEntityIndex = oldEntityIndices[d][prunedEntityIndex];
       prunedEntityCellTopologyKeys[d][prunedEntityIndex] = _entityCellTopologyKeys[d][oldEntityIndex];
       int nodeCount = _entities[d][oldEntityIndex].size();
       prunedEntities[d][prunedEntityIndex].resize(nodeCount);
-      prunedCanonicalEntityOrdering[d][prunedEntityIndex].resize(nodeCount);
-      for (int nodeOrdinal=0; nodeOrdinal<nodeCount; nodeCount++)
+      
+      if (d > 0) prunedCanonicalEntityOrdering[d][prunedEntityIndex].resize(nodeCount);
+      for (int nodeOrdinal=0; nodeOrdinal<nodeCount; nodeOrdinal++)
       {
         // first, update entities
         IndexType oldVertexIndex = _entities[d][oldEntityIndex][nodeOrdinal];
         IndexType newVertexIndex = (*reverseVertexLookup)[oldVertexIndex];
         prunedEntities[d][prunedEntityIndex][nodeOrdinal] = newVertexIndex;
         
+        if (d == 0) continue; // no canonical ordering stored for vertices...
         // next, canonical entity ordering
         oldVertexIndex = _canonicalEntityOrdering[d][oldEntityIndex][nodeOrdinal];
         newVertexIndex = (*reverseVertexLookup)[oldVertexIndex];
@@ -2972,9 +2997,19 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
           vector<IndexType> newChildEntityIndices;
           for (IndexType oldChildEntityIndex : oldChildEntityIndices)
           {
-            TEUCHOS_TEST_FOR_EXCEPTION(reverseLookup[d].find(oldChildEntityIndex) == reverseLookup[d].end(), std::invalid_argument,
-                                       "reverseLookup does not contain child entity");
-            newChildEntityIndices.push_back(reverseLookup[d][oldChildEntityIndex]);
+            if (reverseLookup[d].find(oldChildEntityIndex) == reverseLookup[d].end())
+            {
+              // reverseLookup does not contain child entity
+              // This can happen when the child entity isn't seen by the cells of interest
+              
+              // For now, anyway, we put a -1 here.  This should trigger exceptions if the child entity ever
+              // gets used (which it should not be).
+              newChildEntityIndices.push_back(-1);
+            }
+            else
+            {
+              newChildEntityIndices.push_back(reverseLookup[d][oldChildEntityIndex]);
+            }
           }
           prunedChildEntities[d][prunedEntityIndex].push_back({refPattern,newChildEntityIndices});
         }
@@ -3001,11 +3036,22 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   }
   _boundarySides = prunedBoundarySides;
   
-  
+  map<GlobalIndexType, CellPtr> _prunedCells;
+  for (GlobalIndexType cellID : cellsToInclude)
+  {
+    CellPtr cell = getCell(cellID);
+    vector<IndexType> oldVertexIndices = cell->vertices();
+    vector<IndexType> newVertexIndices;
+    for (IndexType oldVertexIndex : oldVertexIndices)
+    {
+      newVertexIndices.push_back((*reverseVertexLookup)[oldVertexIndex]);
+    }
+    cell->setVertices(newVertexIndices);
+    _prunedCells[cellID] = cell;
+  }
+  _cells = _prunedCells;
   // things we haven't done yet:
   /*
-   map<GlobalIndexType, CellPtr> _cells; // the cells known on this MPI rank.  Right now, all cells are stored on every rank; soon, this will not be true anymore.
-   
    // these guys presently only support 2D:
    map< pair<IndexType, IndexType>, ParametricCurvePtr > _edgeToCurveMap;
    */
@@ -3028,6 +3074,14 @@ void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPatte
 {
   // TODO: worry about the case (currently unsupported in RefinementPattern) of children that do not share topology with the parent.  E.g. quad broken into triangles.  (3D has better examples.)
 
+  // if we get request to refine a cell that we don't know about, we simply increment the _cellCount and return
+  _nextCellIndex = firstChildCellIndex + refPattern->numChildren();
+  if (!isValidCellIndex(cellIndex))
+  {
+    return;
+  }
+  
+  
 //  { // DEBUGGING
 //    if (cellIndex == 39)
 //    {
