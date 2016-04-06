@@ -114,10 +114,12 @@ namespace
       int sizeWritten = dataLocation - &dataBuffer[0];
       TEST_EQUALITY(sizeWritten, size);
       const char *constDataLocation = &dataBuffer[0];
-      vector<RootedLabeledRefinementBranch> unpackedBranch = CellDataMigration::unpackGeometryData(mesh.get(), cellID, constDataLocation, size);
+      vector<RootedLabeledRefinementBranch> unpackedBranch;
+      CellDataMigration::unpackGeometryData(mesh.get(), cellID, constDataLocation, size, unpackedBranch);
       int sizeRead = constDataLocation - &dataBuffer[0];
       TEST_EQUALITY(sizeRead, size);
-      vector<RootedLabeledRefinementBranch> expectedBranch = CellDataMigration::getCellHaloGeometry(mesh.get(), cellID);
+      vector<RootedLabeledRefinementBranch> expectedBranch;
+      CellDataMigration::getCellHaloGeometry(mesh.get(), cellID, expectedBranch);
       TEST_ASSERT(rootedRefBranchVectorEquals(unpackedBranch, expectedBranch));
     }
   }

@@ -20,6 +20,36 @@ using namespace Camellia;
 typedef pair<RefinementBranch,vector<GlobalIndexType>> LabeledRefinementBranch; // first cellID indicates the root cell ID; after that, each cellID indicates first child of each refinement
 typedef pair<LabeledRefinementBranch, vector<vector<double>> > RootedLabeledRefinementBranch; // second contains vertex coordinates for root cell
 
+void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
+                                            const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches)
+{
+  for (int i=0; i<rootedLabeledBranches.size(); i++)
+  {
+    const RootedLabeledRefinementBranch* rootedLabeledBranch = &rootedLabeledBranches[i];
+    const vector<GlobalIndexType>* labels = &rootedLabeledBranch->first.second;
+    const RefinementBranch* refBranch = &rootedLabeledBranch->first.first;
+    const vector<vector<double>>* rootVertices = &rootedLabeledBranch->second;
+    // first, check whether we know the root cell ID
+    GlobalIndexType rootCellID = (*labels)[0];
+    if (! meshTopo->isValidCellIndex(rootCellID))
+    {
+      CellTopoPtr rootCellTopo = (*refBranch)[0].first->parentTopology();
+      meshTopo->addCell(rootCellID, rootCellTopo, *rootVertices);
+    }
+    for (int j=1; j<labels->size(); j++)
+    {
+      GlobalIndexType parentCellID = (*labels)[j-1];
+      GlobalIndexType firstChildCellID = (*labels)[j];
+      if (! meshTopo->isValidCellIndex(firstChildCellID))
+      {
+        // get the RefinementPatternPtr stored for the RefinementPattern:
+        RefinementPatternPtr refPattern = RefinementPattern::refinementPattern((*refBranch)[j-1].first->getKey());
+        meshTopo->refineCell(parentCellID, refPattern, firstChildCellID);
+      }
+    }
+  }
+}
+
 int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID)
 {
   int solutionSize = solutionDataSize(mesh, cellID);
@@ -31,7 +61,8 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
 {
   int size = 0;
   
-  vector<RootedLabeledRefinementBranch> cellHaloGeometry = getCellHaloGeometry(mesh, cellID);
+  vector<RootedLabeledRefinementBranch> cellHaloGeometry;
+  getCellHaloGeometry(mesh, cellID, cellHaloGeometry);
   int numLabeledBranches = cellHaloGeometry.size();
   size += sizeof(numLabeledBranches);
   
@@ -56,9 +87,11 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
   return size;
 }
 
-RootedLabeledRefinementBranch CellDataMigration::getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells)
+void CellDataMigration::getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
+                                        RootedLabeledRefinementBranch &cellGeometry)
 {
-  RootedLabeledRefinementBranch cellGeometry;
+  // clear cellGeometry
+  cellGeometry = RootedLabeledRefinementBranch();
   vector<vector<double>>* rootCellVertices = &cellGeometry.second;
   RefinementBranch* cellRefBranch = &cellGeometry.first.first;
   vector<GlobalIndexType>* cellLabels = &cellGeometry.first.second;
@@ -100,16 +133,14 @@ RootedLabeledRefinementBranch CellDataMigration::getCellGeometry(Mesh* mesh, Glo
       ancestralCell = ancestralCell->children()[refEntry.second];
     }
   }
-  
-  return cellGeometry;
 }
 
-vector<RootedLabeledRefinementBranch> CellDataMigration::getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID)
+void CellDataMigration::getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloGeometry)
 {
-  vector<RootedLabeledRefinementBranch> cellHaloGeometry(1);
+  cellHaloGeometry.resize(1);
   
   set<GlobalIndexType> knownCells;
-  cellHaloGeometry[0] = getCellGeometry(mesh, cellID, knownCells);
+  getCellGeometry(mesh, cellID, knownCells, cellHaloGeometry[0]);
   
   ElementTypePtr elemType = mesh->getElementType(cellID);
   int dimForContinuity = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
@@ -121,10 +152,11 @@ vector<RootedLabeledRefinementBranch> CellDataMigration::getCellHaloGeometry(Mes
   {
     if (knownCells.find(neighborID) == knownCells.end())
     {
-      cellHaloGeometry.push_back(getCellGeometry(mesh, neighborID, knownCells));
+      RootedLabeledRefinementBranch neighborCellGeometry;
+      getCellGeometry(mesh, neighborID, knownCells, neighborCellGeometry);
+      cellHaloGeometry.push_back(neighborCellGeometry);
     }
   }
-  return cellHaloGeometry;
 }
 
 void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packParentDofs, char *dataBuffer, int size)
@@ -150,7 +182,8 @@ void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packPa
 
 void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, char* &dataLocation, int size)
 {
-  vector<RootedLabeledRefinementBranch> cellHaloGeometry = getCellHaloGeometry(mesh, cellID);
+  vector<RootedLabeledRefinementBranch> cellHaloGeometry;
+  getCellHaloGeometry(mesh, cellID, cellHaloGeometry);
   int numLabeledBranches = cellHaloGeometry.size();
   
   memcpy(dataLocation, &numLabeledBranches, sizeof(numLabeledBranches));
@@ -279,14 +312,17 @@ void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const cha
   
   // we can't know what the right size is anymore, since that will depend on the geometry
   // unpack geometry info first
-  unpackGeometryData(mesh, cellID, dataLocation, size);
+  vector<RootedLabeledRefinementBranch> rootedLabeledBranches;
+  unpackGeometryData(mesh, cellID, dataLocation, size, rootedLabeledBranches);
+  addMigratedGeometry(mesh->getTopology()->baseMeshTopology(), rootedLabeledBranches);
   
   unpackSolutionData(mesh, cellID, dataLocation, size);
 }
 
-vector<RootedLabeledRefinementBranch> CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size)
+void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size,
+                                           vector<RootedLabeledRefinementBranch> &cellHaloGeometry)
 {
-  vector<RootedLabeledRefinementBranch> cellHaloGeometry;
+  cellHaloGeometry.clear();
   int numLabeledBranches;
   
   memcpy(&numLabeledBranches, dataLocation, sizeof(numLabeledBranches));
@@ -346,7 +382,6 @@ vector<RootedLabeledRefinementBranch> CellDataMigration::unpackGeometryData(Mesh
     // TODO: do something with the branch!! (tell MeshTopology about it...)
     cellHaloGeometry.push_back(rootedBranch);
   }
-  return cellHaloGeometry;
 }
 
 void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size)

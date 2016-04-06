@@ -27,14 +27,18 @@ public:
   // methods used in the above, made public for testing
   static int geometryDataSize(Mesh* mesh, GlobalIndexType cellID);
   static void packGeometryData(Mesh* mesh, GlobalIndexType cellID, char* &dataLocation, int size);
-  static vector<RootedLabeledRefinementBranch> unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size);
+  static void unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size,
+                                 vector<RootedLabeledRefinementBranch> &rootedLabeledBranches);
   
   static int solutionDataSize(Mesh* mesh, GlobalIndexType cellID);
   static void packSolutionData(Mesh* mesh, GlobalIndexType cellID, bool packParentDofs, char* &dataLocation, int size);
   static void unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size);
   
-  static RootedLabeledRefinementBranch getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells);
-  static vector<RootedLabeledRefinementBranch> getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID);
+  static void getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
+                              RootedLabeledRefinementBranch &rootedLabeledRefBranch);
+  static void getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloBranches);
+  
+  static void addMigratedGeometry(MeshTopology* meshTopo, const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches);
 };
 }
 
