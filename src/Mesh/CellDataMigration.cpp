@@ -84,6 +84,27 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
     int numVertexEntries = spaceDim * cellHaloGeometry[i].second.size();
     size += numVertexEntries * sizeof(double);
   }
+
+  // entity sets
+  int spaceDim = mesh->getDimension();
+  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  vector<EntityHandle> entityHandles = meshTopo->getEntityHandlesForCell(cellID);
+  int numHandles = entityHandles.size();
+  size += sizeof(numHandles);
+  for (int handleOrdinal=0; handleOrdinal<numHandles; handleOrdinal++)
+  {
+    EntityHandle handle = entityHandles[handleOrdinal];
+    size += sizeof(handle);
+    EntitySetPtr entitySet = meshTopo->getEntitySet(handle);
+    for (int d=0; d<spaceDim; d++)
+    {
+      vector<unsigned> subcellOrdinals = entitySet->subcellOrdinals(mesh->getTopology(), cellID, d);
+      int numSubcells = subcellOrdinals.size();
+      size += sizeof(numSubcells);
+      size += numSubcells * sizeof(unsigned);
+    }
+  }
+  
   return size;
 }
 
@@ -224,6 +245,30 @@ void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, cha
       dataLocation += spaceDim * sizeof(double);
     }
   }
+  
+  int spaceDim = mesh->getDimension();
+  // entity sets
+  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  vector<EntityHandle> entityHandles = meshTopo->getEntityHandlesForCell(cellID);
+  int numHandles = entityHandles.size();
+  memcpy(dataLocation, &numHandles, sizeof(numHandles));
+  dataLocation += sizeof(numHandles);
+  for (int handleOrdinal=0; handleOrdinal<numHandles; handleOrdinal++)
+  {
+    EntityHandle handle = entityHandles[handleOrdinal];
+    memcpy(dataLocation, &handle, sizeof(handle));
+    dataLocation += sizeof(handle);
+    EntitySetPtr entitySet = meshTopo->getEntitySet(handle);
+    for (int d=0; d<spaceDim; d++)
+    {
+      vector<unsigned> subcellOrdinals = entitySet->subcellOrdinals(mesh->getTopology(), cellID, d);
+      int numSubcells = subcellOrdinals.size();
+      memcpy(dataLocation, &numSubcells, sizeof(numSubcells));
+      dataLocation += sizeof(numSubcells);
+      memcpy(dataLocation, &subcellOrdinals[0], sizeof(unsigned)*numSubcells);
+      dataLocation += sizeof(unsigned)*numSubcells;
+    }
+  }
 }
 
 void CellDataMigration::packSolutionData(Mesh *mesh, GlobalIndexType cellID, bool packParentDofs, char* &dataLocation, int size)
@@ -314,8 +359,6 @@ void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const cha
   // unpack geometry info first
   vector<RootedLabeledRefinementBranch> rootedLabeledBranches;
   unpackGeometryData(mesh, cellID, dataLocation, size, rootedLabeledBranches);
-  addMigratedGeometry(mesh->getTopology()->baseMeshTopology(), rootedLabeledBranches);
-  
   unpackSolutionData(mesh, cellID, dataLocation, size);
 }
 
@@ -379,8 +422,39 @@ void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, c
       dataLocation += spaceDim * sizeof(double);
     }
     RootedLabeledRefinementBranch rootedBranch = {{refBranch,labels},rootVertices};
-    // TODO: do something with the branch!! (tell MeshTopology about it...)
     cellHaloGeometry.push_back(rootedBranch);
+  }
+  
+  addMigratedGeometry(mesh->getTopology()->baseMeshTopology(), cellHaloGeometry);
+  
+  // entity sets
+  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  int spaceDim = mesh->getDimension();
+  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  int numHandles;
+  memcpy(&numHandles, dataLocation, sizeof(numHandles));
+  dataLocation += sizeof(numHandles);
+
+  for (int handleOrdinal=0; handleOrdinal<numHandles; handleOrdinal++)
+  {
+    EntityHandle handle;
+    memcpy(&handle, dataLocation, sizeof(handle));
+    dataLocation += sizeof(handle);
+    EntitySetPtr entitySet = meshTopo->getEntitySet(handle);
+    for (int d=0; d<spaceDim; d++)
+    {
+      int numSubcells;
+      memcpy(&numSubcells, dataLocation, sizeof(numSubcells));
+      dataLocation += sizeof(numSubcells);
+      for (int i=0; i<numSubcells; i++)
+      {
+        unsigned subcord;
+        memcpy(&subcord, dataLocation, sizeof(subcord));
+        dataLocation += sizeof(subcord);
+        IndexType entityIndex = cell->entityIndex(d, subcord);
+        entitySet->addEntity(d, entityIndex);
+      }
+    }
   }
 }
 
