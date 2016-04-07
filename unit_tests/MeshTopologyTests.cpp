@@ -231,7 +231,18 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     int vertexDim = 0; // for now, let's just test the vertex-continuity case
     for (GlobalIndexType cellID : *activeCellIDs)
     {
+      // add an entity set matching some of the cells entities
+      EntitySetPtr entitySet = meshTopo->createEntitySet();
       CellPtr cell = meshTopo->getCell(cellID);
+      
+      for (int d=0; d<meshTopo->getDimension(); d++)
+      {
+        // take the last subcell in each dimension
+        int subcord = cell->topology()->getSubcellCount(d) - 1;
+        IndexType entityIndex = cell->entityIndex(d, subcord);
+        entitySet->addEntity(d, entityIndex);
+      }
+      
       vector<GlobalIndexType> ancestors;
       CellPtr ancestorCell = cell->getParent();
       while (ancestorCell != Teuchos::null)
@@ -341,6 +352,15 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
           beforePruningIt++;
           afterPruningIt++;
         }
+      }
+
+      // check that our entitySet still matches the last subcell in each dimension of our cell
+      for (int d=0; d<meshTopo->getDimension(); d++)
+      {
+        // take the last subcell in each dimension
+        int subcord = cell->topology()->getSubcellCount(d) - 1;
+        IndexType entityIndex = cell->entityIndex(d, subcord);
+        TEST_ASSERT( entitySet->containsEntity(d, entityIndex) );
       }
       
       // restore the original mesh for the next cell to test
