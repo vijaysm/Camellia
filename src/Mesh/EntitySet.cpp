@@ -45,7 +45,7 @@ void EntitySet::removeEntity(int d, IndexType entityIndex)
 }
 
 // ! Returns the cellIDs from the provided set that contain at least one entity in the set, according to the provided MeshTopologyView.
-set<IndexType> EntitySet::cellIDsThatMatch(MeshTopologyViewPtr meshTopo, const set<IndexType> &cellIDs) const
+set<IndexType> EntitySet::cellIDsThatMatch(const MeshTopologyViewPtr meshTopo, const set<IndexType> &cellIDs) const
 {
   // When there are very few cellIDs in the provided set relative to the number of entities in our set,
   // then it would be better to iterate over their entities and take the intersection with our entities.
@@ -104,4 +104,18 @@ vector<unsigned> EntitySet::subcellOrdinalsOnSide(MeshTopologyViewPtr meshTopo, 
     if (containsEntity(d, entityIndex)) subcellOrdinals.push_back(sideSubcellOrdinal);
   }
   return subcellOrdinals;
+}
+
+void EntitySet::updateEntityIndices(const vector<map<IndexType,IndexType>> &reverseLookup)
+{
+  for (int d=0; d<_entities.size(); d++)
+  {
+    set<IndexType> newEntityIndices;
+    for (IndexType oldEntityIndex : _entities[d])
+    {
+      auto newEntityEntry = reverseLookup[d].find(oldEntityIndex);
+      newEntityIndices.insert(newEntityEntry->second);
+    }
+    _entities[d] = newEntityIndices;
+  }
 }

@@ -107,6 +107,8 @@ class MeshTopology : public MeshTopologyView
 
   // ! private method for deep-copying Cells during MeshToplogy::deepCopy()
   void deepCopyCells();
+
+  
 public:
   MeshTopology(unsigned spaceDim, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
   MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
@@ -128,6 +130,7 @@ public:
   
   EntitySetPtr createEntitySet();
   EntitySetPtr getEntitySet(EntityHandle entitySetHandle) const;
+  vector<EntityHandle> getEntityHandlesForCell(IndexType cellIndex);
   
   // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs and the
   Teuchos::RCP<MeshTopology> deepCopy();

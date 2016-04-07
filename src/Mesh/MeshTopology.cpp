@@ -1238,6 +1238,21 @@ unsigned MeshTopology::getCellCountForSide(IndexType sideEntityIndex)
   }
 }
 
+vector<EntityHandle> MeshTopology::getEntityHandlesForCell(IndexType cellIndex)
+{
+  const MeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
+  vector<EntityHandle> handles;
+  for (auto entry : _entitySets)
+  {
+    EntityHandle handle = entry.first;
+    if (entry.second->cellIDsThatMatch(thisPtr, {cellIndex}).size() > 0)
+    {
+      handles.push_back(handle);
+    }
+  }
+  return handles;
+}
+
 vector<EntitySetPtr> MeshTopology::getEntitySetsForTagID(string tagName, int tagID)
 {
   if (_tagSetsInteger.find(tagName) == _tagSetsInteger.end()) return vector<EntitySetPtr>();
@@ -1423,6 +1438,14 @@ MeshTopologyPtr MeshTopology::deepCopy()
 {
   MeshTopologyPtr meshTopoCopy = Teuchos::rcp( new MeshTopology(*this) );
   meshTopoCopy->deepCopyCells();
+  // TODO: also deep-copy EntitySets
+  map<EntityHandle, EntitySetPtr> newEntitySets;
+  for (auto entry : _entitySets)
+  {
+    EntitySetPtr entitySetCopy = Teuchos::rcp( new EntitySet(*entry.second) );
+    newEntitySets[entry.first] = entitySetCopy;
+  }
+  meshTopoCopy->_entitySets = newEntitySets;
   return meshTopoCopy;
 }
 
@@ -2909,6 +2932,11 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
     prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
   }
   _cellsForSideEntities = prunedCellsForSideEntities;
+  
+  for (auto entitySetEntry : _entitySets)
+  {
+    entitySetEntry.second->updateEntityIndices(reverseLookup);
+  }
   
   vector< vector< vector<IndexType> > > prunedEntities(_spaceDim);
   vector< map< vector<IndexType>, IndexType > > prunedKnownEntities(_spaceDim);
