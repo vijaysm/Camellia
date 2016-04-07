@@ -36,7 +36,7 @@ void MeshTopology::init(unsigned spaceDim)
   _parentEntities = vector< map< unsigned, vector< pair<unsigned, unsigned> > > >(numEntityDimensions); // map to possible parents
   _generalizedParentEntities = vector< map<unsigned, pair<unsigned,unsigned> > >(numEntityDimensions);
   _childEntities = vector< map< unsigned, vector< pair<RefinementPatternPtr, vector<unsigned> > > > >(numEntityDimensions);
-  _entityCellTopologyKeys = vector< vector< CellTopologyKey > >(numEntityDimensions);
+  _entityCellTopologyKeys = vector< map<CellTopologyKey, RangeList<IndexType> > >(numEntityDimensions);
   _nextCellIndex = 0;
   
   _gda = NULL;
@@ -282,9 +282,18 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
 //  variableCost["_childEntities"] += MAP_OVERHEAD * (_childEntities.capacity() - _childEntities.size());
 
   variableCost["_entityCellTopologyKeys"] = VECTOR_OVERHEAD; // _entityCellTopologyKeys vector
-  for (vector< vector< CellTopologyKey > >::iterator entryIt = _entityCellTopologyKeys.begin(); entryIt != _entityCellTopologyKeys.end(); entryIt++)
+  for (vector< map< CellTopologyKey, RangeList<IndexType> > >::iterator entryIt = _entityCellTopologyKeys.begin(); entryIt != _entityCellTopologyKeys.end(); entryIt++)
   {
-    variableCost["_entityCellTopologyKeys"] += approximateVectorSizeLLVM(*entryIt);
+    variableCost["_entityCellTopologyKeys"] += MAP_OVERHEAD;
+    for (auto mapEntry : *entryIt)
+    {
+      variableCost["_entityCellTopologyKeys"] += MAP_NODE_OVERHEAD;
+      variableCost["_entityCellTopologyKeys"] += sizeof(CellTopologyKey);
+      // RangeList is two vectors of length RangeList.length(), plus an int _size value
+      variableCost["_entityCellTopologyKeys"] += sizeof(int);
+      variableCost["_entityCellTopologyKeys"] += VECTOR_OVERHEAD * 2;
+      variableCost["_entityCellTopologyKeys"] += sizeof(IndexType) * 2 * mapEntry.second.length();
+    }
   }
 //  variableCost["_entityCellTopologyKeys"] += VECTOR_OVERHEAD * (_entityCellTopologyKeys.capacity() - _entityCellTopologyKeys.size());
 
@@ -300,8 +309,6 @@ map<string, long long> MeshTopology::approximateMemoryCosts()
   variableCost["_cellIDsWithCurves"] = approximateSetSizeLLVM(_cellIDsWithCurves);
 
   variableCost["_edgeToCurveMap"] = approximateMapSizeLLVM(_edgeToCurveMap);
-
-  variableCost["_knownTopologies"] = approximateMapSizeLLVM( _knownTopologies );
 
   return variableCost;
 }
@@ -770,11 +777,7 @@ unsigned MeshTopology::addEntity(CellTopoPtr entityTopo, const vector<unsigned> 
     _knownEntities[d].insert(make_pair(sortedVertices, entityIndex));
     if (d != 0) _canonicalEntityOrdering[d].push_back(entityVertices);
     entityPermutation = 0;
-    if (_knownTopologies.find(entityTopo->getKey()) == _knownTopologies.end())
-    {
-      _knownTopologies[entityTopo->getKey()] = entityTopo;
-    }
-    _entityCellTopologyKeys[d].push_back(entityTopo->getKey());
+    _entityCellTopologyKeys[d][entityTopo->getKey()].insert(entityIndex);
   }
   else
   {
@@ -1698,8 +1701,16 @@ CellTopoPtr MeshTopology::getEntityTopology(unsigned d, IndexType entityIndex)
   CellTopoPtr entityTopo;
   if (d < _spaceDim)
   {
-    TEUCHOS_TEST_FOR_EXCEPTION(entityIndex >= _entityCellTopologyKeys[d].size(), std::invalid_argument, "entityIndex is out of bounds");
-    return _knownTopologies[_entityCellTopologyKeys[d][entityIndex]];
+    auto rangeListMap = &_entityCellTopologyKeys[d];
+    for (auto entry : *rangeListMap)
+    {
+      RangeList<IndexType>* rangeList = &entry.second;
+      if (rangeList->contains(entityIndex))
+      {
+        return CellTopology::cellTopology(entry.first);
+      }
+    }
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "entityIndex is out of bounds");
   }
   else
   {
@@ -1969,11 +1980,7 @@ unsigned MeshTopology::getVertexIndexAdding(const vector<double> &vertex, double
   entityVertices.push_back(vertexIndex);
   //_canonicalEntityOrdering[vertexDim][vertexIndex] = entityVertices;
   CellTopoPtr nodeTopo = CellTopology::point();
-  if (_knownTopologies.find(nodeTopo->getKey()) == _knownTopologies.end())
-  {
-    _knownTopologies[nodeTopo->getKey()] = nodeTopo;
-  }
-  _entityCellTopologyKeys[vertexDim].push_back(nodeTopo->getKey());
+  _entityCellTopologyKeys[vertexDim][nodeTopo->getKey()].insert(vertexIndex);
   
   // new 2-11-16: when using periodic BCs, only add vertex to _knownEntities if it is the original matching point
   bool matchFound = false;
@@ -2911,7 +2918,7 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   vector< map< IndexType, vector< pair<IndexType, unsigned> > > > prunedParentEntities(_spaceDim);
   vector< map< IndexType, pair<IndexType, unsigned> > > prunedGeneralizedParentEntities(_spaceDim);
   vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > > prunedChildEntities(_spaceDim);
-  vector< vector< Camellia::CellTopologyKey > > prunedEntityCellTopologyKeys(_spaceDim);
+  vector< map< Camellia::CellTopologyKey, RangeList<IndexType> > > prunedEntityCellTopologyKeys(_spaceDim);
   for (int d=0; d<_spaceDim; d++)
   {
     int prunedEntityCount = oldEntityIndices[d].size();
@@ -2919,11 +2926,11 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
     if (d > 0) prunedCanonicalEntityOrdering[d].resize(prunedEntityCount);
     prunedActiveCellsForEntities[d].resize(prunedEntityCount);
     prunedSidesForEntities[d].resize(prunedEntityCount);
-    prunedEntityCellTopologyKeys[d].resize(prunedEntityCount);
     for (int prunedEntityIndex=0; prunedEntityIndex<prunedEntityCount; prunedEntityIndex++)
     {
       IndexType oldEntityIndex = oldEntityIndices[d][prunedEntityIndex];
-      prunedEntityCellTopologyKeys[d][prunedEntityIndex] = _entityCellTopologyKeys[d][oldEntityIndex];
+      CellTopologyKey entityTopoKey = getEntityTopology(d, oldEntityIndex)->getKey();
+      prunedEntityCellTopologyKeys[d][entityTopoKey].insert(prunedEntityIndex);
       int nodeCount = _entities[d][oldEntityIndex].size();
       prunedEntities[d][prunedEntityIndex].resize(nodeCount);
       

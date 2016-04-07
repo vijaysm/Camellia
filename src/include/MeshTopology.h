@@ -17,6 +17,7 @@
 #include "MeshGeometry.h"
 #include "MeshTopologyView.h"
 #include "PeriodicBC.h"
+#include "RangeList.h"
 #include "RefinementPattern.h"
 #include "SpatialFilter.h"
 #include "TypeDefs.h"
@@ -59,7 +60,7 @@ class MeshTopology : public MeshTopologyView
 
   vector< map< IndexType, pair<IndexType, unsigned> > > _generalizedParentEntities; // map from entity to its nearest generalized parent.  map entries are (parentEntityIndex, parentEntityDimension).  Generalized parents may be higher-dimensional or equal-dimensional to the child entity.
   vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > > _childEntities; // map from parent to child entities, together with the RefinementPattern to get from one to the other.
-  vector< vector< Camellia::CellTopologyKey > > _entityCellTopologyKeys;
+  vector< map<Camellia::CellTopologyKey, RangeList<IndexType>>> _entityCellTopologyKeys;
 
 //  vector< CellPtr > _cells;
   map<GlobalIndexType, CellPtr> _cells; // the cells known on this MPI rank.  Right now, all cells are stored on every rank; soon, this will not be true anymore.
@@ -68,8 +69,6 @@ class MeshTopology : public MeshTopologyView
   set< IndexType > _cellIDsWithCurves;
   map< pair<IndexType, IndexType>, ParametricCurvePtr > _edgeToCurveMap;
   Teuchos::RCP<MeshTransformationFunction> _transformationFunction; // for dealing with those curves
-
-  map< pair<unsigned,unsigned>, CellTopoPtr > _knownTopologies; // (shards key, tensorial degree) -> topo.  Might want to move this to a CellTopoFactory, but it is fairly simple
 
   //  set<IndexType> activeDescendants(IndexType d, IndexType entityIndex);
   //  set<IndexType> activeDescendantsNotInSet(IndexType d, IndexType entityIndex, const set<IndexType> &excludedSet);
