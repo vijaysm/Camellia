@@ -537,9 +537,9 @@ MeshPtr MeshFactory::hemkerMesh(double meshWidth, double meshHeight, double cyli
   return shiftedHemkerMesh(-meshWidth/2, meshWidth/2, meshHeight, cylinderRadius, bilinearForm, H1Order, pToAddTest);
 }
 
-MeshTopologyPtr MeshFactory::importMOABMesh(string filePath)
+MeshTopologyPtr MeshFactory::importMOABMesh(string filePath, bool readInParallel)
 {
-  return MOABReader::readMOABMesh(filePath);
+  return MOABReader::readMOABMesh(filePath, !readInParallel);
 }
 
 MeshPtr MeshFactory::intervalMesh(TBFPtr<double> bf, double xLeft, double xRight, int numElements, int H1Order, int delta_k)
@@ -1384,8 +1384,7 @@ MeshTopologyPtr MeshFactory::spaceTimeMeshTopology(MeshTopologyPtr spatialMeshTo
       spaceTimeCellNodes.resize(spaceTimeCellTopology->getVertexCount(),spaceTimeDim);
       spaceTimeCellTopology->initializeNodes(componentNodes, spaceTimeCellNodes);
 
-      IndexType newCellID = spaceTimeTopology->cellCount();
-      CellPtr spaceTimeCell = spaceTimeTopology->addCell(newCellID, spaceTimeCellTopology, spaceTimeCellNodes);
+      CellPtr spaceTimeCell = spaceTimeTopology->addCell(spaceTimeCellTopology, spaceTimeCellNodes);
       if (timeSubdivision==0) cellIDMap[spaceTimeCell->cellIndex()] = cellIndex;
     }
   }

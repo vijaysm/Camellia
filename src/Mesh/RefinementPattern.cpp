@@ -158,13 +158,10 @@ RefinementPattern::RefinementPattern(CellTopoPtr cellTopoPtr, FieldContainer<dou
     refCellNodesVector.push_back(node);
   }
 
-  GlobalIndexType newCellID = 0;
-  _refinementTopology->addCell(newCellID, cellTopoPtr, refCellNodesVector);
-  newCellID++;
+  _refinementTopology->addCell(cellTopoPtr, refCellNodesVector);
   if (spaceDim != 0)
   {
-    _refinementTopology->refineCell(0, thisPtr, newCellID);
-    newCellID += thisPtr->numChildren();
+    _refinementTopology->refineCell(0, thisPtr, _refinementTopology->cellCount());
   }
 
   CellPtr parentCell = _refinementTopology->getCell(0);

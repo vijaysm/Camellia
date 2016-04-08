@@ -326,6 +326,21 @@ long long MeshTopology::approximateMemoryFootprint()
   return memSize;
 }
 
+CellPtr MeshTopology::addCell(CellTopoPtr cellTopo, const vector< vector<double> > &cellVertices)
+{
+  return addCell(_nextCellIndex, cellTopo, cellVertices);
+}
+
+CellPtr MeshTopology::addCell(CellTopoPtr cellTopo, const Intrepid::FieldContainer<double> &cellVertices)
+{
+  return addCell(_nextCellIndex, cellTopo, cellVertices);
+}
+
+CellPtr MeshTopology::addCell(CellTopoPtrLegacy cellTopo, const vector< vector<double> > &cellVertices)
+{
+  return addCell(_nextCellIndex, cellTopo, cellVertices);
+}
+
 CellPtr MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const FieldContainer<double> &cellVertices)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(cellTopo->getDimension() != _spaceDim, std::invalid_argument, "cellTopo dimension must match mesh topology dimension");
@@ -800,9 +815,13 @@ void MeshTopology::addChildren(IndexType firstChildIndex, CellPtr parentCell, co
   IndexType childCellIndex = firstChildIndex; // children get continguous cell indices
   for (int childOrdinal=0; childOrdinal<numChildren; childOrdinal++)
   {
-    addCell(childCellIndex, childTopos[childOrdinal], childVertices[childOrdinal],parentCell->cellIndex());
+    // add if we don't already know about this child (we might already know it and have pruned its siblings away...)
+    if (!isValidCellIndex(childCellIndex))
+    {
+      addCell(childCellIndex, childTopos[childOrdinal], childVertices[childOrdinal],parentCell->cellIndex());
+      _rootCells.erase(childCellIndex);
+    }
     childIndices.push_back(childCellIndex);
-    _rootCells.erase(childCellIndex);
     childCellIndex++;
   }
   parentCell->setChildren(childIndices);
@@ -819,6 +838,12 @@ void MeshTopology::addChildren(IndexType firstChildIndex, CellPtr parentCell, co
       }
     }
   }
+}
+
+CellPtr MeshTopology::addMigratedCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector<vector<double>> &cellVertices)
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(cellIndex >= _nextCellIndex, std::invalid_argument, "migrated cellIndex must be less than _nextCellIndex");
+  return this->addCell(cellIndex, cellTopo, cellVertices);
 }
 
 void MeshTopology::addSideForEntity(unsigned int entityDim, IndexType entityIndex, IndexType sideEntityIndex)
@@ -1375,7 +1400,8 @@ void MeshTopology::deactivateCell(CellPtr cell)
         unsigned eraseCount = indicesToDelete.size();
         if (eraseCount==0)
         {
-          cout << "WARNING: attempt was made to deactivate a non-active subcell topology...\n";
+          cout << "WARNING: attempt was made to deactivate a non-active subcell topology...";
+          cout << " deactivating cell " << cell->cellIndex() << endl;
         }
         else
         {
@@ -2921,15 +2947,29 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
     // check if the cells listed are still present; if not, set default values
     IndexType cellID1 = cellsForSideEntry.first.first;
     IndexType cellID2 = cellsForSideEntry.second.first;
+    bool firstEntryCleared = false, secondEntryCleared = false;
     if (cellsToInclude.find(cellID1) == cellsToInclude.end())
     {
       cellsForSideEntry.first = {-1,-1};
+      firstEntryCleared = true;
     }
     if (cellsToInclude.find(cellID2) == cellsToInclude.end())
     {
       cellsForSideEntry.second = {-1,-1};
+      secondEntryCleared = true;
     }
-    prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
+    else if (firstEntryCleared)
+    {
+      // we've cleared the first entry, but not the second
+      // the logic of _cellsForSideEntities requires that the first
+      // entry be filled in first, so we flip them
+      cellsForSideEntry = {cellsForSideEntry.second, cellsForSideEntry.first};
+    }
+    if (! (firstEntryCleared && secondEntryCleared) )
+    {
+      // if one of the entries remains, store in pruned container:
+      prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
+    }
   }
   _cellsForSideEntities = prunedCellsForSideEntities;
   
@@ -3098,11 +3138,6 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
    */
   
   /*
-   EntityHandle _initialTimeEntityHandle = -1; // for space-time MeshTopologies: track the handle for the entity set corresponding to the space-time sides at the initial time.
-   
-   map< EntityHandle, EntitySetPtr > _entitySets;
-   map< string, vector<pair<EntityHandle, int> > > _tagSetsInteger; // tags with integer value, applied to EntitySets.
-   
    vector< PeriodicBCPtr > _periodicBCs;
    map<IndexType, set< pair<int, int> > > _periodicBCIndicesMatchingNode; // pair: first = index in _periodicBCs; second: 0 or 1, indicating first or second part of the identification matches.  IndexType is the vertex index.
    map< pair<IndexType, pair<int,int> >, IndexType > _equivalentNodeViaPeriodicBC;
@@ -3171,7 +3206,11 @@ void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPatte
   refineCellEntities(cell, refPattern);
   cell->setRefinementPattern(refPattern);
 
-  deactivateCell(cell);
+  if (cell->children().size() == 0)
+  {
+    // cell is active; deactivate it before we add children
+    deactivateCell(cell);
+  }
   addChildren(firstChildCellIndex, cell, childTopos, childVertices);
 
   determineGeneralizedParentsForRefinement(cell, refPattern);
@@ -3290,9 +3329,26 @@ void MeshTopology::refineCellEntities(CellPtr cell, RefinementPatternPtr refPatt
         if (entry.second->containsEntity(d, parentIndex)) parentEntitySets.push_back(entry.second);
       }
       
+      // to support distributed MeshTopology, we allow -1's to be filled in for some childEntities
+      // but on refinement, we do need to replace these
+      bool allChildEntitiesKnown = (_childEntities[d].find(parentIndex) != _childEntities[d].end());
+      if (allChildEntitiesKnown)
+      {
+        int refinementOrdinal = 0; // will change if multiple parentage is allowed
+        vector<IndexType>* childEntityIndices = &_childEntities[d][parentIndex][refinementOrdinal].second;
+        for (IndexType childEntityIndex : *childEntityIndices)
+        {
+          if (childEntityIndex == -1)
+          {
+            allChildEntitiesKnown = false;
+            break;
+          }
+        }
+      }
+      
       // if we ever allow multiple parentage, then we'll need to record things differently in both _childEntities and _parentEntities
       // (and the if statement just below will need to change in a corresponding way, indexed by the particular refPattern in question maybe
-      if (_childEntities[d].find(parentIndex) == _childEntities[d].end())
+      if (!allChildEntitiesKnown)
       {
         vector<unsigned> childEntityIndices(childCount);
         for (unsigned childIndex=0; childIndex<childCount; childIndex++)

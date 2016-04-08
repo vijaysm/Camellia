@@ -108,17 +108,22 @@ class MeshTopology : public MeshTopologyView
   // ! private method for deep-copying Cells during MeshToplogy::deepCopy()
   void deepCopyCells();
 
+  CellPtr addCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector< vector<double> > &cellVertices);
+  CellPtr addCell(IndexType cellIndex, CellTopoPtr cellTopo, const Intrepid::FieldContainer<double> &cellVertices);
+  CellPtr addCell(IndexType cellIndex, CellTopoPtrLegacy cellTopo, const vector< vector<double> > &cellVertices);
   
 public:
   MeshTopology(unsigned spaceDim, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
   MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
   virtual ~MeshTopology() {}
+
+  CellPtr addCell(CellTopoPtr cellTopo, const vector< vector<double> > &cellVertices);
+  CellPtr addCell(CellTopoPtr cellTopo, const Intrepid::FieldContainer<double> &cellVertices);
+  CellPtr addCell(CellTopoPtrLegacy cellTopo, const vector< vector<double> > &cellVertices);
   
-  CellPtr addCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector< vector<double> > &cellVertices);
-  CellPtr addCell(IndexType cellIndex, CellTopoPtr cellTopo, const Intrepid::FieldContainer<double> &cellVertices);
-
-  CellPtr addCell(IndexType cellIndex, CellTopoPtrLegacy cellTopo, const vector< vector<double> > &cellVertices);
-
+  // ! adds cell with the specified cellIndex, which must be less than _nextCellIndex
+  CellPtr addMigratedCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector<vector<double>> &cellVertices);
+  
   void addVertex(const std::vector<double>& vertex);
 
   void applyTag(std::string tagName, int tagID, EntitySetPtr entitySet);

@@ -299,8 +299,8 @@ Mesh::Mesh(MeshPtr mesh, GlobalIndexType cellID, Epetra_CommPtr Comm) : DofInter
     i++;
   }
   
-  IndexType cellIDZero = 0;
-  meshTopo->addCell(cellIDZero, cell->topology(), cellVertices);
+  CellPtr singleCell = meshTopo->addCell(cell->topology(), cellVertices);
+  IndexType cellIDZero = singleCell->cellIndex();
 
   _varFactory = mesh->varFactory();
   
@@ -842,13 +842,32 @@ void Mesh::hRefine(const vector<GlobalIndexType> &cellIDs, bool repartitionAndRe
 
 void Mesh::hRefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndRebuild)
 {
-  map< CellTopologyKey, set<GlobalIndexType> > cellIDsForTopo;
-  for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end();
-       cellIDIt++)
+  // let the owner of the cellID tell us what the topology of the cell is, so we can choose the right regular refinement pattern
+  vector<int> cellTopoKeysAsInts(cellIDs.size() * 2);
+  const set<GlobalIndexType> *myCellIDs = &this->cellIDsInPartition();
+  int cellOrdinal = 0;
+  for (GlobalIndexType cellID : cellIDs)
   {
-    GlobalIndexType cellID = *cellIDIt;
-    CellTopoPtr cellTopo = getElementType(cellID)->cellTopoPtr;
+    if (myCellIDs->find(cellID) != myCellIDs->end())
+    {
+      CellTopologyKey cellTopoKey = _meshTopology->getCell(cellID)->topology()->getKey();
+      cellTopoKeysAsInts[cellOrdinal*2] = cellTopoKey.first;
+      cellTopoKeysAsInts[cellOrdinal*2+1] = cellTopoKey.second;
+    }
+    cellOrdinal++;
+  }
+  MPIWrapper::entryWiseSum(*Comm(), cellTopoKeysAsInts);
+  
+  map< CellTopologyKey, set<GlobalIndexType> > cellIDsForTopo;
+  
+  cellOrdinal = 0;
+  for (GlobalIndexType cellID : cellIDs)
+  {
+    CellTopologyKey cellTopoKey = {cellTopoKeysAsInts[cellOrdinal*2], cellTopoKeysAsInts[cellOrdinal*2+1]};
+    
+    CellTopoPtr cellTopo = CellTopology::cellTopology(cellTopoKey);
     cellIDsForTopo[cellTopo->getKey()].insert(cellID);
+    cellOrdinal++;
   }
 
   for (map< CellTopologyKey, set<GlobalIndexType> >::iterator entryIt = cellIDsForTopo.begin();
@@ -898,14 +917,8 @@ void Mesh::hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementP
   for (cellIt = cellIDs.begin(); cellIt != cellIDs.end(); cellIt++)
   {
     GlobalIndexType cellID = *cellIt;
-
-    if (writableMeshTopology->getActiveCellIndices().find(cellID) == writableMeshTopology->getActiveCellIndices().end())
-    {
-      cout << "cellID " << cellID << " is not active, but Mesh received request for h-refinement.\n";
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "inactive cell");
-    }
     
-    writableMeshTopology->refineCell(cellID, refPattern, nextCellID); // TODO: establish nextCellID through a parallel scan so that we don't have to do the refinement on every MPI rank.
+    writableMeshTopology->refineCell(cellID, refPattern, nextCellID);
     nextCellID += refPattern->numChildren();
 
     // TODO: figure out what it is that breaks in GDAMaximumRule when we use didHRefine to notify about all cells together outside this loop

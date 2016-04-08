@@ -9,6 +9,7 @@
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "CamelliaCellTools.h"
+#include "CellDataMigration.h"
 #include "MeshTopology.h"
 #include "PoissonFormulation.h"
 
@@ -221,6 +222,125 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     }
   }
 
+  void testMeshTopologiesMatchOnCells(MeshTopologyPtr originalMeshTopo, MeshTopologyPtr newMeshTopo,
+                                      const set<GlobalIndexType> &cellsToMatch,
+                                      int minDimensionForNeighbors,
+                                      Teuchos::FancyOStream &out, bool &success)
+  {
+    for (GlobalIndexType cellID : cellsToMatch)
+    {
+      CellPtr originalCell = originalMeshTopo->getCell(cellID);
+      CellPtr newCell = newMeshTopo->getCell(cellID);
+      
+      /**** Compare EntitySets ****/
+      vector<EntityHandle> originalEntityHandles = originalMeshTopo->getEntityHandlesForCell(cellID);
+      vector<EntityHandle> newEntityHandles = newMeshTopo->getEntityHandlesForCell(cellID);
+      bool previousSuccess = success;
+      success = true;
+      TEST_COMPARE_ARRAYS(originalEntityHandles, newEntityHandles);
+      bool handlesMatch = success;
+      success = previousSuccess;
+      if (handlesMatch)
+      {
+        for (EntityHandle entityHandle : originalEntityHandles)
+        {
+          EntitySetPtr originalEntitySet = originalMeshTopo->getEntitySet(entityHandle);
+          EntitySetPtr newEntitySet = newMeshTopo->getEntitySet(entityHandle);
+          for (int d=0; d<originalMeshTopo->getDimension(); d++)
+          {
+            vector<unsigned> originalSubcells = originalEntitySet->subcellOrdinals(originalMeshTopo, cellID, d);
+            vector<unsigned> newSubcells = newEntitySet->subcellOrdinals(newMeshTopo, cellID, d);
+            TEST_COMPARE_ARRAYS(originalSubcells, newSubcells);
+          }
+        }
+      }
+
+      /**** Compare neighbors ****/
+      for (int d=minDimensionForNeighbors; d<originalMeshTopo->getDimension(); d++)
+      {
+        set<GlobalIndexType> originalNeighbors = originalCell->getActiveNeighborIndices(d, originalMeshTopo);
+        set<GlobalIndexType> newNeighbors = newCell->getActiveNeighborIndices(d, newMeshTopo);
+        vector<GlobalIndexType> originalNeighborsVector(originalNeighbors.begin(),originalNeighbors.end());
+        vector<GlobalIndexType> newNeighborsVector(newNeighbors.begin(),newNeighbors.end());
+        TEST_COMPARE_ARRAYS(originalNeighborsVector, newNeighborsVector);
+      }
+    }
+  }
+  
+  void testPruneAddPrune(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
+  {
+    // Simulate what happens when distributing the mesh geometry
+    // keep a canonical copy
+    MeshTopologyPtr originalMesh = meshTopo->deepCopy();
+    const set<IndexType>* activeCellIDs = &originalMesh->getActiveCellIndices();
+    // define 4 partitions -- and simply go in numerical order
+    int numCells = activeCellIDs->size();
+    int numPartitions = 4;
+    vector<int> partitionSizes(numPartitions);
+    partitionSizes[0] = 1;
+    partitionSizes[1] = max(numCells / (numPartitions - 1) - 1, 0);
+    partitionSizes[2] = 0;
+    partitionSizes[3] = numCells - partitionSizes[0] - partitionSizes[1] - partitionSizes[2];
+    vector<set<GlobalIndexType>> partitions(numPartitions);
+    auto cellIndexPtr = activeCellIDs->begin();
+    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
+    {
+      int partitionSize = partitionSizes[partitionOrdinal];
+      for (int i=0; i<partitionSize; i++)
+      {
+        partitions[partitionOrdinal].insert(*cellIndexPtr);
+        cellIndexPtr++;
+      }
+    }
+    vector<MeshTopologyPtr> localMeshTopos(numPartitions);
+    int vertexDim = 0;
+    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
+    {
+      localMeshTopos[partitionOrdinal] = originalMesh->deepCopy();
+      localMeshTopos[partitionOrdinal]->pruneToInclude(partitions[partitionOrdinal], vertexDim);
+      // pretty much a sanity check (we have other tests against pruneToInclude):
+      testMeshTopologiesMatchOnCells(originalMesh, localMeshTopos[partitionOrdinal], partitions[partitionOrdinal], vertexDim, out, success);
+    }
+    // now, simulate moving the cells from one rank to the next rank, modulo the number of ranks
+    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
+    {
+      MeshTopologyPtr thisLocalMeshTopo = localMeshTopos[partitionOrdinal];
+      set<GlobalIndexType> thisCells = partitions[partitionOrdinal];
+      int nextPartitionOrdinal = (partitionOrdinal + 1) % numPartitions;
+      MeshTopologyPtr nextLocalMeshTopo = localMeshTopos[nextPartitionOrdinal];
+      
+      for (GlobalIndexType cellID : thisCells)
+      {
+        vector<RootedLabeledRefinementBranch> cellHaloBranches;
+        CellDataMigration::getCellHaloGeometry(thisLocalMeshTopo.get(), vertexDim, cellID, cellHaloBranches);
+        CellDataMigration::addMigratedGeometry(nextLocalMeshTopo.get(), cellHaloBranches);
+      }
+    }
+    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
+    {
+      // now, each localMeshTopo should match original on both its original partition and the previous rank's partition
+      MeshTopologyPtr thisLocalMeshTopo = localMeshTopos[partitionOrdinal];
+      set<GlobalIndexType> thisCells = partitions[partitionOrdinal];
+      int previousPartitionOrdinal = (partitionOrdinal + numPartitions - 1) % numPartitions;
+      set<GlobalIndexType> previousCells = partitions[previousPartitionOrdinal];
+      set<GlobalIndexType> cellsToMatch(thisCells.begin(),thisCells.end());
+      cellsToMatch.insert(previousCells.begin(),previousCells.end());
+      
+      testMeshTopologiesMatchOnCells(originalMesh, thisLocalMeshTopo, cellsToMatch, vertexDim, out, success);
+    }
+    // finally, prune to include just the new cells
+    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
+    {
+      // now, each localMeshTopo should match original on both its original partition and the previous rank's partition
+      MeshTopologyPtr thisLocalMeshTopo = localMeshTopos[partitionOrdinal];
+      int previousPartitionOrdinal = (partitionOrdinal + numPartitions - 1) % numPartitions;
+      set<GlobalIndexType> previousCells = partitions[previousPartitionOrdinal];
+      thisLocalMeshTopo->pruneToInclude(previousCells, vertexDim);
+      
+      testMeshTopologiesMatchOnCells(originalMesh, thisLocalMeshTopo, previousCells, vertexDim, out, success);
+    }
+  }
+  
   void testPrune(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
   {
     MeshTopologyPtr originalMesh = meshTopo->deepCopy();
@@ -386,6 +506,24 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     testPrune(meshTopo, out, success);
   }
   
+  void testPruneAddPruneAfterRefining(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
+  {
+    // do some refinements
+    GlobalIndexType cellID = 0;
+    GlobalIndexType nextChildIndex = meshTopo->cellCount();
+    int childOrdinal = 1; // in each refinement, take this child as the one to refine next
+    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(meshTopo->getCell(cellID)->topology());
+    int numRefinements = 1;
+    for (int i=0; i<numRefinements; i++)
+    {
+      meshTopo->refineCell(cellID, refPattern, nextChildIndex);
+      nextChildIndex += refPattern->numChildren();
+      CellPtr cell = meshTopo->getCell(cellID);
+      cellID = cell->children()[childOrdinal]->cellIndex();
+    }
+    testPruneAddPrune(meshTopo, out, success);
+  }
+  
 TEUCHOS_UNIT_TEST( MeshTopology, InitialMeshEntitiesActiveCellCount)
 {
   // one easy way to create a quad mesh topology is to use MeshFactory
@@ -542,16 +680,11 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetEntityGeneralizedParent_LineRefinement)
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
   
   GlobalIndexType cellID = 0;
-  meshTopo->addCell(cellID, lineTopo, lineVertices); // cell from 0 to 1
-
-  CellPtr cell = meshTopo->getCell(cellID);
+  CellPtr cell = meshTopo->addCell(lineTopo, lineVertices); // cell from 0 to 1
 
   RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(lineTopo);
 
-  GlobalIndexType nextCellID = cellID + 1;
-  meshTopo->refineCell(cellID, refPattern, nextCellID);
-  
-  nextCellID += refPattern->numChildren();
+  meshTopo->refineCell(cell->cellIndex(), refPattern, meshTopo->cellCount());
 
   double xMiddle = (xLeft + xRight) / 2.0;
 
@@ -759,6 +892,69 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
     meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {4,4,4});
     testPrune(meshTopo, out, success);
   }
+
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneAddPruneRefinedMesh_1D)
+  {
+    int meshWidth = 2;
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {meshWidth});
+    
+    testPruneAddPruneAfterRefining(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneAddPruneRefinedMesh_2D)
+  {
+    int meshWidth = 2;
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {meshWidth,meshWidth});
+    
+    testPruneAddPruneAfterRefining(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneAddPruneRefinedMesh_3D)
+  {
+    int meshWidth = 2;
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {meshWidth,meshWidth,meshWidth});
+    
+    testPruneAddPruneAfterRefining(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneAddPruneUnrefinedMesh_1D)
+  {
+    // start with one where no pruning should actually take place
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {2});
+    testPruneAddPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in two out of three cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {3});
+    testPruneAddPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0}, {4});
+    testPruneAddPrune(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneAddPruneUnrefinedMesh_2D)
+  {
+    // start with one where no pruning should actually take place
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {2,2});
+    testPruneAddPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all but one case
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {3,3});
+    testPruneAddPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {4,4});
+    testPruneAddPrune(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, PruneAddPruneUnrefinedMesh_3D)
+  {
+    // start with one where no pruning should actually take place
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {2,2,2});
+    testPruneAddPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all but one case
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {3,3,3});
+    testPruneAddPrune(meshTopo, out, success);
+    // now, one where some pruning takes place in all cases
+    meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {4,4,4});
+    testPruneAddPrune(meshTopo, out, success);
+  }
   
   TEUCHOS_UNIT_TEST( MeshTopology, UpdateNeighborsAfterAnisotropicRefinements)
   {
@@ -907,8 +1103,7 @@ TEUCHOS_UNIT_TEST( MeshTopology, UnrefinedSpaceTimeMeshTopologyIsUnconstrained )
   vector<vector<double>> cellVerticesVector;
   CamelliaCellTools::pointsVectorFromFC(cellVerticesVector, cellNodes);
   
-  GlobalIndexType nextCellID = spatialMeshTopo->cellCount();
-  spatialMeshTopo->addCell(nextCellID, spaceTopo, cellVerticesVector);
+  spatialMeshTopo->addCell(spaceTopo, cellVerticesVector);
 
   double t0 = 0.0, t1 = 1.0;
   MeshTopologyPtr spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(spatialMeshTopo, t0, t1);
