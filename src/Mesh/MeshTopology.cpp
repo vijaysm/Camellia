@@ -1542,6 +1542,13 @@ set<unsigned> MeshTopology::descendants(unsigned d, unsigned entityIndex)
 
 bool MeshTopology::entityHasChildren(unsigned int d, IndexType entityIndex)
 {
+  if (d == _spaceDim)
+  {
+    // interpret entityIndex as a Cell
+    MeshTopologyPtr thisPtr = Teuchos::rcp(this,false);
+    return getCell(entityIndex)->isParent(thisPtr);
+  }
+  TEUCHOS_TEST_FOR_EXCEPTION((d < 0) || (d >= _childEntities.size()), std::invalid_argument, "d is out of bounds");
   if (_childEntities[d].find(entityIndex) == _childEntities[d].end()) return false;
   return _childEntities[d][entityIndex].size() > 0;
 }
