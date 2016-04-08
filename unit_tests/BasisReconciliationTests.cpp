@@ -873,8 +873,7 @@ void testHGRADTrace(CellTopoPtr volumeTopo, int polyOrder, Teuchos::FancyOStream
   CamelliaCellTools::refCellNodesForTopology(refCellNodes, volumeTopo);
   vector<vector<double>> cellNodesVector;
   CamelliaCellTools::pointsVectorFromFC(cellNodesVector, refCellNodes);
-  GlobalIndexType cellID = 0;
-  meshTopo->addCell(cellID, volumeTopo, cellNodesVector);
+  meshTopo->addCell(volumeTopo, cellNodesVector);
   testHGRADTrace(meshTopo, polyOrder, out, success);
 }
 
@@ -1383,10 +1382,8 @@ TEUCHOS_UNIT_TEST( BasisReconciliation, HGRADTrace_TwoQuadCW )
   vector<vector<double>> vertices1 = {{0,0},{0,1},{1,1},{1,0}};
   vector<vector<double>> vertices2 = {{1,0},{1,1},{2,1},{2,0}};
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(volumeTopo->getDimension()));
-  GlobalIndexType nextCellID = 0;
-  meshTopo->addCell(nextCellID, volumeTopo, vertices1);
-  nextCellID++;
-  meshTopo->addCell(nextCellID, volumeTopo, vertices2);
+  meshTopo->addCell(volumeTopo, vertices1);
+  meshTopo->addCell(volumeTopo, vertices2);
   testHGRADTrace(meshTopo, polyOrder, out, success);
 }
 
@@ -1399,9 +1396,8 @@ TEUCHOS_UNIT_TEST( BasisReconciliation, HGRADTrace_TwoQuadCCW )
   vector<vector<double>> vertices2 = {{1,0},{2,0},{2,1},{1,1}};
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(volumeTopo->getDimension()));
   GlobalIndexType nextCellID = 0;
-  meshTopo->addCell(nextCellID, volumeTopo, vertices1);
-  nextCellID++;
-  meshTopo->addCell(nextCellID, volumeTopo, vertices2);
+  meshTopo->addCell(volumeTopo, vertices1);
+  meshTopo->addCell(volumeTopo, vertices2);
   testHGRADTrace(meshTopo, polyOrder, out, success);
 }
 
@@ -1413,10 +1409,8 @@ TEUCHOS_UNIT_TEST( BasisReconciliation, HGRADTrace_TwoQuadMixed )
   vector<vector<double>> vertices1 = {{0,0},{1,0},{1,1},{0,1}};
   vector<vector<double>> vertices2 = {{1,0},{1,1},{2,1},{2,0}};
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(volumeTopo->getDimension()));
-  GlobalIndexType nextCellID = 0;
-  meshTopo->addCell(nextCellID, volumeTopo, vertices1);
-  nextCellID++;
-  meshTopo->addCell(nextCellID, volumeTopo, vertices2);
+  meshTopo->addCell(volumeTopo, vertices1);
+  meshTopo->addCell(volumeTopo, vertices2);
   testHGRADTrace(meshTopo, polyOrder, out, success);
 }
 

@@ -42,8 +42,7 @@ MeshPtr singleCellSpaceTimeMesh(CellTopoPtr spaceTopo, vector<int> H1Order)
 
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(tensorTopo->getDimension()) );
 
-  GlobalIndexType nextCellID = 0;
-  meshTopo->addCell(nextCellID, tensorTopo, tensorNodes);
+  meshTopo->addCell(tensorTopo, tensorNodes);
 
   double epsilon = 1.0;
   SpaceTimeHeatFormulation form(spaceTopo->getDimension(), epsilon, true);

@@ -78,8 +78,7 @@ MeshPtr getSpaceTimeMesh(CellTopoPtr spaceTopo, int H1Order=2, double refCellExp
   CamelliaCellTools::pointsVectorFromFC(tensorNodes, tensorNodesFC);
 
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(tensorTopo->getDimension()) );
-  GlobalIndexType nextCellID = meshTopo->cellCount();
-  meshTopo->addCell(nextCellID, tensorTopo, tensorNodes);
+  meshTopo->addCell(tensorTopo, tensorNodes);
 
   PoissonFormulation form(spaceTopo->getDimension(), false); // arbitrary; we don't actually use the BF in any meaningful way
 

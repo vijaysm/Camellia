@@ -33,9 +33,7 @@ void testProjectFunctionOnTensorTopoSides(CellTopoPtr spaceTopo, int H1Order, Ca
   CamelliaCellTools::refCellNodesForTopology(cellNodes, spaceTopo);
   vector<vector<double>> cellVerticesVector;
   CamelliaCellTools::pointsVectorFromFC(cellVerticesVector, cellNodes);
-  GlobalIndexType nextCellID = spatialMeshTopo->cellCount();
-  spatialMeshTopo->addCell(nextCellID, spaceTopo, cellVerticesVector);
-  nextCellID++;
+  spatialMeshTopo->addCell(spaceTopo, cellVerticesVector);
 
   double t0 = 0.0, t1 = 1.0;
   MeshTopologyPtr spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(spatialMeshTopo, t0, t1);

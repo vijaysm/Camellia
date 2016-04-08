@@ -1038,8 +1038,7 @@ namespace
     int pToAdd = 1; // for this test, doesn't really affect much
     
     MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
-    GlobalIndexType nextCellID = 0;
-    meshTopo->addCell(nextCellID, spaceTimeTopo, refCellNodes);
+    meshTopo->addCell(spaceTimeTopo, refCellNodes);
     
     MeshPtr mesh = Teuchos::rcp( new Mesh (meshTopo, bf, H1Order, pToAdd) );
     
