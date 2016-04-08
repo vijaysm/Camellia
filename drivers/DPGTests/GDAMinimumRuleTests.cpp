@@ -1768,12 +1768,9 @@ bool GDAMinimumRuleTests::testPoissonCompatibleMeshWithHeterogeneousOrientations
   CellTopoPtrLegacy quadTopo = Teuchos::rcp( new shards::CellTopology(shards::getCellTopologyData<shards::Quadrilateral<4> >() ));
 
   cout << "Note: experimentally trying with both cells oriented CW.\n";
-  GlobalIndexType nextCellID = 0;
-  meshTopology->addCell(nextCellID, quadTopo, BAFE);
-  nextCellID++;
+  meshTopology->addCell(quadTopo, BAFE);
 //  meshTopology->addCell(quadTopo, ABEF);
-  meshTopology->addCell(nextCellID, quadTopo, CBED);
-  nextCellID++;
+  meshTopology->addCell(quadTopo, CBED);
 
   MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, testSpaceEnrichment) );
 

@@ -2278,10 +2278,6 @@ bool MeshTestSuite::testSolutionForMultipleElementTypes()
   {
     success = false;
     cout << "FAILURE: Solution failed to solve on uniform mesh with two element types..." << endl;
-    ostringstream fileName;
-    fileName << "PoissonPhiSolution_FAILURE.p=" << order-1 << "." << horizontalCells << "x" << verticalCells << ".dat";
-    solution2->writeToFile(phi->ID(), fileName.str());
-    cout << "Wrote solution out to disk at: " << fileName.str() << endl;
   }
   return success;
 }
@@ -2362,12 +2358,7 @@ bool MeshTestSuite::testSolutionForSingleElementUpgradedSide()
   {
     success = false;
     cout << "FAILURE: When using upgraded side, failed to resolve linear polynomial... (error: " << error << ")" << endl;
-    cout << "Single-point BC Poisson error (upgraded side): " << error << endl;
-    ostringstream fileName;
-    fileName << "testSolutionForSingleElementUpgradedSide_FAILURE.p=" << order-1 << ".dat";
-    solution->writeToFile(phi->ID(), fileName.str());
-    cout << "Wrote solution out to disk at: " << fileName.str() << endl;
-  }
+    cout << "Single-point BC Poisson error (upgraded side): " << error << endl;  }
 
   return success;
 }

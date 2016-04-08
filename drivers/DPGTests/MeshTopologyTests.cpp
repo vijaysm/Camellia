@@ -383,7 +383,6 @@ MeshTopologyPtr MeshTopologyTests::makeRectMesh(double x0, double y0, double wid
   double dx = width / horizontalCells;
   double dy = height / verticalCells;
   CellTopoPtrLegacy quadTopo = Teuchos::rcp( new shards::CellTopology(shards::getCellTopologyData<shards::Quadrilateral<4> >() ) );
-  GlobalIndexType nextCellID = 0;
   for (unsigned i=0; i<horizontalCells; i++)
   {
     double x = x0 + dx * i;
@@ -391,8 +390,7 @@ MeshTopologyPtr MeshTopologyTests::makeRectMesh(double x0, double y0, double wid
     {
       double y = y0 + dy * j;
       vector< vector<double> > vertices = quadPoints(x, y, dx, dy);
-      mesh->addCell(nextCellID, quadTopo, vertices);
-      nextCellID++;
+      mesh->addCell(quadTopo, vertices);
     }
   }
   return mesh;
@@ -406,7 +404,6 @@ MeshTopologyPtr MeshTopologyTests::makeHexMesh(double x0, double y0, double z0, 
   double dx = width / horizontalCells;
   double dy = height / verticalCells;
   double dz = depth / depthCells;
-  GlobalIndexType nextCellID = 0;
   CellTopoPtrLegacy hexTopo = Teuchos::rcp( new shards::CellTopology(shards::getCellTopologyData<shards::Hexahedron<8> >() ) );
   for (unsigned i=0; i<horizontalCells; i++)
   {
@@ -418,8 +415,7 @@ MeshTopologyPtr MeshTopologyTests::makeHexMesh(double x0, double y0, double z0, 
       {
         double z = z0 + dz * k;
         vector< vector<double> > vertices = hexPoints(x, y, z, dx, dy, dz);
-        mesh->addCell(nextCellID, hexTopo, vertices);
-        nextCellID++;
+        mesh->addCell(hexTopo, vertices);
       }
     }
   }

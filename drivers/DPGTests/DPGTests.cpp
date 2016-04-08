@@ -197,6 +197,26 @@ void DPGTests::runTests()
   // setup our TestSuite tests:
   vector< Teuchos::RCP< TestSuite > > testSuites;
 
+  testSuites.push_back( Teuchos::rcp( new CurvilinearMeshTests) );
+  testSuites.push_back( Teuchos::rcp( new ElementTests ) );
+  testSuites.push_back( Teuchos::rcp( new FunctionTests ) );
+  testSuites.push_back( Teuchos::rcp( new GDAMinimumRuleTests ) );
+  testSuites.push_back( Teuchos::rcp( new GMGTests ) );
+  testSuites.push_back( Teuchos::rcp( new HConvergenceStudyTests ) );
+  testSuites.push_back( Teuchos::rcp( new LinearTermTests ) );
+  testSuites.push_back( Teuchos::rcp( new LobattoBasisTests ) );
+  testSuites.push_back( Teuchos::rcp( new MeshRefinementTests ) );
+  testSuites.push_back( Teuchos::rcp( new MeshTestSuite ) );
+  testSuites.push_back( Teuchos::rcp( new MeshTopologyTests ) );
+  testSuites.push_back( Teuchos::rcp( new MultiBasisTests ) );
+  testSuites.push_back( Teuchos::rcp( new MPIWrapperTests) );
+  testSuites.push_back( Teuchos::rcp( new ParametricCurveTests) );
+  testSuites.push_back( Teuchos::rcp( new RHSTests ) );
+  testSuites.push_back( Teuchos::rcp( new ScratchPadTests ) );
+  testSuites.push_back( Teuchos::rcp( new SerialDenseMatrixUtilityTests) );
+  testSuites.push_back( Teuchos::rcp( new SolutionTests ) );
+  testSuites.push_back( Teuchos::rcp( new VectorizedBasisTestSuite ) );
+
   if (skipSlowTests)
   {
     if (rank==0)
@@ -209,26 +229,6 @@ void DPGTests::runTests()
     testSuites.push_back( Teuchos::rcp( new IncompressibleFormulationsTests(false) ) ); // false: turn "thorough" off
   }
   
-  testSuites.push_back( Teuchos::rcp( new CurvilinearMeshTests) );
-  testSuites.push_back( Teuchos::rcp( new ElementTests ) );
-  testSuites.push_back( Teuchos::rcp( new FunctionTests ) );
-  testSuites.push_back( Teuchos::rcp( new GDAMinimumRuleTests ) );
-  testSuites.push_back( Teuchos::rcp( new GMGTests ) );
-  testSuites.push_back( Teuchos::rcp( new HConvergenceStudyTests ) );
-  testSuites.push_back( Teuchos::rcp( new LinearTermTests ) );
-  testSuites.push_back( Teuchos::rcp( new LobattoBasisTests ) );
-  testSuites.push_back( Teuchos::rcp( new MeshRefinementTests ) );
-  testSuites.push_back( Teuchos::rcp( new MeshTopologyTests ) );
-  testSuites.push_back( Teuchos::rcp( new MeshTestSuite ) );
-  testSuites.push_back( Teuchos::rcp( new MultiBasisTests ) );
-  testSuites.push_back( Teuchos::rcp( new MPIWrapperTests) );
-  testSuites.push_back( Teuchos::rcp( new ParametricCurveTests) );
-  testSuites.push_back( Teuchos::rcp( new RHSTests ) );
-  testSuites.push_back( Teuchos::rcp( new ScratchPadTests ) );
-  testSuites.push_back( Teuchos::rcp( new SerialDenseMatrixUtilityTests) );
-  testSuites.push_back( Teuchos::rcp( new SolutionTests ) );
-  testSuites.push_back( Teuchos::rcp( new VectorizedBasisTestSuite ) );
-
   //  testSuites.push_back( Teuchos::rcp( new IncompressibleFormulationsTests(true) ) ); // true: turn "thorough" on
   //  testSuites.push_back( Teuchos::rcp( new PatchBasisTests ) ); // skip until we have a proper GDAMinimumRule constructed
 
