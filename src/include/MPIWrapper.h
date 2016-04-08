@@ -144,7 +144,7 @@ public:
   void MPIWrapper::entryWiseSumAfterCasting(const Epetra_Comm &Comm, Intrepid::FieldContainer<ScalarType> &values)
   {
 #ifdef HAVE_MPI
-    // cast to long long:
+    // cast to ScalarTypeToCast:
     Teuchos::Array<int> dim;
     values.dimensions(dim);
     Intrepid::FieldContainer<ScalarTypeToCast> valuesCast(dim);
@@ -159,7 +159,7 @@ public:
     // copy back to original container:
     for (int i=0; i<values.size(); i++)
     {
-      values[i] = (GlobalIndexType) valuesCast[i];
+      values[i] = (ScalarType) valuesCast[i];
     }
 #else
 #endif
