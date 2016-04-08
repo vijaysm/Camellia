@@ -34,9 +34,11 @@ public:
   static void packSolutionData(Mesh* mesh, GlobalIndexType cellID, bool packParentDofs, char* &dataLocation, int size);
   static void unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size);
   
-  static void getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
+  static void getCellGeometry(MeshTopology* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
                               RootedLabeledRefinementBranch &rootedLabeledRefBranch);
   static void getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloBranches);
+  static void getCellHaloGeometry(MeshTopology* meshTopo, unsigned minDimensionForContinuity,
+                                  GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloBranches);
   
   static void addMigratedGeometry(MeshTopology* meshTopo, const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches);
 };

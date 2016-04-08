@@ -34,16 +34,26 @@ void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
     if (! meshTopo->isValidCellIndex(rootCellID))
     {
       CellTopoPtr rootCellTopo = (*refBranch)[0].first->parentTopology();
-      meshTopo->addCell(rootCellID, rootCellTopo, *rootVertices);
+      meshTopo->addMigratedCell(rootCellID, rootCellTopo, *rootVertices);
     }
     for (int j=1; j<labels->size(); j++)
     {
       GlobalIndexType parentCellID = (*labels)[j-1];
       GlobalIndexType firstChildCellID = (*labels)[j];
-      if (! meshTopo->isValidCellIndex(firstChildCellID))
+      RefinementPatternPtr refPattern = RefinementPattern::refinementPattern((*refBranch)[j-1].first->getKey());
+      bool allChildrenKnown = true;
+      for (int childOrdinal = 0; childOrdinal < refPattern->numChildren(); childOrdinal++)
+      {
+        if (! meshTopo->isValidCellIndex(childOrdinal + firstChildCellID))
+        {
+          allChildrenKnown = false;
+          break;
+        }
+      }
+      
+      if (! allChildrenKnown)
       {
         // get the RefinementPatternPtr stored for the RefinementPattern:
-        RefinementPatternPtr refPattern = RefinementPattern::refinementPattern((*refBranch)[j-1].first->getKey());
         meshTopo->refineCell(parentCellID, refPattern, firstChildCellID);
       }
     }
@@ -108,7 +118,7 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
   return size;
 }
 
-void CellDataMigration::getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
+void CellDataMigration::getCellGeometry(MeshTopology* meshTopo, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
                                         RootedLabeledRefinementBranch &cellGeometry)
 {
   // clear cellGeometry
@@ -117,16 +127,16 @@ void CellDataMigration::getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<
   RefinementBranch* cellRefBranch = &cellGeometry.first.first;
   vector<GlobalIndexType>* cellLabels = &cellGeometry.first.second;
   
-  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  CellPtr cell = meshTopo->getCell(cellID);
   *cellRefBranch = cell->refinementBranch();
   
   GlobalIndexType rootCellIndex = cell->rootCellIndex();
   cellLabels->push_back(rootCellIndex);
-  CellPtr ancestralCell = mesh->getTopology()->getCell(cell->rootCellIndex());
+  CellPtr ancestralCell = meshTopo->getCell(cell->rootCellIndex());
   int vertexCount = ancestralCell->vertices().size();
   for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
   {
-    rootCellVertices->push_back(mesh->getTopology()->getVertex(ancestralCell->vertices()[vertexOrdinal]));
+    rootCellVertices->push_back(meshTopo->getVertex(ancestralCell->vertices()[vertexOrdinal]));
   }
   
   knownCells.insert(rootCellIndex); // keep track of cells already included in the data structure, to avoid redundancy
@@ -158,23 +168,30 @@ void CellDataMigration::getCellGeometry(Mesh* mesh, GlobalIndexType cellID, set<
 
 void CellDataMigration::getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloGeometry)
 {
+  ElementTypePtr elemType = mesh->getElementType(cellID);
+  int dimForContinuity = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
+  
+  getCellHaloGeometry(mesh->getTopology()->baseMeshTopology(), dimForContinuity, cellID, cellHaloGeometry);
+}
+
+void CellDataMigration::getCellHaloGeometry(MeshTopology *meshTopo, unsigned dimForContinuity,
+                                            GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloGeometry)
+{
   cellHaloGeometry.resize(1);
   
   set<GlobalIndexType> knownCells;
-  getCellGeometry(mesh, cellID, knownCells, cellHaloGeometry[0]);
+  getCellGeometry(meshTopo, cellID, knownCells, cellHaloGeometry[0]);
   
-  ElementTypePtr elemType = mesh->getElementType(cellID);
-  int dimForContinuity = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
-  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  CellPtr cell = meshTopo->getCell(cellID);
+  MeshTopologyPtr meshTopoPtr = Teuchos::rcp(meshTopo,false);
+  set<GlobalIndexType> cellHaloIndices = cell->getActiveNeighborIndices(dimForContinuity, meshTopoPtr);
   
-  set<GlobalIndexType> cellHaloIndices = cell->getActiveNeighborIndices(dimForContinuity, mesh->getTopology());
-
   for (GlobalIndexType neighborID : cellHaloIndices)
   {
     if (knownCells.find(neighborID) == knownCells.end())
     {
       RootedLabeledRefinementBranch neighborCellGeometry;
-      getCellGeometry(mesh, neighborID, knownCells, neighborCellGeometry);
+      getCellGeometry(meshTopo, neighborID, knownCells, neighborCellGeometry);
       cellHaloGeometry.push_back(neighborCellGeometry);
     }
   }
