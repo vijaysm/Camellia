@@ -1064,7 +1064,7 @@ int main(int argc, char *argv[])
 
     if (rank == 0)
     {
-      cout << "Starting mesh has " << mesh->activeElements().size() << " elements and ";
+      cout << "Starting mesh has " << mesh->numActiveElements() << " elements and ";
       cout << mesh->numGlobalDofs() << " total dofs.\n";
       cout << "polyOrder = " << polyOrder << endl;
       cout << "pToAdd = " << pToAdd << endl;
@@ -1473,7 +1473,7 @@ int main(int argc, char *argv[])
           vector<int> cornerIDs;
           cout << "top-left corner ID: " << topCorners[0]->cellID() << endl;
           cout << "top-right corner ID: " << topCorners[1]->cellID() << endl;
-          cout << mesh->activeElements().size() << " elements, " << mesh->numGlobalDofs() << " dofs.\n";
+          cout << mesh->numActiveElements() << " elements, " << mesh->numGlobalDofs() << " dofs.\n";
         }
 
       }

@@ -196,11 +196,11 @@ void DPGTests::runTests()
 
   // setup our TestSuite tests:
   vector< Teuchos::RCP< TestSuite > > testSuites;
-
+  
+  testSuites.push_back( Teuchos::rcp( new GDAMinimumRuleTests ) );
   testSuites.push_back( Teuchos::rcp( new CurvilinearMeshTests) );
   testSuites.push_back( Teuchos::rcp( new ElementTests ) );
   testSuites.push_back( Teuchos::rcp( new FunctionTests ) );
-  testSuites.push_back( Teuchos::rcp( new GDAMinimumRuleTests ) );
   testSuites.push_back( Teuchos::rcp( new GMGTests ) );
   testSuites.push_back( Teuchos::rcp( new HConvergenceStudyTests ) );
   testSuites.push_back( Teuchos::rcp( new LinearTermTests ) );

@@ -273,13 +273,7 @@ void MultiBasisTests::getPolyOrdersAlongSharedSides(vector< map<int, int> > &chi
 
 void MultiBasisTests::hRefineAllActiveCells(Teuchos::RCP<Mesh> mesh)
 {
-  vector<GlobalIndexType> cellIDsToRefine;
-  for (vector< ElementPtr >::const_iterator elemIt=mesh->activeElements().begin();
-       elemIt != mesh->activeElements().end(); elemIt++)
-  {
-    int cellID = (*elemIt)->cellID();
-    cellIDsToRefine.push_back(cellID);
-  }
+  set<GlobalIndexType> cellIDsToRefine = mesh->getActiveCellIDsGlobal();
   mesh->hRefine(cellIDsToRefine,RefinementPattern::regularRefinementPatternQuad());
 }
 
@@ -334,30 +328,31 @@ bool MultiBasisTests::meshLooksGood()
 
 bool MultiBasisTests::multiBasisCorrectlyAppliedInMesh(Teuchos::RCP<Mesh> mesh, vector<int> fluxIDs, vector<int> fieldIDs)
 {
-  // checks that the right elements have some  in the right places
-  vector< ElementPtr > activeElements = mesh->activeElements();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
 
   // depending on our debugging needs, could revise this to return more information
   // about the nature and extent of the incorrectness when correct == false.
 
   bool correct = true;
 
-  vector< ElementPtr >::iterator elemIt;
-  for (elemIt = activeElements.begin(); elemIt != activeElements.end(); elemIt++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    ElementPtr elem = *elemIt;
+    CellPtr cell = mesh->getTopology()->getCell(cellID);
+    ElementTypePtr elemType = mesh->getElementType(cellID);
     vector<int>::iterator varIt;
     for (varIt = fluxIDs.begin(); varIt != fluxIDs.end(); varIt++)
     {
       int fluxID = *varIt;
-      int numSides = elem->numSides();
+      int numSides = cell->getSideCount();
+      
       for (int sideIndex=0; sideIndex<numSides; sideIndex++)
       {
-        BasisPtr basis = elem->elementType()->trialOrderPtr->getBasis(fluxID,sideIndex);
+        BasisPtr basis = elemType->trialOrderPtr->getBasis(fluxID,sideIndex);
         bool hasMultiBasis = BasisFactory::basisFactory()->isMultiBasis(basis);
         bool shouldHaveMultiBasis;
         // check who the (ancestor's) neighbor is on this side:
         int sideIndexInNeighbor;
+        ElementPtr elem = mesh->getElement(cellID);
         ElementPtr neighbor = mesh->ancestralNeighborForSide(elem,sideIndex,sideIndexInNeighbor);
 
         if (neighbor.get() != NULL)
@@ -391,7 +386,7 @@ bool MultiBasisTests::multiBasisCorrectlyAppliedInMesh(Teuchos::RCP<Mesh> mesh, 
     {
       int fieldID = *varIt;
       bool shouldHaveMultiBasis = false; // false for all fields
-      BasisPtr basis = elem->elementType()->trialOrderPtr->getBasis(fieldID);
+      BasisPtr basis = elemType->trialOrderPtr->getBasis(fieldID);
       bool hasMultiBasis = BasisFactory::basisFactory()->isMultiBasis(basis);
       if (shouldHaveMultiBasis != hasMultiBasis)
       {
@@ -427,13 +422,7 @@ bool MultiBasisTests::polyOrdersAgree(const vector< map<int, int> > &pOrderMapVe
 
 void MultiBasisTests::pRefineAllActiveCells()
 {
-  vector<GlobalIndexType> cellIDsToRefine;
-  for (vector< ElementPtr >::const_iterator elemIt=_mesh->activeElements().begin();
-       elemIt != _mesh->activeElements().end(); elemIt++)
-  {
-    int cellID = (*elemIt)->cellID();
-    cellIDsToRefine.push_back(cellID);
-  }
+  set<GlobalIndexType> cellIDsToRefine = _mesh->getActiveCellIDsGlobal();
   _mesh->pRefine(cellIDsToRefine);
 }
 

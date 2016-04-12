@@ -336,7 +336,7 @@ int main(int argc, char *argv[])
   mesh->registerObserver(coarseMesh_p);
   double meshConstructionTime = timer.ElapsedTime();
   if (rank==0) cout << "On rank " << rank << ", mesh construction time: " << meshConstructionTime << endl;
-  int elementCount = mesh->getActiveCellIDs().size();
+  int elementCount = mesh->numActiveElements();
   int dofCount = mesh->numGlobalDofs();
   if (rank==0) cout << "Initial mesh has " << elementCount << " elements and " << dofCount << " global dofs.\n";
 
@@ -609,7 +609,7 @@ int main(int argc, char *argv[])
     if (rank==0) cout << "(Use --meshLoadName=\"" << meshFileName.str() << "\" --coarseMeshLoadName_h=\"" << coarseMeshFileName_h.str() << "\" --coarseMeshLoadName_p=\"" << coarseMeshFileName_p.str() << "\" --startingRefNumber=" << refIndex + 1 << ")\n";
 #endif
 
-    int elementCount = mesh->getActiveCellIDs().size();
+    int elementCount = mesh->numActiveElements();
     if (elementCount > maxCells)
     {
       if (rank==0) cout << "Cell count (" << elementCount << ") exceeds maxCells; exiting.\n";

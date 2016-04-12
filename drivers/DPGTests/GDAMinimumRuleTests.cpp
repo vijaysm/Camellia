@@ -768,10 +768,10 @@ bool GDAMinimumRuleTests::subTestCompatibleSolutionsAgree(int horizontalCells, i
 
     for (int ref=0; ref<numUniformRefinements; ref++)
     {
-      set<GlobalIndexType> cellIDsMinRule = minRuleSoln->mesh()->getActiveCellIDs();
+      set<GlobalIndexType> cellIDsMinRule = minRuleSoln->mesh()->getActiveCellIDsGlobal();
       minRuleSoln->mesh()->hRefine(cellIDsMinRule, RefinementPattern::regularRefinementPatternQuad());
 
-      set<GlobalIndexType> cellIDsMaxRule = maxRuleSoln->mesh()->getActiveCellIDs();
+      set<GlobalIndexType> cellIDsMaxRule = maxRuleSoln->mesh()->getActiveCellIDsGlobal();
       maxRuleSoln->mesh()->hRefine(cellIDsMaxRule, RefinementPattern::regularRefinementPatternQuad());
     }
 
@@ -814,7 +814,7 @@ bool GDAMinimumRuleTests::checkLocalGlobalConsistency(MeshPtr mesh)
 {
   bool success = true;
 
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
 
   GlobalDofAssignmentPtr gda = mesh->globalDofAssignment();
 
@@ -838,7 +838,7 @@ bool GDAMinimumRuleTests::checkLocalGlobalConsistency(MeshPtr mesh)
 
   double tol=1e-10; // for hanging nodes, it seems like this needs to be fairly high...
 
-  cellIDs = mesh->getActiveCellIDs();
+  cellIDs = mesh->getActiveCellIDsGlobal();
   for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
   {
     GlobalIndexType cellID = *cellIDIt;
@@ -935,7 +935,7 @@ bool GDAMinimumRuleTests::testGlobalToLocalToGlobalConsistency()
   SolutionPtr minRuleSoln = confusionExactSolution(true, 1, 2, H1Order, divideIntoTriangles);
 
   MeshPtr mesh = minRuleSoln->mesh();
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
   mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternQuad());
 
   bool success = checkLocalGlobalConsistency(mesh);
@@ -952,13 +952,13 @@ bool GDAMinimumRuleTests::testLocalInterpretationConsistency()
 
   // do a uniform refinement
   MeshPtr mesh = minRuleSoln->mesh();
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
   mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternQuad());
 
   GlobalDofAssignmentPtr gda = minRuleSoln->mesh()->globalDofAssignment();
 
   int globalDofCount = mesh->numGlobalDofs();
-  cellIDs = mesh->getActiveCellIDs();
+  cellIDs = mesh->getActiveCellIDsGlobal();
   for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
   {
     GlobalIndexType cellID = *cellIDIt;
@@ -1240,19 +1240,11 @@ bool GDAMinimumRuleTests::testHangingNodePoisson(bool useQuads)
     minRule->setAllowCascadingConstraints(true); // required for 2-irregular meshes
 
     // refine left cell:
-    set<unsigned> cellsToRefine;
-    cellsToRefine.insert(1);
-    cellsToRefine.insert(3);
+    set<unsigned> cellsToRefine = {1,3};
     mesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPatternQuad());
-    cellsToRefine.clear();
-    cellsToRefine.insert(7);
-    cellsToRefine.insert(10);
+    cellsToRefine = {7,10};
     mesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPatternQuad());
-    cellsToRefine.clear();
-    cellsToRefine.insert(14);
-    cellsToRefine.insert(15);
-    cellsToRefine.insert(18);
-    cellsToRefine.insert(19);
+    cellsToRefine = {14,15,18,19};
     mesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPatternQuad());
 
     soln->solve();
@@ -1460,9 +1452,9 @@ bool GDAMinimumRuleTests::testHRefinements()
   for (int ref=0; ref<numRefs; ref++)
   {
     activeCellCountExpected *= 4;
-    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
     mesh->hRefine(activeCellIDs, RefinementPattern::regularRefinementPatternQuad());
-    int activeCellCount = mesh->getActiveCellIDs().size();
+    int activeCellCount = mesh->numActiveElements();
     if (activeCellCount != activeCellCountExpected)
     {
       cout << "After refinement # " << ref << ", expected " << activeCellCountExpected;

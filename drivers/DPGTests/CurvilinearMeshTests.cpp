@@ -246,7 +246,7 @@ bool CurvilinearMeshTests::testCylinderMesh()
     // h-refine
     if (i<numHRefinements)
     {
-      mesh->hRefine(mesh->getActiveCellIDs(),RefinementPattern::regularRefinementPatternQuad());
+      mesh->hRefine(mesh->getActiveCellIDsGlobal(),RefinementPattern::regularRefinementPatternQuad());
     }
   }
 
@@ -532,7 +532,7 @@ bool CurvilinearMeshTests::testEdgeLength()
         cout << "err = " << err << endl;
         cout << "expected perimeter = " << expectedPerimeter << "; actual = " << perimeter << endl;
       }
-      quadMesh->hRefine(quadMesh->getActiveCellIDs(),RefinementPattern::regularRefinementPatternQuad());
+      quadMesh->hRefine(quadMesh->getActiveCellIDsGlobal(),RefinementPattern::regularRefinementPatternQuad());
     }
   }
 
@@ -587,7 +587,7 @@ bool CurvilinearMeshTests::testEdgeLength()
     // p-refine
     if (i < numPRefinements)
     {
-      mesh->pRefine(mesh->getActiveCellIDs());
+      mesh->pRefine(mesh->getActiveCellIDsGlobal());
     }
   }
 
@@ -609,7 +609,7 @@ bool CurvilinearMeshTests::testEdgeLength()
     // h-refine
     if (i<numHRefinements)
     {
-      mesh->hRefine(mesh->getActiveCellIDs(),RefinementPattern::regularRefinementPatternQuad());
+      mesh->hRefine(mesh->getActiveCellIDsGlobal(),RefinementPattern::regularRefinementPatternQuad());
     }
   }
 
@@ -669,7 +669,7 @@ bool CurvilinearMeshTests::testEdgeLength()
     // p-refine
     if (i < numPRefinements)
     {
-      mesh->pRefine(mesh->getActiveCellIDs());
+      mesh->pRefine(mesh->getActiveCellIDsGlobal());
     }
   }
 
@@ -711,7 +711,7 @@ bool CurvilinearMeshTests::testEdgeLength()
     // h-refine
     if (i<numHRefinements)
     {
-      mesh->hRefine(mesh->getActiveCellIDs(),RefinementPattern::regularRefinementPatternQuad());
+      mesh->hRefine(mesh->getActiveCellIDsGlobal(),RefinementPattern::regularRefinementPatternQuad());
     }
   }
 

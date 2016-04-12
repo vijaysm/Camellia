@@ -15,6 +15,7 @@
 #include "TypeDefs.h"
 
 #include "AztecOO.h"
+#include "AztecOO_StatusTestResNorm.h"
 
 #include "Epetra_Operator_to_Epetra_Matrix.h"
 #include "Epetra_SerialComm.h"
@@ -39,6 +40,9 @@ double coarseCGTol;
 int coarseMaxIterations;
 bool narrateSolution;
 bool narrateCoarseSolution;
+bool saveVisualizationOutput = false;
+FunctionPtr errToPlot;
+string errFunctionName;
 
 string getFactorizationTypeString(GMGOperator::FactorType factorizationType)
 {
@@ -176,6 +180,7 @@ class AztecSolver : public Solver
   double _fillRatio;
 
   MeshPtr _mesh;
+  Teuchos::RCP<AztecOO_StatusTestResNorm> _statusTest;
   Teuchos::RCP<DofInterpreter> _dofInterpreter;
   GMGOperator::FactorType _schwarzBlockFactorization;
 public:
@@ -218,8 +223,17 @@ public:
   {
     AztecOO solver(this->_stiffnessMatrix.get(), this->_lhs.get(), this->_rhs.get());
 
-    solver.SetAztecOption(AZ_solver, AZ_cg);
+    solver.SetAztecOption(AZ_solver, AZ_cg_condnum);
 
+    solver.SetAztecOption(AZ_conv, AZ_rhs); // convergence is relative to the RHS
+    
+    cout << "***Experiment: using one-norm of residual instead of two-norm for stopping criterion.***\n";
+    // I think we really want _tol * _tol (the status test really should take sqrt of one-norm), but doing _tol for now...
+    _statusTest = Teuchos::rcp( new AztecOO_StatusTestResNorm(*_stiffnessMatrix.get(), *(*_lhs.get())(0), *(*_rhs.get())(0), _tol));
+    solver.SetStatusTest(_statusTest.get());
+    _statusTest->DefineResForm(AztecOO_StatusTestResNorm::Explicit, AztecOO_StatusTestResNorm::OneNorm);
+    _statusTest->DefineScaleForm(AztecOO_StatusTestResNorm::NormOfRHS, AztecOO_StatusTestResNorm::OneNorm);
+    
     Teuchos::RCP<Epetra_CrsMatrix> A = this->_stiffnessMatrix;
 
     Teuchos::RCP<Epetra_Operator> preconditioner;
@@ -252,8 +266,6 @@ public:
     }
 
     solver.SetAztecOption(AZ_output, _azOutputLevel);
-
-    solver.SetAztecOption(AZ_conv, AZ_r0); // convergence is relative to the initial residual
 
     int solveResult = solver.Iterate(_maxIters,_tol);
 
@@ -435,7 +447,7 @@ Teuchos::RCP<GMGSolver> initializeGMGSolver(SolutionPtr solution, int AztecOutpu
   
   gmgSolver->setAztecOutput(AztecOutputLevel);
   gmgSolver->setUseConjugateGradient(true);
-  gmgSolver->setComputeConditionNumberEstimate(false);
+  gmgSolver->setComputeConditionNumberEstimate(true);
   gmgSolver->gmgOperator()->setSchwarzFactorizationType(schwarzBlockFactorization);
   gmgSolver->gmgOperator()->setLevelOfFill(schwarzLevelOfFill);
   gmgSolver->gmgOperator()->setFillRatio(schwarzFillRatio);
@@ -454,6 +466,12 @@ Teuchos::RCP<GMGSolver> initializeGMGSolver(SolutionPtr solution, int AztecOutpu
   gmgSolver->gmgOperator()->setUseSchwarzDiagonalWeight(useWeightMatrixForSchwarz);
   
   gmgSolver->gmgOperator()->setDebugMode(runGMGOperatorInDebugMode);
+  
+  if (saveVisualizationOutput)
+  {
+    Teuchos::RCP<HDF5Exporter> exporter = Teuchos::rcp(new HDF5Exporter(solution->mesh(), "./", "preconditionerError") );
+    gmgSolver->gmgOperator()->setFunctionExporter(exporter, errToPlot, errFunctionName);
+  }
   
   return Teuchos::rcp(gmgSolver);
 }
@@ -502,7 +520,9 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
   VarPtr p; // pressure
 
   map<int,int> trialOrderEnhancements;
-  
+  FunctionPtr exactSolution;
+  VarPtr varExact; // the variable of which we have the exact solution in exactSolution
+
   if (problemChoice == Poisson)
   {
     PoissonFormulation formulation(spaceDim, conformingTraces);
@@ -774,6 +794,12 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
 //      u3_exact = x;
 //      p_exact = Function::zero();
     }
+    if (saveVisualizationOutput)
+    {
+      exactSolution = u1_exact;
+      varExact = formulation.u(1);
+      errFunctionName = "u1_error";
+    }
 
     // to ensure zero mean for p, need the domain carefully defined:
     x0 = vector<double>(spaceDim,-1.0);
@@ -905,6 +931,13 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     FunctionPtr u_exact = (spaceDim == 2) ? Function::vectorize(u1_exact, u2_exact) : Function::vectorize(u1_exact, u2_exact, u3_exact);
     FunctionPtr f = formulation.forcingFunction(u_exact);
     
+    if (saveVisualizationOutput)
+    {
+      exactSolution = u1_exact;
+      varExact = formulation.u(1);
+      errFunctionName = "u1_error";
+    }
+    
     VarPtr v1 = formulation.v(1);
     VarPtr v2 = formulation.v(2);
     
@@ -940,12 +973,19 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     while (meshWidthCells < numCells)
     {
       set<IndexType> activeCellIDs = meshTopo->getActiveCellIndices(); // should match between coarseMesh and mesh
+      IndexType nextCellIndexFine = meshTopo->cellCount();
+      IndexType nextCellIndexCoarse = coarseMeshTopo->cellCount();
       for (IndexType cellIndex : activeCellIDs)
       {
         CellTopoPtr cellTopo = meshTopo->getCell(cellIndex)->topology();
-        meshTopo->refineCell(cellIndex, RefinementPattern::regularRefinementPattern(cellTopo));
+        RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
+        meshTopo->refineCell(cellIndex, refPattern, nextCellIndexFine);
+        nextCellIndexFine += refPattern->numChildren();
         if (hOnly && (meshWidthCells * 2 < numCells))
-          coarseMeshTopo->refineCell(cellIndex, RefinementPattern::regularRefinementPattern(cellTopo)); // coarseMesh gets 1 less h-refinement
+        {
+          coarseMeshTopo->refineCell(cellIndex, refPattern, nextCellIndexCoarse); // coarseMesh gets 1 less h-refinement
+          nextCellIndexCoarse += refPattern->numChildren();
+        }
       }
       meshWidthCells *= 2;
     }
@@ -994,6 +1034,17 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     
     solution = navierStokesFormulationFine->solutionIncrement();
     solution->setUseCondensedSolve(useStaticCondensation);
+    
+    if (saveVisualizationOutput)
+    {
+      exactSolution = u1;
+      varExact = navierStokesFormulationFine->u(1);
+      errFunctionName = "u1_error";
+      FunctionPtr u1_background = Function::solution(varExact, navierStokesFormulationFine->solution());
+      FunctionPtr u1_increment = Function::solution(varExact, navierStokesFormulationFine->solutionIncrement());
+      // exact increment is (u1 - u1_background)
+      errToPlot = u1_increment - (u1 - u1_background);
+    }
     return; // return early for Navier-Stokes; we've already set up the Solution objects, etc.
   }
 
@@ -1034,7 +1085,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
   int meshWidthCells = rootMeshNumCells;
   while (meshWidthCells < numCells)
   {
-    set<IndexType> activeCellIDs = mesh->getActiveCellIDs(); // should match between coarseMesh and mesh
+    set<IndexType> activeCellIDs = mesh->getActiveCellIDsGlobal(); // should match between coarseMesh and mesh
     mesh->hRefine(activeCellIDs);
     meshWidthCells *= 2;
     if (hOnly && (meshWidthCells < numCells))
@@ -1061,6 +1112,13 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
   solution->setUseCondensedSolve(useStaticCondensation);
   solution->setZMCsAsGlobalLagrange(false); // fine grid solution shouldn't impose ZMCs (should be handled in coarse grid solve)
   
+  if (saveVisualizationOutput)
+  {
+    FunctionPtr var_soln = Function::solution(varExact, solution);
+    // exact increment is (u1 - u1_background)
+    errToPlot = exactSolution - var_soln;
+  }
+  
 //  {
 //    cout << "DEBUGGING: outputting sin_pi_x_sin_pi_y to disk at /tmp/.\n";
 //    const static double PI  = 3.141592653589793238462;
@@ -1076,7 +1134,7 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
          bool useStaticCondensation, bool precondition, bool schwarzOnly, GMGOperator::SmootherChoice smootherType,
          int schwarzOverlap, GMGOperator::FactorType schwarzBlockFactorization, int schwarzLevelOfFill, double schwarzFillRatio,
          Solver::SolverChoice coarseSolverChoice, double cgTol, int cgMaxIterations, int AztecOutputLevel,
-         bool reportTimings, double &solveTime, bool reportEnergyError, int numCellsRootMesh,
+         bool reportTimings, double &solveTime, double &error, bool reportEnergyError, int numCellsRootMesh,
          bool hOnly, bool useHierarchicalNeighborsForSchwarz, bool useZeroMeanConstraints,
          bool writeAndExit, GMGOperator::SmootherApplicationType comboType, double smootherWeight, bool useWeightMatrixForSchwarz,
          bool enhanceFieldsForH1TracesWhenConforming, double graphNormBeta)
@@ -1158,12 +1216,13 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
   MeshPtr mesh = solution->mesh();
   BCPtr bc = solution->bc();
 
-  int coarseElements = k0Mesh->getActiveCellIDs().size(), fineElements = mesh->getActiveCellIDs().size();
+  int coarseElements = k0Mesh->numActiveElements(), fineElements = mesh->numActiveElements();
   int fineDofs = mesh->numGlobalDofs(), coarseDofs = k0Mesh->numGlobalDofs();
   if (rank == 0)
   {
     cout << "fine mesh has " << fineElements << " active elements and " << fineDofs << " degrees of freedom.\n";
-    cout << "coarse mesh has " << coarseElements << " active elements and " << coarseDofs << " degrees of freedom.\n";
+    if (!schwarzOnly && precondition)
+      cout << "coarse mesh has " << coarseElements << " active elements and " << coarseDofs << " degrees of freedom.\n";
   }
   
   
@@ -1282,7 +1341,8 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
   }
 
   if (reportTimings) solution->reportTimings();
-  double energyErrorTotal = reportEnergyError ? solution->energyErrorTotal() : -1;
+  double energyErrorTotal = solution->energyErrorTotal(); // we now record energy error even if we don't print to console
+//  double energyErrorTotal = reportEnergyError ? solution->energyErrorTotal() : -1;
 
   GMGSolver* fineSolver = dynamic_cast<GMGSolver*>(solver.get());
   if (fineSolver != NULL)
@@ -1316,6 +1376,7 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
     cout << numGlobalDofs << " total dofs, including fields).\n";
     cout << "Energy error: " << energyErrorTotal << endl;
   }
+  error = energyErrorTotal; // in future, might want to compute L^2 norm of error instead of energy error, in cases where we know exact solution
 
   if (writeAndExit)
   {
@@ -1323,7 +1384,14 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
     Teuchos::RCP< Epetra_CrsMatrix > M;
     if (schwarzOnly)
     {
-      if (rank==0) cout << "writeAndExit not yet supported for schwarzOnly.\n";
+      // if (rank==0) cout << "writeAndExit not yet supported for schwarzOnly.\n";
+      
+      if (rank==0) cout << "writing A to A_fine.dat.\n";
+      EpetraExt::RowMatrixToMatrixMarketFile("A_fine.dat",*A, NULL, NULL, false);
+      
+      Teuchos::RCP< Epetra_CrsMatrix > S = ((AztecSolver *) solver.get())->getPreconditionerMatrix(solution->getPartitionMap());
+      if (rank==0) cout << "writing Schwarz preconditioner to S.dat.\n";
+      EpetraExt::RowMatrixToMatrixMarketFile("S.dat",*S, NULL, NULL, false);
     }
     else
     {
@@ -1620,7 +1688,7 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
   }
 
   ostringstream results;
-  results << "Preconditioner\tSmoother\tOverlap\tnum_cells\tmesh_width\tk\tIterations\tSolve_time\n";
+  results << "Preconditioner\tSmoother\tOverlap\tnum_cells\tmesh_width\tk\tIterations\tSolve_time\tError\n";
 
   for (vector<bool>::iterator preconditionChoiceIt = preconditionValues.begin(); preconditionChoiceIt != preconditionValues.end(); preconditionChoiceIt++)
   {
@@ -1697,12 +1765,12 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
 
               int iterationCount;
               bool reportEnergyError = false;
-              double solveTime;
+              double solveTime, error;
               bool writeAndExit = false; // not supported for runMany (since it always writes to the same disk location)
               run(problemChoice, iterationCount, spaceDim, numCells1D, k, delta_k, k_coarse, conformingTraces,
                   useStaticCondensation, precondition, schwarzOnly, smoother, overlapValue,
                   schwarzBlockFactorization, schwarzLevelOfFill, schwarzFillRatio, coarseSolverChoice,
-                  cgTol, cgMaxIterations, aztecOutputLevel, reportTimings, solveTime,
+                  cgTol, cgMaxIterations, aztecOutputLevel, reportTimings, solveTime, error,
                   reportEnergyError, numCellsRootMesh, hOnly, useHierarchicalNeighborsForSchwarz, useZeroMeanConstraints, writeAndExit, comboType,
                   smootherWeight, useWeightMatrixForSchwarz, enhanceFieldsForH1TracesWhenConforming, graphNormBeta);
 
@@ -1711,7 +1779,8 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
               ostringstream thisResult;
 
               thisResult << M_str << "\t" << S_str << "\t" << overlapValue << "\t" << numCells << "\t";
-              thisResult << numCells1D << "\t" << k << "\t" << iterationCount << "\t" << solveTime << endl;
+              thisResult << numCells1D << "\t" << k << "\t" << iterationCount << "\t" << solveTime;
+              thisResult << "\t" << error << endl;
 
               if (rank==0) cout << thisResult.str();
 
@@ -1874,7 +1943,7 @@ int main(int argc, char *argv[])
   int runManyMinCells = 2;
   int maxCells = -1;
   
-  bool additiveComboType = true;
+  bool additiveComboType = false;
 
   cmdp.setOption("problem",&problemChoiceString,"problem choice: Poisson, ConvectionDiffusion, LinearElasticity, Stokes, Navier-Stokes");
 
@@ -1935,6 +2004,8 @@ int main(int argc, char *argv[])
   cmdp.setOption("useZeroMeanConstraint", "usePointConstraint", &useZeroMeanConstraints, "Use a zero-mean constraint for the pressure (otherwise, use a vertex constraint at the origin)");
 
   cmdp.setOption("gmgOperatorDebug", "gmgOperatorNormal", &runGMGOperatorInDebugMode, "Run GMGOperator in a debug mode");
+  
+  cmdp.setOption("saveVisualizationOutput", "dontSaveVisualizationOutput", &saveVisualizationOutput);
 
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -2101,12 +2172,12 @@ int main(int argc, char *argv[])
     if (schwarzOverlap == -1) schwarzOverlap = 0;
     if (k == -1) k = 2;
 
-    double solveTime;
+    double solveTime, error;
 
     run(problemChoice, iterationCount, spaceDim, numCells, k, delta_k, k_coarse, conformingTraces,
         useCondensedSolve, precondition, schwarzOnly, smootherChoice, schwarzOverlap,
         schwarzFactorType, levelOfFill, fillRatio, coarseSolverChoice,
-        cgTol, cgMaxIterations, AztecOutputLevel, reportTimings, solveTime,
+        cgTol, cgMaxIterations, AztecOutputLevel, reportTimings, solveTime, error,
         reportEnergyError, numCellsRootMesh, hOnly, useHierarchicalNeighborsForSchwarz,
         useZeroMeanConstraints, writeAndExit, comboType, smootherWeight,
         useWeightMatrixForSchwarz, enhanceFieldsForH1TracesWhenConforming, graphNormBeta);

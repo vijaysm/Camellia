@@ -66,7 +66,7 @@ MeshTopologyPtr makeQuadMesh(double x0, double y0, double width, double height,
     {
       double y = y0 + dy * j;
       vector< vector<double> > vertices = quadPoints(x, y, dx, dy);
-      mesh->addCell(mesh->cellCount(), quadTopo, vertices);
+      mesh->addCell(quadTopo, vertices);
     }
   }
   return mesh;
@@ -91,7 +91,7 @@ MeshTopologyPtr makeHexMesh(double x0, double y0, double z0, double width, doubl
       {
         double z = z0 + dz * k;
         vector< vector<double> > vertices = hexPoints(x, y, z, dx, dy, dz);
-        mesh->addCell(mesh->cellCount(), hexTopo, vertices);
+        mesh->addCell(hexTopo, vertices);
       }
     }
   }
@@ -100,10 +100,10 @@ MeshTopologyPtr makeHexMesh(double x0, double y0, double z0, double width, doubl
 
 void refineUniformly(MeshTopologyPtr mesh)
 {
-  set<unsigned> cellIndices = mesh->getActiveCellIndices();
-  for (set<unsigned>::iterator cellIt = cellIndices.begin(); cellIt != cellIndices.end(); cellIt++)
+  vector<IndexType> cellIndices = mesh->getActiveCellIndicesGlobal();
+  for (IndexType cellID : cellIndices)
   {
-    mesh->refineCell(*cellIt, RefinementPattern::regularRefinementPatternHexahedron(), mesh->cellCount());
+    mesh->refineCell(cellID, RefinementPattern::regularRefinementPatternHexahedron(), mesh->cellCount());
   }
 }
 
@@ -167,10 +167,10 @@ int main(int argc, char *argv[])
 
       RefinementPatternPtr regularQuadRefPattern = RefinementPattern::regularRefinementPatternQuad();
 
-      set<IndexType> activeCells = mesh->getActiveCellIndices();
-      for (set<IndexType>::iterator cellIDIt = activeCells.begin(); cellIDIt != activeCells.end(); cellIDIt++)
+      vector<IndexType> activeCells = mesh->getActiveCellIndicesGlobal();
+      for (IndexType cellID : activeCells)
       {
-        mesh->refineCell(*cellIDIt, regularQuadRefPattern, mesh->cellCount());
+        mesh->refineCell(cellID, regularQuadRefPattern, mesh->cellCount());
       }
 
       horizontalCells *= 2;
@@ -234,10 +234,10 @@ int main(int argc, char *argv[])
 
       RefinementPatternPtr regularHexRefPattern = RefinementPattern::regularRefinementPatternHexahedron();
 
-      set<IndexType> activeCells = mesh->getActiveCellIndices();
-      for (set<IndexType>::iterator cellIDIt = activeCells.begin(); cellIDIt != activeCells.end(); cellIDIt++)
+      vector<IndexType> activeCells = mesh->getActiveCellIndicesGlobal();
+      for (IndexType cellID : activeCells)
       {
-        mesh->refineCell(*cellIDIt, regularHexRefPattern, mesh->cellCount());
+        mesh->refineCell(cellID, regularHexRefPattern, mesh->cellCount());
       }
 
       horizontalCells *= 2;
@@ -256,7 +256,7 @@ int main(int argc, char *argv[])
 //    CellPtr cell = mesh->getCell(0);
 //    cell->printApproximateMemoryReport();
 
-    IndexType someActiveCell = *mesh->getActiveCellIndices().begin();
+    IndexType someActiveCell = *mesh->cellIDsInPartition().begin();
     int vertexDim = 0;
     mesh->pruneToInclude({someActiveCell}, vertexDim);
     

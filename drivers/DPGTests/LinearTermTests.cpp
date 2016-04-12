@@ -723,53 +723,56 @@ bool LinearTermTests::testRieszInversionAsProjection()
   // create a new mesh:
   MeshPtr myMesh = MeshFactory::buildQuadMesh(quadPoints, horizontalCells, verticalCells, confusionBF, H1Order, H1Order+pToAdd);
 
-  ElementTypePtr elemType = myMesh->getElement(0)->elementType();
-  BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemType, myMesh));
-
-  vector<GlobalIndexType> cellIDs = myMesh->cellIDsOfTypeGlobal(elemType);
-  bool createSideCacheToo = true;
-
-  basisCache->setPhysicalCellNodes(myMesh->physicalCellNodesGlobal(elemType), cellIDs, createSideCacheToo);
-
   LinearTermPtr integrand = Teuchos::rcp(new LinearTerm); // residual
-
+  
   FunctionPtr x = Function::xn(1);
   FunctionPtr y = Function::yn(1);
   FunctionPtr testFxn1 = x;
   FunctionPtr testFxn2 = y;
   FunctionPtr fxnToProject = x * y + 1.0;
-
+  
   integrand->addTerm(fxnToProject * v);
-
+  
   IPPtr ip_L2 = Teuchos::rcp(new IP);
   ip_L2->addTerm(v);
   ip_L2->addTerm(tau);
-
+  
   Teuchos::RCP<RieszRep> riesz = Teuchos::rcp(new RieszRep(myMesh, ip_L2, integrand));
   riesz->computeRieszRep();
-
+  
   FunctionPtr rieszFxn = RieszRep::repFunction(v,riesz);
-  int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
-  int numPts = basisCache->getPhysicalCubaturePoints().dimension(1);
-
-  FieldContainer<double> valProject( numCells, numPts );
-  FieldContainer<double> valExpected( numCells, numPts );
-
-  rieszFxn->values(valProject,basisCache);
-  fxnToProject->values(valExpected,basisCache);
-
-//  int rank = Teuchos::GlobalMPISession::getRank();
-//  if (rank==0) cout << "physicalCubaturePoints:\n" << basisCache->getPhysicalCubaturePoints();
-
-  double maxDiff;
-  double tol = 1e-12;
-  success = TestSuite::fcsAgree(valProject,valExpected,tol,maxDiff);
-  if (success==false)
+  
+  set<GlobalIndexType> myCellIDs = myMesh->cellIDsInPartition();
+  
+  if (myCellIDs.size() > 0)
   {
-    cout << "Failed Riesz Inversion Projection test with maxDiff = " << maxDiff << endl;
-    serializeOutput("valExpected", valExpected);
-    serializeOutput("valProject", valProject);
-    serializeOutput("physicalPoints", basisCache->getPhysicalCubaturePoints());
+    GlobalIndexType myFirstCellID = *myCellIDs.begin();
+    ElementTypePtr elemType = myMesh->getElementType(myFirstCellID);
+    BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemType, myMesh));
+
+    bool createSideCacheToo = true;
+    vector<GlobalIndexType> cellIDs(myCellIDs.begin(),myCellIDs.end());
+    basisCache->setPhysicalCellNodes(myMesh->physicalCellNodes(elemType), cellIDs, createSideCacheToo);
+    
+    int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+    int numPts = basisCache->getPhysicalCubaturePoints().dimension(1);
+
+    FieldContainer<double> valProject( numCells, numPts );
+    FieldContainer<double> valExpected( numCells, numPts );
+
+    rieszFxn->values(valProject,basisCache);
+    fxnToProject->values(valExpected,basisCache);
+
+    double maxDiff;
+    double tol = 1e-12;
+    success = TestSuite::fcsAgree(valProject,valExpected,tol,maxDiff);
+    if (success==false)
+    {
+      cout << "Failed Riesz Inversion Projection test with maxDiff = " << maxDiff << endl;
+      serializeOutput("valExpected", valExpected);
+      serializeOutput("valProject", valProject);
+      serializeOutput("physicalPoints", basisCache->getPhysicalCubaturePoints());
+    }
   }
   return allSuccess(success);
 }
@@ -954,24 +957,9 @@ bool LinearTermTests::testRieszInversion()
   Teuchos::RCP<Mesh> myMesh = MeshFactory::buildQuadMesh(quadPoints, horizontalCells, verticalCells,
                               confusionBF, H1Order, H1Order+pToAdd);
 
-  ElementTypePtr elemType = myMesh->getElement(0)->elementType();
-  BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemType, myMesh));
-
-  vector<GlobalIndexType> cellIDs;
-  vector<ElementPtr> elems = myMesh->activeElements();
-  vector<ElementPtr>::iterator elemIt;
-  for (elemIt=elems.begin(); elemIt!=elems.end(); elemIt++)
-  {
-    int cellID = (*elemIt)->cellID();
-    cellIDs.push_back(cellID);
-  }
-  bool createSideCacheToo = true;
-
-  basisCache->setPhysicalCellNodes(myMesh->physicalCellNodesGlobal(elemType), cellIDs, createSideCacheToo);
-
   LinearTermPtr integrand = Teuchos::rcp(new LinearTerm);// residual
   LinearTermPtr integrandIBP = Teuchos::rcp(new LinearTerm);// residual
-
+  
   vector<double> e1(2); // (1,0)
   vector<double> e2(2); // (0,1)
   e1[0] = 1;
@@ -983,14 +971,14 @@ bool LinearTermTests::testRieszInversion()
   FunctionPtr testFxn2 = Y;
   FunctionPtr divTestFxn = testFxn1->dx() + testFxn2->dy();
   FunctionPtr vectorTest = testFxn1*e1 + testFxn2*e2;
-
+  
   integrand->addTerm(divTestFxn*v);
   integrandIBP->addTerm(vectorTest*n*v - vectorTest*v->grad()); // boundary term
-
+  
   IPPtr sobolevIP = Teuchos::rcp(new IP);
   sobolevIP->addTerm(v);
   sobolevIP->addTerm(tau);
-
+  
   Teuchos::RCP<RieszRep> riesz = Teuchos::rcp(new RieszRep(myMesh, sobolevIP, integrand));
   //  riesz->setPrintOption(true);
   riesz->computeRieszRep();
@@ -1001,23 +989,30 @@ bool LinearTermTests::testRieszInversion()
 
   FunctionPtr rieszOrigFxn = RieszRep::repFunction(v,riesz);
   FunctionPtr rieszIBPFxn = RieszRep::repFunction(v,rieszIBP);
-  int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
-  int numPts = basisCache->getPhysicalCubaturePoints().dimension(1);
-
-  FieldContainer<double> valOriginal( numCells, numPts);
-  FieldContainer<double> valIBP( numCells, numPts);
-  rieszOrigFxn->values(valOriginal,basisCache);
-  rieszIBPFxn->values(valIBP,basisCache);
-
-  double maxDiff;
-  double tol = 1e-14;
-  success = TestSuite::fcsAgree(valOriginal,valIBP,tol,maxDiff);
-
-  if (success==false)
+  
+  set<GlobalIndexType> cellIDs = myMesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : cellIDs)
   {
-    cout << "Failed TestRieszInversion with maxDiff = " << maxDiff << endl;
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(myMesh, cellID, true);
+
+    int numCells = basisCache->getPhysicalCubaturePoints().dimension(0);
+    int numPts = basisCache->getPhysicalCubaturePoints().dimension(1);
+
+    FieldContainer<double> valOriginal( numCells, numPts);
+    FieldContainer<double> valIBP( numCells, numPts);
+    rieszOrigFxn->values(valOriginal,basisCache);
+    rieszIBPFxn->values(valIBP,basisCache);
+
+    double maxDiff;
+    double tol = 1e-14;
+    success = TestSuite::fcsAgree(valOriginal,valIBP,tol,maxDiff);
+
+    if (success==false)
+    {
+      cout << "Failed TestRieszInversion on cell " << cellID << "with maxDiff = " << maxDiff << endl;
+    }
   }
-  return success;
+  return allSuccess(success);
 }
 
 bool LinearTermTests::testIntegrateMixedBasis()
@@ -1056,13 +1051,10 @@ bool LinearTermTests::testIntegrateMixedBasis()
   Teuchos::RCP<Mesh> mesh = MeshUtilities::buildUnitQuadMesh(nCells,convectionBF, H1Order, H1Order+pToAdd);
   ElementTypePtr elemType = mesh->getElement(0)->elementType();
   BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemType, mesh));
-  vector<GlobalIndexType> cellIDs;
-  vector< ElementPtr > allElems = mesh->activeElements();
-  vector< ElementPtr >::iterator elemIt;
-  for (elemIt=allElems.begin(); elemIt!=allElems.end(); elemIt++)
-  {
-    cellIDs.push_back((*elemIt)->cellID());
-  }
+  
+  set<GlobalIndexType> cellIDSet = mesh->getActiveCellIDsGlobal();
+  vector<GlobalIndexType> cellIDs(cellIDSet.begin(),cellIDSet.end());
+
   bool createSideCacheToo = true;
   basisCache->setPhysicalCellNodes(mesh->physicalCellNodesGlobal(elemType), cellIDs, createSideCacheToo);
 

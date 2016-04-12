@@ -312,7 +312,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     
     MeshTopologyViewPtr meshTopoView;
     if (useLightWeightViews)
-      meshTopoView = mesh->getTopology()->getView(mesh->getActiveCellIDs());
+      meshTopoView = mesh->getTopology()->getView(mesh->cellIDsInPartition());
     else
       meshTopoView = mesh->getTopology()->deepCopy();
     
@@ -323,7 +323,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     int meshWidthCells = rootMeshNumCells;
     while (meshWidthCells < numCells)
     {
-      set<IndexType> activeCellIDs = mesh->getActiveCellIDs(); // should match between coarseMesh and mesh
+      set<IndexType> activeCellIDs = mesh->getActiveCellIDsGlobal(); // should match between coarseMesh and mesh
       mesh->hRefine(activeCellIDs);
       if (rank==0)
       {
@@ -332,7 +332,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
       
       MeshTopologyViewPtr meshTopoView;
       if (useLightWeightViews)
-        meshTopoView = mesh->getTopology()->getView(mesh->getActiveCellIDs());
+        meshTopoView = mesh->getTopology()->getView(mesh->cellIDsInPartition());
       else
         meshTopoView = mesh->getTopology()->deepCopy();
           
@@ -351,7 +351,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     {
       MeshTopologyViewPtr meshTopoView;
       if (useLightWeightViews)
-        meshTopoView = k0Mesh->getTopology()->getView(mesh->getActiveCellIDs());
+        meshTopoView = k0Mesh->getTopology()->getView(mesh->cellIDsInPartition());
       else
         meshTopoView = k0Mesh->getTopology()->deepCopy();
       

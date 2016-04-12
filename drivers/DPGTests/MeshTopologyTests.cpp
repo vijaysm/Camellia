@@ -482,11 +482,10 @@ bool checkConstraints( MeshTopologyPtr mesh, unsigned entityDim, map<unsigned,pa
   bool success = true;
 
   // check constraints for entities belonging to active cells
-  set<unsigned> activeCells = mesh->getActiveCellIndices();
+  set<IndexType> myActiveCells = mesh->getMyActiveCellIndices();
 
-  for (set<unsigned>::iterator cellIt = activeCells.begin(); cellIt != activeCells.end(); cellIt++)
+  for (IndexType cellIndex : myActiveCells)
   {
-    unsigned cellIndex = *cellIt;
     CellPtr cell = mesh->getCell(cellIndex);
     vector<unsigned> entitiesForCell = cell->getEntityIndices(entityDim);
     for (vector<unsigned>::iterator entityIt = entitiesForCell.begin(); entityIt != entitiesForCell.end(); entityIt++)

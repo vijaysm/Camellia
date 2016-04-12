@@ -22,7 +22,7 @@ bool MeshRefinementTests::checkMultiElementStiffness(Teuchos::RCP<Mesh> mesh)
 {
   bool success = true;
 
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
   for (set<GlobalIndexType>::iterator cellIt = activeCellIDs.begin(); cellIt != activeCellIDs.end(); cellIt++)
   {
     GlobalIndexType cellID = *cellIt;
@@ -610,7 +610,7 @@ bool MeshRefinementTests::testPRefinements()
     MeshPtr mesh = meshes[meshOrdinal];
 
     // check that the H1Orders are right to begin with:
-    set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
+    set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
     if (! cellsHaveH1Order(mesh, H1Order, cellIDs))
     {
       cout << "Internal test error: initial mesh order does not match expected.\n";
@@ -642,7 +642,7 @@ bool MeshRefinementTests::testPRefinements()
     set0.insert(0);
     mesh->hRefine(set0, refPattern);
 
-    cellIDs = mesh->getActiveCellIDs();
+    cellIDs = mesh->getActiveCellIDsGlobal();
     if (! cellsHaveH1Order(mesh, H1Order, cellIDs))
     {
       cout << "After h-refinement, mesh order does not match expected.\n";

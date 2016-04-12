@@ -283,7 +283,7 @@ void PatchBasisTests::getPolyOrdersAlongSharedSides(vector< map<int, int> > &chi
 
 void PatchBasisTests::hRefineAllActiveCells(Teuchos::RCP<Mesh> mesh)
 {
-  set<GlobalIndexType> cellIDsToRefine = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDsToRefine = mesh->getActiveCellIDsGlobal();
   mesh->hRefine(cellIDsToRefine,RefinementPattern::regularRefinementPatternQuad());
 }
 
@@ -377,17 +377,16 @@ bool PatchBasisTests::meshLooksGood()
 bool PatchBasisTests::patchBasisCorrectlyAppliedInMesh(Teuchos::RCP<Mesh> mesh, vector<int> fluxIDs, vector<int> fieldIDs)
 {
   // checks that the right elements have some PatchBasis in the right places
-  vector< ElementPtr > activeElements = mesh->activeElements();
+  const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
 
   // depending on our debugging needs, could revise this to return more information
   // about the nature and extent of the incorrectness when correct == false.
 
   bool correct = true;
 
-  vector< ElementPtr >::iterator elemIt;
-  for (elemIt = activeElements.begin(); elemIt != activeElements.end(); elemIt++)
+  for (GlobalIndexType cellID : *myCellIDs)
   {
-    ElementPtr elem = *elemIt;
+    ElementPtr elem = mesh->getElement(cellID);
     vector<int>::iterator varIt;
     for (varIt = fluxIDs.begin(); varIt != fluxIDs.end(); varIt++)
     {
@@ -528,13 +527,7 @@ bool PatchBasisTests::polyOrdersAgree(const vector< map<int, int> > &pOrderMapVe
 
 void PatchBasisTests::pRefineAllActiveCells()
 {
-  vector<GlobalIndexType> cellIDsToRefine;
-  for (vector< ElementPtr >::const_iterator elemIt=_mesh->activeElements().begin();
-       elemIt != _mesh->activeElements().end(); elemIt++)
-  {
-    int cellID = (*elemIt)->cellID();
-    cellIDsToRefine.push_back(cellID);
-  }
+  set<GlobalIndexType> cellIDsToRefine = _mesh->getActiveCellIDsGlobal();
   _mesh->pRefine(cellIDsToRefine);
 }
 
@@ -1056,9 +1049,11 @@ bool PatchBasisTests::testSolveUniformMesh()
 //  cout << "PatchBasis localToGlobalMap:\n";
 //  patchBasisMesh->printLocalToGlobalMap();
 
+  set<GlobalIndexType> allActiveCells = _mesh->getActiveCellIDsGlobal();
+  
   vector<GlobalIndexType> cellsToRefine;
   // just refine first active element
-  cellsToRefine.push_back(patchBasisMesh->activeElements()[0]->cellID());
+  cellsToRefine.push_back(*allActiveCells.begin());
   patchBasisMesh->hRefine(cellsToRefine,RefinementPattern::regularRefinementPatternQuad());
 
   if ( !patchBasisCorrectlyAppliedInMesh(patchBasisMesh,_fluxIDs,_fieldIDs) )

@@ -410,10 +410,9 @@ bool SolutionTests::storageSizesAgree(Teuchos::RCP< Solution > soln1, Teuchos::R
     }
     cout << endl;
     cout << "active elements: ";
-    int numElements = soln1->mesh()->activeElements().size();
-    for (int elemIndex=0; elemIndex<numElements; elemIndex++)
+    set<GlobalIndexType> cellIDs = soln1->mesh()->getActiveCellIDsGlobal();
+    for (GlobalIndexType cellID : cellIDs)
     {
-      int cellID = soln1->mesh()->activeElements()[elemIndex]->cellID();
       cout << cellID << " ";
     }
     cout << endl;
@@ -1174,7 +1173,7 @@ bool SolutionTests::testNewProjectFunction()
     double fIntegral = f->integrate(mesh,cubatureDegreeEnrichment);
 //    cout << "testNewProjectFunction: integral of f on whole mesh = " << fIntegral << endl;
 
-    double l2ErrorOfAverage = (Function::constant(fIntegral) - f)->l2norm(fineMesh,cubatureDegreeEnrichment);
+//    double l2ErrorOfAverage = (Function::constant(fIntegral) - f)->l2norm(fineMesh,cubatureDegreeEnrichment);
 //    cout << "testNewProjectFunction: l2 error of fIntegral: " << l2ErrorOfAverage << endl;
 
     vector<GlobalIndexType> cellIDs = mesh->cellIDsOfType(elemType);
@@ -1349,21 +1348,20 @@ bool SolutionTests::testEnergyError()
 
   bool success = true;
   // First test: exact solution has zero energy error:
-  map<GlobalIndexType, double> energyError = _poissonSolution->globalEnergyError();
-  vector< Teuchos::RCP< Element > > activeElements = _poissonSolution->mesh()->activeElements();
-  vector< Teuchos::RCP< Element > >::iterator activeElemIt;
+  map<GlobalIndexType, double> rankLocalEnergyError = _poissonSolution->rankLocalEnergyError();
+  set<GlobalIndexType> myCellIDs = _poissonSolution->mesh()->cellIDsInPartition();
 
-  double totalEnergyErrorSquared = 0.0;
-  for (activeElemIt = activeElements.begin(); activeElemIt != activeElements.end(); activeElemIt++)
+  double totalEnergyErrorSquaredLocal = 0.0;
+  for (GlobalIndexType cellID : myCellIDs)
   {
-    Teuchos::RCP< Element > current_element = *(activeElemIt);
-    int cellID = current_element->cellID();
-    totalEnergyErrorSquared += energyError[cellID]*energyError[cellID];
+    totalEnergyErrorSquaredLocal += rankLocalEnergyError[cellID]*rankLocalEnergyError[cellID];
   }
-  if (totalEnergyErrorSquared > tol)
+  double totalEnergyErrorSquaredGlobal = 0.0;
+  _poissonSolution->mesh()->Comm()->SumAll(&totalEnergyErrorSquaredLocal, &totalEnergyErrorSquaredGlobal, 1);
+  if (totalEnergyErrorSquaredGlobal > tol)
   {
     success = false;
-    cout << "testEnergyError failed: energy error is " << totalEnergyErrorSquared << endl;
+    cout << "testEnergyError failed: energy error is " << totalEnergyErrorSquaredGlobal << endl;
   }
 
   // second test: test and trial spaces the same, define b(u,v) = (u,v)
@@ -1457,7 +1455,7 @@ bool SolutionTests::testEnergyError()
 bool SolutionTests::testHRefinementInitialization()
 {
 
-  int rank = Teuchos::GlobalMPISession::getRank();
+//  int rank = Teuchos::GlobalMPISession::getRank();
 //  cout << "Starting testHRefinementInitialization() on rank " << rank << endl;
 
   double tol = 2e-14;

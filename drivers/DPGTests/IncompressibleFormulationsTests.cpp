@@ -1558,7 +1558,7 @@ bool IncompressibleFormulationsTests::testVGPNavierStokesFormulationLocalConserv
     solnIncrement->lagrangeConstraints()->addConstraint(u1hat->times_normal_x() + u2hat->times_normal_y()==zero);
   }
 
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
   for (set<GlobalIndexType>::iterator cellIt = cellIDs.begin(); cellIt != cellIDs.end(); cellIt++)
   {
     int cellID = *cellIt;

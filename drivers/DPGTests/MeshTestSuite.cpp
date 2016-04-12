@@ -224,19 +224,21 @@ bool MeshTestSuite::neighborBasesAgreeOnSides(Teuchos::RCP<Mesh> mesh, const Fie
   GlobalDofAssignmentPtr gda = mesh->globalDofAssignment();
 
   vector<int> traceIDs = mesh->bilinearForm()->trialBoundaryIDs();
-  vector< ElementPtr > activeElements = mesh->activeElements();
-  int numElements = activeElements.size();
-  for (int cellIndex=0; cellIndex<numElements; cellIndex++)
+  
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
+
+  int numElements = cellIDs.size();
+  for (GlobalIndexType cellID : cellIDs)
   {
-    Teuchos::RCP<Element> elem = activeElements[cellIndex];
-    DofOrderingPtr trialOrder = elem->elementType()->trialOrderPtr;
-    int cellID = elem->cellID();
+    DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
 
     CellPtr cell = mesh->getTopology()->getCell(cellID);
-    int numSides = elem->numSides();
+    int numSides = cell->getSideCount();
 
     BasisCachePtr cellBasisCache = BasisCache::basisCacheForCell(mesh, cellID);
 
+    ElementPtr elem = mesh->getElement(cellID);
+    
     for (int sideOrdinal=0; sideOrdinal < numSides; sideOrdinal++)
     {
       int neighborSideOrdinal;
@@ -1445,12 +1447,10 @@ bool MeshTestSuite::testHRefinement()
   origSolution->solve();
 
   cellsToRefine.clear();
-  for (int i=0; i<mesh->activeElements().size(); i++)
-  {
-    int cellID = mesh->activeElements()[i]->cellID();
-    cellsToRefine.push_back(cellID);
-  }
-  mesh->hRefine(cellsToRefine,RefinementPattern::regularRefinementPatternQuad());
+  
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
+  
+  mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad());
 
   numElementsEnd = mesh->numElements(); // should be another 4x
   if ( numElementsEnd != 2*numElementsStart + numElementsStart*4 )
@@ -1568,17 +1568,17 @@ bool MeshTestSuite::testHRefinement()
 
 void MeshTestSuite::printParities(Teuchos::RCP<Mesh> mesh)
 {
-  int numElements = mesh->activeElements().size();
-  for (int cellIndex=0; cellIndex<numElements; cellIndex++)
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
+  for (GlobalIndexType cellID : activeCellIDs)
   {
-    Teuchos::RCP<Element> elem = mesh->activeElements()[cellIndex];
-
-    cout << "parities for cellID " << elem->cellID() << ": ";
-    for (int sideIndex=0; sideIndex<elem->numSides(); sideIndex++)
+    cout << "parities for cellID " << cellID << ": ";
+    CellPtr cell = mesh->getTopology()->getCell(cellID);
+    int numSides = cell->getSideCount();
+    for (int sideIndex=0; sideIndex<numSides; sideIndex++)
     {
-      int parity = mesh->parityForSide(elem->cellID(),sideIndex);
+      int parity = mesh->parityForSide(cellID,sideIndex);
       cout << parity;
-      if (sideIndex != elem->numSides()-1) cout << ", ";
+      if (sideIndex != numSides-1) cout << ", ";
     }
     cout << endl;
   }
@@ -2591,8 +2591,8 @@ bool MeshTestSuite::testPointContainment()
   myMesh = MeshFactory::buildQuadMesh(quadPoints, horizontalCells, verticalCells,
                                       exactSolution.bilinearForm(), order, order+pToAdd, triangulate);
   // two uniform refinements:
-  myMesh->hRefine(myMesh->getActiveCellIDs(), RefinementPattern::regularRefinementPatternQuad());
-  myMesh->hRefine(myMesh->getActiveCellIDs(), RefinementPattern::regularRefinementPatternQuad());
+  myMesh->hRefine(myMesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternQuad());
+  myMesh->hRefine(myMesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternQuad());
 
   points.resize(1,spaceDim);
   points[0] = 4.04226;
@@ -2746,7 +2746,6 @@ bool MeshTestSuite::testJesseAnisotropicRefinement()
   ////////////////////////////////////////////////////////////////////
   // REFINE MESH TO TRIGGER EXCEPTION
   ////////////////////////////////////////////////////////////////////
-  vector<ElementPtr> elems = mesh->activeElements();
 
   // create "swastika" mesh
   vector<GlobalIndexType> xC,yC;
@@ -2757,7 +2756,6 @@ bool MeshTestSuite::testJesseAnisotropicRefinement()
 
   mesh->hRefine(xC, RefinementPattern::xAnisotropicRefinementPatternQuad());
   mesh->hRefine(yC, RefinementPattern::yAnisotropicRefinementPatternQuad());
-  elems = mesh->activeElements();
 
   // trigger naive algorithm infinite loop (deadlock?)
   xC.clear();
@@ -2769,7 +2767,6 @@ bool MeshTestSuite::testJesseAnisotropicRefinement()
 
   RefinementStrategy refinementStrategy(solution,.2);
   bool success = refinementStrategy.enforceAnisotropicOneIrregularity(xC,yC);
-
 
   return success;
 }

@@ -661,8 +661,8 @@ bool GMGTests::testGMGSolverTwoGrid()
       // refine uniformly once in both exact and actual:
       CellTopoPtr cellTopo = coarseMesh->getTopology()->getCell(0)->topology();
       RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo->getKey());
-      exactMesh->hRefine(exactMesh->getActiveCellIDs(), refPattern);
-      fineMesh->hRefine(fineMesh->getActiveCellIDs(), refPattern);
+      exactMesh->hRefine(exactMesh->getActiveCellIDsGlobal(), refPattern);
+      fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal(), refPattern);
 
       BCPtr poissonBC = exactPoissonSolution->bc();
       BCPtr zeroBCs = poissonBC->copyImposingZero();
@@ -750,8 +750,8 @@ bool GMGTests::testGMGSolverThreeGrid()
         // refine uniformly once in both exact and actual:
         CellTopoPtr cellTopo = coarseMesh->getTopology()->getCell(0)->topology();
         RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo->getKey());
-        exactMesh->hRefine(exactMesh->getActiveCellIDs(), refPattern);
-        fineMesh->hRefine(fineMesh->getActiveCellIDs(), refPattern);
+        exactMesh->hRefine(exactMesh->getActiveCellIDsGlobal(), refPattern);
+        fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal(), refPattern);
 
         BCPtr poissonBC = exactPoissonSolution->bc();
         BCPtr zeroBCs = poissonBC->copyImposingZero();
@@ -851,8 +851,8 @@ bool GMGTests::testProlongationOperator()
   // refine uniformly once in both exact and actual:
   CellTopoPtr cellTopo = coarseMesh->getTopology()->getCell(0)->topology();
   RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo->getKey());
-  exactMesh->hRefine(exactMesh->getActiveCellIDs(), refPattern);
-  fineMesh->hRefine(fineMesh->getActiveCellIDs(), refPattern);
+  exactMesh->hRefine(exactMesh->getActiveCellIDsGlobal(), refPattern);
+  fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal(), refPattern);
 
   BCPtr poissonBC = exactPoissonSolution->bc();
   BCPtr zeroBCs = poissonBC->copyImposingZero();

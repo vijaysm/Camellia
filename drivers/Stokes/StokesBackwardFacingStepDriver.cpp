@@ -560,8 +560,8 @@ int main(int argc, char *argv[])
   if (! useBiswasGeometry)
   {
     // our elements now have aspect ratio 4:1.  We want to do 2 sets of horizontal refinements to square them up.
-    mesh->hRefine(mesh->getActiveCellIDs(), verticalCut);
-    mesh->hRefine(mesh->getActiveCellIDs(), verticalCut);
+    mesh->hRefine(mesh->getActiveCellIDsGlobal(), verticalCut);
+    mesh->hRefine(mesh->getActiveCellIDsGlobal(), verticalCut);
   }
   else
   {
@@ -571,7 +571,7 @@ int main(int argc, char *argv[])
     inflowPoint(0,1) = A[1] + 1e-10;
 
     int inflowCell = mesh->elementsForPoints(inflowPoint)[0]->cellID();
-    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
     activeCellIDs.erase(activeCellIDs.find(inflowCell));
     mesh->hRefine(activeCellIDs, verticalCut);
   }
@@ -580,12 +580,12 @@ int main(int argc, char *argv[])
   if (compareWithOverkill)
   {
     overkillMesh = Teuchos::rcp( new Mesh(vertices, elementVertices, stokesBF, H1OrderOverkill, pToAdd) );
-    overkillMesh->hRefine(overkillMesh->getActiveCellIDs(), verticalCut);
-    overkillMesh->hRefine(overkillMesh->getActiveCellIDs(), verticalCut);
+    overkillMesh->hRefine(overkillMesh->getActiveCellIDsGlobal(), verticalCut);
+    overkillMesh->hRefine(overkillMesh->getActiveCellIDsGlobal(), verticalCut);
 
     for (int i=0; i<numOverkillRefinements; i++)
     {
-      overkillMesh->hRefine(overkillMesh->getActiveCellIDs(), RefinementPattern::regularRefinementPatternQuad());
+      overkillMesh->hRefine(overkillMesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternQuad());
     }
     if (rank==0)
     {

@@ -732,7 +732,7 @@ map< int, vector<DofInfo> > constructGlobalDofToLocalDofInfoMap(MeshPtr mesh)
   // go through the mesh as a whole, and collect info for each dof
   map< int, vector<DofInfo> > infoMap;
   DofInfo info;
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
   for (set<GlobalIndexType>::iterator cellIt = activeCellIDs.begin(); cellIt != activeCellIDs.end(); cellIt++)
   {
     GlobalIndexType cellID = *cellIt;
@@ -885,12 +885,12 @@ bool ScratchPadTests::testGalerkinOrthogonality()
   }
   FieldContainer<double> errorJumps(mesh->numGlobalDofs()); //initialized to zero
   // just test fluxes ON INTERNAL SKELETON here
-  vector<ElementPtr> elems = mesh->activeElements();
-  for (vector<ElementPtr>::iterator elemIt=elems.begin(); elemIt!=elems.end(); elemIt++)
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
+  for (GlobalIndexType activeCellID : activeCellIDs)
   {
+    ElementPtr elem = mesh->getElement(activeCellID);
     for (int sideIndex = 0; sideIndex < 4; sideIndex++)
     {
-      ElementPtr elem = *elemIt;
       ElementTypePtr elemType = elem->elementType();
       vector<int> localDofIndices = elemType->trialOrderPtr->getDofIndices(beta_n_u->ID(), sideIndex);
       for (int i = 0; i<localDofIndices.size(); i++)
