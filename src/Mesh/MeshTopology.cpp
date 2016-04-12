@@ -2989,8 +2989,6 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
     (*reverseVertexLookup)[oldEntityIndices[vertexDim][i]] = i;
     prunedVertexMap[prunedVertices[i]] = i;
   }
-  _vertices = prunedVertices;
-  _vertexMap = prunedVertexMap;
   
   map< IndexType, pair< pair<IndexType, unsigned>, pair<IndexType, unsigned> > > prunedCellsForSideEntities;
   int prunedSideCount = oldEntityIndices[sideDim].size();
@@ -3026,7 +3024,6 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
       prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
     }
   }
-  _cellsForSideEntities = prunedCellsForSideEntities;
   
   for (auto entitySetEntry : _entitySets)
   {
@@ -3112,10 +3109,43 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
         pair<IndexType, unsigned> oldEntry = _generalizedParentEntities[d][oldEntityIndex];
         unsigned parentDim = oldEntry.second;
         IndexType oldParentEntityIndex = oldEntry.first;
-        TEUCHOS_TEST_FOR_EXCEPTION(reverseLookup[parentDim].find(oldParentEntityIndex) == reverseLookup[parentDim].end(), std::invalid_argument,
-                                   "reverseLookup does not contain generalized parent entity");
-        IndexType prunedParentEntityIndex = reverseLookup[parentDim][oldParentEntityIndex];
-        prunedGeneralizedParentEntities[d][prunedEntityIndex] = {prunedParentEntityIndex,parentDim};
+        if (reverseLookup[parentDim].find(oldParentEntityIndex) == reverseLookup[parentDim].end())
+        {
+          // this should mean that the geometric constraint involved in this relationship is not
+          // one that we're concerned with; e.g., it lies on the far side of one of our ghost cells
+          // (We have added all the entities that belong to the cells that could constrain our owned
+          // cells.)
+        }
+        else
+        {
+          IndexType prunedParentEntityIndex = reverseLookup[parentDim][oldParentEntityIndex];
+          prunedGeneralizedParentEntities[d][prunedEntityIndex] = {prunedParentEntityIndex,parentDim};
+        }
+        
+//        if (reverseLookup[parentDim].find(oldParentEntityIndex) == reverseLookup[parentDim].end())
+//        {
+//          // print out some debugging info
+//          cout << "During pruneToInclude, expected entry for " << CamelliaCellTools::entityTypeString(parentDim) << " " << oldParentEntityIndex;
+//          cout << " is missing.\n";
+//          cout << "(This is the generalized parent of " << CamelliaCellTools::entityTypeString(d) << " " << oldEntityIndex << ")\n";
+//          cout << "dimension for neighbor relation: " << dimForNeighborRelation << endl;
+//          
+//          cout << "Cells that " << CamelliaCellTools::entityTypeString(d) << " " << oldEntityIndex;
+//          cout << " participates in: ";
+//          
+//          vector< pair<IndexType,unsigned> > cellEntries = this->getActiveCellIndices(d, oldEntityIndex);
+//          for (auto entry : cellEntries)
+//          {
+//            cout << entry.first << " ";
+//          }
+//          cout << endl;
+//          
+//          print("cellsToInclude", cellsToInclude);
+//          print("ownedCellIndices", ownedCellIndices);
+//          this->printAllEntities();
+//        }
+//        TEUCHOS_TEST_FOR_EXCEPTION(reverseLookup[parentDim].find(oldParentEntityIndex) == reverseLookup[parentDim].end(), std::invalid_argument,
+//                                   "reverseLookup does not contain generalized parent entity");
       }
       if (_childEntities[d].find(oldEntityIndex) != _childEntities[d].end())
       {
@@ -3146,6 +3176,9 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
       }
     }
   }
+  _vertices = prunedVertices;
+  _vertexMap = prunedVertexMap;
+  _cellsForSideEntities = prunedCellsForSideEntities;
   _entities = prunedEntities;
   _knownEntities = prunedKnownEntities;
   _canonicalEntityOrdering = prunedCanonicalEntityOrdering;

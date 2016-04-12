@@ -475,118 +475,110 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
   bool meshIsNotRegular = true; // assume it's not regular and check elements
   bool meshChanged = false;
   
+  cout << "Entered enforceOneIrregularity() on rank " << rank << endl;
+  
   while (meshIsNotRegular)
   {
     int spaceDim = _meshTopology->getDimension();
     if (spaceDim == 1) return;
 
-    map< Camellia::CellTopologyKey, set<GlobalIndexType> > irregularCellIDs; // key is CellTopology key
-    set< GlobalIndexType > activeCellIDs = this->getActiveCellIDsGlobal();
+    map<RefinementPatternKey, set<GlobalIndexType> > irregularCellsToRefineLocal;
+    set<GlobalIndexType> myCellIDs = this->cellIDsInPartition();
 
-    bool useSideIrregularityEnforcement = false; // this is the old way
-    if (useSideIrregularityEnforcement)
+    for (GlobalIndexType cellID : myCellIDs)
     {
-      for (GlobalIndexType cellID : activeCellIDs)
+      CellPtr cell = _meshTopology->getCell(cellID);
+      int edgeCount = cell->topology()->getEdgeCount();
+      static int edgeDim = 1;
+      for (int edgeOrdinal=0; edgeOrdinal < edgeCount; edgeOrdinal++)
       {
-        CellPtr cell = _meshTopology->getCell(cellID);
-        int sideCount = cell->getSideCount();
-        for (int sideOrdinal=0; sideOrdinal < sideCount; sideOrdinal++)
+        int refBranchSize = cell->refinementBranchForSubcell(edgeDim, edgeOrdinal, _meshTopology).size();
+        
+        if (refBranchSize > 1)
         {
-          pair<GlobalIndexType, unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal, _meshTopology);
-
-          if (neighborInfo.first != -1) // I have a neighbor
+          // then there is at least one active 2-irregular cell constraining this edge
+          IndexType edgeEntityIndex = cell->entityIndex(edgeDim, edgeOrdinal);
+          pair<IndexType, unsigned> constrainingEntity = _meshTopology->getConstrainingEntity(edgeDim, edgeEntityIndex);
+          IndexType constrainingEntityIndex = constrainingEntity.first;
+          unsigned constrainingEntityDim = constrainingEntity.second;
+          std::vector< std::pair<IndexType,unsigned> > activeCellsForConstrainingEntity = _meshTopology->getActiveCellIndices(constrainingEntityDim, constrainingEntityIndex);
+          for (auto activeCellEntry : activeCellsForConstrainingEntity)
           {
-            if (spaceDim > 1)
-            {
-              CellPtr neighbor = _meshTopology->getCell(neighborInfo.first);
-              RefinementBranch myRefinementBranch = cell->refinementBranchForSide(sideOrdinal, _meshTopology);
-              if (myRefinementBranch.size() > 1)
-              {
-                // then *neighbor* is irregular
-                irregularCellIDs[neighbor->topology()->getKey()].insert(neighborInfo.first);
-  //              cout << neighborInfo.first << " is irregular.\n";
-                { // DEBUGGING:
-                  if (activeCellIDs.find(neighborInfo.first) == activeCellIDs.end())
-                  {
-                    _meshTopology->printAllEntitiesInBaseMeshTopology();
-                    // repeat for entering in the debugger before the exception is thrown
-                    cell->getNeighborInfo(sideOrdinal, _meshTopology);
-                  }
-                }
-                TEUCHOS_TEST_FOR_EXCEPTION(activeCellIDs.find(neighborInfo.first) == activeCellIDs.end(),
-                                           std::invalid_argument, "Internal error: 'irregular' cell is not active!");
-              }
-            }
+            CellTopologyKey cellTopoKey = _meshTopology->getCell(activeCellEntry.first)->topology()->getKey();
+            RefinementPatternKey refKey = RefinementPattern::regularRefinementPattern((cellTopoKey))->getKey();
+            irregularCellsToRefineLocal[refKey].insert(activeCellEntry.first);
           }
         }
       }
-    }
-    else // new way: edge 1-irregularity enforcement
-    {
-      for (GlobalIndexType cellID : activeCellIDs)
+      
+      // One other thing to check has to do with interior children (e.g. the middle triangle in a regular triangle refinement)
+      // If the parent of an active cell is an interior child, then all of its parent's neighbors should be refined if
+      // they aren't already.
+      // TODO: compare this with strategies in the literature.  (Particularly Leszek's.)
+      /*
+       NOTE: this logic is not perfectly general.  In particular, it assumes that if the grandparent's neighbors *are*
+       refined, they are refined in a way that makes them compatible.  In the case e.g. of anisotropic refinements,
+       this need not be the case.  If a null refinement has made its way into the mesh, the same thing applies.
+       */
+      CellPtr parent = cell->getParent();
+      if ((parent != Teuchos::null) && parent->isInteriorChild())
       {
-        CellPtr cell = _meshTopology->getCell(cellID);
-        int edgeCount = cell->topology()->getEdgeCount();
-        static int edgeDim = 1;
-        for (int edgeOrdinal=0; edgeOrdinal < edgeCount; edgeOrdinal++)
+        CellPtr grandparent = parent->getParent();
+        int grandparentSideCount = grandparent->topology()->getSideCount();
+        for (int grandparentSideOrdinal=0; grandparentSideOrdinal < grandparentSideCount; grandparentSideOrdinal++)
         {
-          int refBranchSize = cell->refinementBranchForSubcell(edgeDim, edgeOrdinal, _meshTopology).size();
-          
-          if (refBranchSize > 1)
+          CellPtr grandparentNeighbor = grandparent->getNeighbor(grandparentSideOrdinal, _meshTopology);
+          if ((grandparentNeighbor != Teuchos::null) && (!grandparentNeighbor->isParent(_meshTopology)))
           {
-            // then there is at least one active 2-irregular cell constraining this edge
-            IndexType edgeEntityIndex = cell->entityIndex(edgeDim, edgeOrdinal);
-            pair<IndexType, unsigned> constrainingEntity = _meshTopology->getConstrainingEntity(edgeDim, edgeEntityIndex);
-            IndexType constrainingEntityIndex = constrainingEntity.first;
-            unsigned constrainingEntityDim = constrainingEntity.second;
-            std::vector< std::pair<IndexType,unsigned> > activeCellsForConstrainingEntity = _meshTopology->getActiveCellIndices(constrainingEntityDim, constrainingEntityIndex);
-            for (auto activeCellEntry : activeCellsForConstrainingEntity)
-            {
-              CellTopologyKey cellTopoKey = _meshTopology->getCell(activeCellEntry.first)->topology()->getKey();
-              irregularCellIDs[cellTopoKey].insert(activeCellEntry.first);
-            }
-          }
-        }
-        
-        // One other thing to check has to do with interior children (e.g. the middle triangle in a regular triangle refinement)
-        // If the parent of an active cell is an interior child, then all of its parent's neighbors should be refined if
-        // they aren't already.
-        // TODO: compare this with strategies in the literature.  (Particularly Leszek's.)
-        /* 
-         NOTE: this logic is not perfectly general.  In particular, it assumes that if the grandparent's neighbors *are*
-               refined, they are refined in a way that makes them compatible.  In the case e.g. of anisotropic refinements,
-               this need not be the case.  If a null refinement has made its way into the mesh, the same thing applies.
-         */
-        CellPtr parent = cell->getParent();
-        if ((parent != Teuchos::null) && parent->isInteriorChild())
-        {
-          CellPtr grandparent = parent->getParent();
-          int grandparentSideCount = grandparent->topology()->getSideCount();
-          for (int grandparentSideOrdinal=0; grandparentSideOrdinal < grandparentSideCount; grandparentSideOrdinal++)
-          {
-            CellPtr grandparentNeighbor = grandparent->getNeighbor(grandparentSideOrdinal, _meshTopology);
-            if ((grandparentNeighbor != Teuchos::null) && (!grandparentNeighbor->isParent(_meshTopology)))
-            {
-              irregularCellIDs[grandparentNeighbor->topology()->getKey()].insert(grandparentNeighbor->cellIndex());
-            }
+            CellTopologyKey cellTopoKey = grandparentNeighbor->topology()->getKey();
+            RefinementPatternKey refKey = RefinementPattern::regularRefinementPattern((cellTopoKey))->getKey();
+            irregularCellsToRefineLocal[refKey].insert(grandparentNeighbor->cellIndex());
           }
         }
       }
     }
     
-    if (irregularCellIDs.size() > 0)
+    // gather the guys that need refinement.  (Globally, we may have several entries for a single cell.)
+    vector<RefinementPatternKey> myRefPatterns;
+    for (auto entry : irregularCellsToRefineLocal)
     {
-      for (map< Camellia::CellTopologyKey, set<GlobalIndexType> >::iterator mapIt = irregularCellIDs.begin();
-           mapIt != irregularCellIDs.end(); mapIt++)
+      myRefPatterns.push_back(entry.first);
+    }
+    vector<RefinementPatternKey> allRefPatterns;
+    vector<int> offsets;
+    MPIWrapper::allGatherCompact(*Comm(), allRefPatterns, myRefPatterns, offsets);
+    
+    // eliminate duplicates and gather cellIDs to refine
+    map<RefinementPatternKey, set<GlobalIndexType> > irregularCellsToRefineGlobal;
+    set<RefinementPatternKey> refPatternsSet(allRefPatterns.begin(), allRefPatterns.end());
+    cout << "On rank " << rank << ", gathered " << refPatternsSet.size() << " distinct refPatterns.\n";
+    for (RefinementPatternKey refKey : refPatternsSet)
+    {
+      vector<GlobalIndexType> cellIDsToRefineLocal;
+      auto localEntry = irregularCellsToRefineLocal.find(refKey);
+      if (localEntry != irregularCellsToRefineLocal.end())
       {
-        Camellia::CellTopologyKey cellKey = mapIt->first;
-        hRefine(mapIt->second, RefinementPattern::regularRefinementPattern(cellKey), false); // false: don't repartition and rebuild, yet.
+        cellIDsToRefineLocal.insert(cellIDsToRefineLocal.begin(), localEntry->second.begin(), localEntry->second.end());
       }
-      irregularCellIDs.clear();
+      vector<GlobalIndexType> cellIDsToRefineGlobal;
+      vector<int> offsets;
+      MPIWrapper::allGatherCompact(*Comm(), cellIDsToRefineGlobal, cellIDsToRefineLocal, offsets);
+      irregularCellsToRefineGlobal[refKey].insert(cellIDsToRefineGlobal.begin(),cellIDsToRefineGlobal.end());
+    }
+    
+    if (irregularCellsToRefineGlobal.size() > 0)
+    {
+      for (auto entry : irregularCellsToRefineGlobal)
+      {
+        RefinementPatternKey refKey = entry.first;
+        hRefine(entry.second, RefinementPattern::refinementPattern(refKey), false); // false: don't repartition and rebuild, yet.
+      }
       meshChanged = true;
+      cout << "On rank " << rank << ", mesh appears NOT to be globally 1-irregular.\n";
     }
     else
     {
+      cout << "On rank " << rank << ", mesh appears to be globally 1-irregular.\n";
       meshIsNotRegular = false;
     }
   }
@@ -1715,7 +1707,7 @@ void Mesh::saveToHDF5(string filename)
   int commRank = Comm()->MyPID();
 
   // TODO: Add support for distributed MeshTopology to this and MeshFactory::loadFromHDF5.
-  if (getTopology()->baseMeshTopology()->Comm() != Teuchos::null)
+  if ((getTopology()->baseMeshTopology()->Comm() != Teuchos::null) && (getTopology()->baseMeshTopology()->Comm()->NumProc() > 1))
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Mesh::saveToHDF5 not yet supported for distributed MeshTopology");
   }

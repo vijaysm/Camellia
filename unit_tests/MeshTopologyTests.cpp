@@ -964,6 +964,8 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
   {
     // set up MeshGeometry sorta like what we have in Hemker meshes:
 
+    MPIWrapper::CommWorld()->Barrier();
+    
     bool testSpaceTime = true;
     
     // cell 0:

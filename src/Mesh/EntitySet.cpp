@@ -114,7 +114,11 @@ void EntitySet::updateEntityIndices(const vector<map<IndexType,IndexType>> &reve
     for (IndexType oldEntityIndex : _entities[d])
     {
       auto newEntityEntry = reverseLookup[d].find(oldEntityIndex);
-      newEntityIndices.insert(newEntityEntry->second);
+      // if not found, then presumably the entity is no longer present on this MPI rank...
+      if (newEntityEntry != reverseLookup[d].end())
+      {
+        newEntityIndices.insert(newEntityEntry->second);
+      }
     }
     _entities[d] = newEntityIndices;
   }

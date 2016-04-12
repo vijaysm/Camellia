@@ -119,7 +119,8 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
   
   // for now, throw an exception if trying to do this with a distributed MeshTopology
   // We need to think through the construction of sliceTopo more carefully in that case
-  TEUCHOS_TEST_FOR_EXCEPTION(spaceTimeMesh->Comm() != Teuchos::null, std::invalid_argument, "timeSliceMesh() does not yet supported distributed MeshTopology");
+  bool isDistributedMeshTopo = (meshTopo->Comm() != Teuchos::null) && (meshTopo->Comm()->NumProc() > 1);
+  TEUCHOS_TEST_FOR_EXCEPTION(isDistributedMeshTopo, std::invalid_argument, "timeSliceMesh() does not yet supported distributed MeshTopology");
   
   set<GlobalIndexType> allActiveCellIDs = spaceTimeMesh->getActiveCellIDsGlobal();
 
