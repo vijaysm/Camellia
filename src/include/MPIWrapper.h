@@ -70,10 +70,24 @@ public:
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
   //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
+                               std::vector<unsigned> &gatheredValues,
+                               std::vector<unsigned> &myValues,
+                               std::vector<int> &offsets);
+  
+  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
+  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  static void allGatherCompact(const Epetra_Comm &Comm,
                                std::vector<double> &gatheredValues,
                                std::vector<double> &myValues,
                                std::vector<int> &offsets);
 
+  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
+  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  static void allGatherCompact(const Epetra_Comm &Comm,
+                               std::vector<std::pair<std::pair<unsigned,unsigned>,int>> &gatheredValues,
+                               std::vector<std::pair<std::pair<unsigned,unsigned>,int>> &myValues,
+                               std::vector<int> &offsets);
+  
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
   //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
