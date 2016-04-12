@@ -9,8 +9,6 @@
 
 #include "Solver.h"
 
-#include "ErrorPercentageRefinementStrategy.h"
-
 #include "MeshTools.h"
 
 #ifdef ENABLE_INTEL_FLOATING_POINT_EXCEPTIONS
@@ -242,10 +240,6 @@ int main(int argc, char *argv[])
 #ifdef HAVE_AMESOS_MUMPS
   if (useMumpsIfAvailable) solver = Teuchos::rcp( new MumpsSolver );
 #endif
-
-//  double errorPercentage = 0.5; // for mesh refinements: ask to refine elements that account for 80% of the error in each step
-//  Teuchos::RCP<RefinementStrategy> refinementStrategy;
-//  refinementStrategy = Teuchos::rcp( new ErrorPercentageRefinementStrategy( soln, errorPercentage ));
 
   if (maxRefinements != 0)
   {

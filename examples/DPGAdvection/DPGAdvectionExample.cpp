@@ -322,7 +322,7 @@ int main(int argc, char *argv[])
   FunctionPtr u_soln = Function::solution(u, soln);
   FunctionPtr u_err = u_soln - u_exact;
   
-  int numElements = mesh->getActiveCellIDs().size();
+  int numElements = mesh->numActiveElements();
   GlobalIndexType dofCount = mesh->numGlobalDofs();
   GlobalIndexType traceCount = mesh->numFluxDofs();
 
@@ -369,7 +369,7 @@ int main(int argc, char *argv[])
     
     double hPower = 1.0 + spaceDim / 2.0;
     
-    set<GlobalIndexType> cellIDSet = mesh->getActiveCellIDs();
+    set<GlobalIndexType> cellIDSet = mesh->getActiveCellIDsGlobal();
     set<GlobalIndexType> myCellIDSet = mesh->cellIDsInPartition();
     vector<GlobalIndexType> myCellIDs(myCellIDSet.begin(),myCellIDSet.end());
     
@@ -430,7 +430,7 @@ int main(int argc, char *argv[])
     Comm.MaxAll(&timeThisRefinement, &timeThisRefinement, 1);
     timeRefinements += timeThisRefinement;
     
-    int numElements = mesh->getActiveCellIDs().size();
+    int numElements = mesh->numActiveElements();
     GlobalIndexType dofCount = mesh->numGlobalDofs();
     GlobalIndexType traceCount = mesh->numFluxDofs();
     

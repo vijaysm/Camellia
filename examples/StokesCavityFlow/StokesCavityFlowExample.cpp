@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
   MeshPtr mesh = form.solution()->mesh();
   double energyError = form.solution()->energyErrorTotal();
   int globalDofs = mesh->globalDofCount();
-  int activeElements = mesh->getTopology()->getActiveCellIndices().size();
+  int activeElements = mesh->getTopology()->activeCellCount();
   if (rank==0) cout << "Initial energy error: " << energyError;
   if (rank==0) cout << " (mesh has " << activeElements << " elements and " << globalDofs << " global dofs)." << endl;
 
@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
 
     energyError = form.solution()->energyErrorTotal();
     globalDofs = mesh->globalDofCount();
-    activeElements = mesh->getTopology()->getActiveCellIndices().size();
+    activeElements = mesh->getTopology()->activeCellCount();
     if (rank==0) cout << "Energy error for refinement " << refNumber << ": " << energyError;
     if (rank==0) cout << " (mesh has " << activeElements << " elements and " << globalDofs << " global dofs)." << endl;
   }

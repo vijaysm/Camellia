@@ -259,7 +259,7 @@ int main(int argc, char *argv[])
   FunctionPtr u_soln = Function::solution(u, soln);
   FunctionPtr u_err = u_soln - u_exact;
   
-  int numElements = mesh->getActiveCellIDs().size();
+  int numElements = mesh->numActiveCells();
   GlobalIndexType dofCount = mesh->numGlobalDofs();
   
   int cubatureEnrichment = 10;
@@ -306,7 +306,7 @@ int main(int argc, char *argv[])
     
     double hPower = 1.0 + spaceDim / 2.0;
     
-    set<GlobalIndexType> cellIDSet = mesh->getActiveCellIDs();
+    set<GlobalIndexType> cellIDSet = mesh->getActiveCellIDsGlobal();
     vector<GlobalIndexType> cellIDs(cellIDSet.begin(),cellIDSet.end());
     set<GlobalIndexType> myCellIDSet = mesh->cellIDsInPartition();
     vector<GlobalIndexType> myCellIDs(myCellIDSet.begin(),myCellIDSet.end());
@@ -350,7 +350,7 @@ int main(int argc, char *argv[])
     
     timeThisRefinement = refinementTimer.ElapsedTime();
     
-    int numElements = mesh->getActiveCellIDs().size();
+    int numElements = mesh->numActiveElements();
     GlobalIndexType dofCount = mesh->numGlobalDofs();
     
     if (exportVisualization)

@@ -336,7 +336,7 @@ int main(int argc, char *argv[])
   double energyError = spaceTimeForm.solution()->energyErrorTotal();
   MeshPtr spaceTimeMesh = spaceTimeForm.solution()->mesh();
   int globalDofs = spaceTimeMesh->globalDofCount();
-  int activeElements = spaceTimeMesh->getTopology()->getActiveCellIndices().size();
+  int activeElements = spaceTimeMesh->getTopology()->activeCellCount();
   if (rank==0) cout << "Initial energy error for space-time mesh: " << energyError;
   if (rank==0) cout << " (mesh has " << activeElements << " elements and " << globalDofs << " global dofs)." << endl;
   
@@ -373,7 +373,7 @@ int main(int argc, char *argv[])
     
     energyError = spaceTimeForm.solution()->energyErrorTotal();
     globalDofs = spaceTimeMesh->globalDofCount();
-    activeElements = spaceTimeMesh->getTopology()->getActiveCellIndices().size();
+    activeElements = spaceTimeMesh->getTopology()->activeCellCount();
     if (rank==0) cout << "Energy error for refinement " << refNumber << ": " << energyError;
     if (rank==0) cout << " (mesh has " << activeElements << " elements and " << globalDofs << " global dofs)." << endl;
   }

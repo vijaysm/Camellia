@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 
     if (refinement<numRefinements)
     {
-      mesh->hRefine(mesh->getActiveCellIDs());
+      mesh->hRefine(mesh->getActiveCellIDsGlobal());
       h /= 2.0;
     }
   }

@@ -13,8 +13,10 @@ int main(int argc, char *argv[])
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
   
   string meshFileName;
+  bool readInParallel = true;
   
   cmdp.setOption("meshFile", &meshFileName );
+  cmdp.setOption("readDistributed", "readReplicated", &readInParallel );
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -24,7 +26,7 @@ int main(int argc, char *argv[])
     return -1;
   }
   
-  MeshTopologyPtr meshTopo = MeshFactory::importMOABMesh(meshFileName);
+  MeshTopologyPtr meshTopo = MeshFactory::importMOABMesh(meshFileName, readInParallel);
   
   int spaceDim = meshTopo->getDimension();
   int cellCount = meshTopo->activeCellCount();
