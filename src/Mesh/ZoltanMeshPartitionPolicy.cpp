@@ -252,7 +252,7 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
   }
   else     // if just one node, partition = active cellID array
   {
-    set<GlobalIndexType> activeCellIDSet = mesh->getTopology()->getActiveCellIndices();
+    set<GlobalIndexType> activeCellIDSet = mesh->getActiveCellIDsGlobal();
     FieldContainer<GlobalIndexType> partitionedActiveCells(numNodes,numActiveElements);
     int i=0;
     for (set<GlobalIndexType>::iterator cellIDIt = activeCellIDSet.begin(); cellIDIt != activeCellIDSet.end(); cellIDIt++, i++)

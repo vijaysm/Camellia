@@ -31,7 +31,8 @@ long long approximateSetSizeLLVM(set<A> &someSet)   // in bytes
 // ! Constructor for use by MeshTopology and any other subclasses
 MeshTopologyView::MeshTopologyView()
 {
-  
+  _globalCellCount = -1;
+  _globalActiveCellCount = -1;
 }
 
 // ! Constructor that defines a view in terms of an existing MeshTopology and a set of cells selected to be active.
@@ -41,7 +42,14 @@ MeshTopologyView::MeshTopologyView(MeshTopologyPtr meshTopoPtr, const std::set<I
   TEUCHOS_TEST_FOR_EXCEPTION(activeCellIDs.size() == 0, std::invalid_argument, "Empty activeCellIDs is not allowed in MeshTopologyView constructor!");
   _meshTopo = meshTopoPtr;
   _activeCells = activeCellIDs;
+  _globalActiveCellCount = -1;
+  _globalCellCount = -1;
   buildLookups();
+}
+
+IndexType MeshTopologyView::activeCellCount()
+{
+  return _globalActiveCellCount;
 }
 
 // ! This method only gets within a factor of 2 or so, but can give a rough estimate
@@ -63,7 +71,7 @@ MeshTopology* MeshTopologyView::baseMeshTopology()
 
 IndexType MeshTopologyView::cellCount()
 {
-  return _allKnownCells.size();
+  return _globalCellCount;
 }
 
 std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints)
@@ -105,6 +113,44 @@ void MeshTopologyView::buildLookups()
   }
   _allKnownCells.insert(_rootCells.begin(),_rootCells.end());
   _allKnownCells.insert(visitedIndices.begin(),visitedIndices.end());
+  
+  /*
+   If _meshTopo is not distributed, then we can assume that our view of _activeCells and _allKnownCells
+   is complete.  Otherwise, we need to do a little extra work to determine _globalActiveCellCount and
+   _globalCellCount.
+   */
+  
+  if ((_meshTopo->Comm() != Teuchos::null) && (_meshTopo->Comm()->NumProc() > 1))
+  {
+    // we're not too concerned, really, with _globalCellCount.  For MeshTopologyView, this is pretty much
+    // only used in tests.  But in keeping with what MeshTopology does, we can simply define this as the
+    // greatest cell index seen by any rank, plus 1.
+    GlobalIndexTypeToCast myGreatestID;
+    if ( visitedIndices.size() > 0)
+      myGreatestID = *visitedIndices.rbegin();
+    else
+      myGreatestID = -1;
+    GlobalIndexTypeToCast globalMaxID = 0;
+    _meshTopo->Comm()->MaxAll(&myGreatestID, &globalMaxID, 1);
+    _globalCellCount = globalMaxID + 1;
+    
+    // determine which cells are locally owned
+    set<IndexType> myActiveCellIndices = getMyActiveCellIndices();
+    int myActiveCellCount = myActiveCellIndices.size();
+    int globalActiveCellCount = 0;
+    _meshTopo->Comm()->SumAll(&myActiveCellCount, &globalActiveCellCount, 1);
+    _globalActiveCellCount = globalActiveCellCount;
+  }
+  else
+  {
+    _globalActiveCellCount = _activeCells.size();
+    _globalCellCount = _allKnownCells.size();
+  }
+}
+
+Epetra_CommPtr MeshTopologyView::Comm() const
+{
+  return _meshTopo->Comm();
 }
 
 // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs).  Not supported for MeshTopologyViews with _meshTopo defined (i.e. those that are themselves defined in terms of another MeshTopology object).
@@ -123,7 +169,7 @@ bool MeshTopologyView::entityIsGeneralizedAncestor(unsigned int ancestorDimensio
   return _meshTopo->entityIsGeneralizedAncestor(ancestorDimension, ancestor, descendentDimension, descendent);
 }
 
-const set<IndexType> &MeshTopologyView::getActiveCellIndices()
+const set<IndexType> &MeshTopologyView::getLocallyKnownActiveCellIndices()
 {
   return _activeCells;
 }
@@ -181,7 +227,7 @@ vector<IndexType> MeshTopologyView::getActiveCellsForSide(IndexType sideEntityIn
   return activeCells;
 }
 
-CellPtr MeshTopologyView::getCell(IndexType cellIndex)
+CellPtr MeshTopologyView::getCell(IndexType cellIndex) const
 {
   TEUCHOS_TEST_FOR_EXCEPTION(!isValidCellIndex(cellIndex), std::invalid_argument, "Invalid cellIndex!");
   return _meshTopo->getCell(cellIndex);
@@ -445,7 +491,55 @@ std::vector<IndexType> MeshTopologyView::getEntityVertexIndices(unsigned d, Inde
   return _meshTopo->getEntityVertexIndices(d,entityIndex);
 }
 
-const set<IndexType> & MeshTopologyView::getRootCellIndices()
+const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
+{
+  if (_ownedCellIndicesPruningOrdinal != _meshTopo->pruningOrdinal())
+  {
+    // rebuild _ownedCellIndices
+    _ownedCellIndices.clear();
+    
+    /* A View owns a cell if:
+       (a) that cell is owned by its MeshTopology,
+       (b) the first descendant (first child of the first child of the first child, etc.) is owned
+           by its MeshTopology
+     
+       (a) is actually just a special case of (b).
+     */
+    const set<IndexType>* meshTopoOwnedCellIndices = &_meshTopo->getMyActiveCellIndices();
+    for (IndexType leafCellIndex : *meshTopoOwnedCellIndices)
+    {
+      IndexType ancestorCellIndex = leafCellIndex;
+      CellPtr ancestorCell = _meshTopo->getCell(ancestorCellIndex);
+      
+      while (!isValidCellIndex(ancestorCellIndex) && (ancestorCell->getParent() != Teuchos::null))
+      {
+        int childOrdinal = ancestorCell->getParent()->findChildOrdinal(ancestorCellIndex);
+        if (childOrdinal != 0)
+        {
+          // then we definitely do not own
+          ancestorCellIndex = -1;
+          ancestorCell = Teuchos::null;
+          break;
+        }
+        else
+        {
+          ancestorCell = ancestorCell->getParent();
+          ancestorCellIndex = ancestorCell->cellIndex();
+        }
+      }
+      if (isValidCellIndex(ancestorCellIndex))
+      {
+        // then we own
+        _ownedCellIndices.insert(ancestorCellIndex);
+      }
+    }
+    
+    _ownedCellIndicesPruningOrdinal = _meshTopo->pruningOrdinal();
+  }
+  return _ownedCellIndices;
+}
+
+const set<IndexType> & MeshTopologyView::getRootCellIndicesLocal()
 {
   if (_rootCells.size() == 0)
   {
@@ -493,7 +587,7 @@ bool MeshTopologyView::isParent(IndexType cellIndex)
   return _activeCells.find(cellIndex) == _activeCells.end();
 }
 
-bool MeshTopologyView::isValidCellIndex(IndexType cellIndex)
+bool MeshTopologyView::isValidCellIndex(IndexType cellIndex) const
 {
   return _allKnownCells.find(cellIndex) != _allKnownCells.end();
 }
@@ -505,7 +599,7 @@ Intrepid::FieldContainer<double> MeshTopologyView::physicalCellNodesForCell(unsi
 
 void MeshTopologyView::printActiveCellAncestors()
 {
-  for (IndexType cellID : getActiveCellIndices())
+  for (IndexType cellID : getLocallyKnownActiveCellIndices())
   {
     printCellAncestors(cellID);
   }

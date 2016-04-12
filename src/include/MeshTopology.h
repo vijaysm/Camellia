@@ -31,9 +31,15 @@ class GlobalDofAssignment;
 
 class MeshTopology : public MeshTopologyView
 {
+  // _Comm and _ownedCellIndices are used when MeshTopology is distributed
+  Epetra_CommPtr _Comm;
+  std::set<GlobalIndexType> _ownedCellIndices;
+  int _pruningOrdinal = -1;
+  
   unsigned _spaceDim; // dimension of the mesh
   
-  IndexType _nextCellIndex; // until we actually support cell coarsenings, this will be the same as the cell count
+  IndexType _nextCellIndex; // until we actually support cell coarsenings, this will be the same as the global cell count
+  IndexType _activeCellCount;
 
   map< vector<double>, IndexType > _vertexMap; // maps into indices in the vertices list -- here just for vertex identification (i.e. so we don't add the same vertex twice)
   vector< vector<double> > _vertices; // vertex locations
@@ -149,7 +155,7 @@ public:
   IndexType getActiveCellCount(unsigned d, IndexType entityIndex);
 
   vector< pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex); // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
-  CellPtr getCell(IndexType cellIndex);
+  CellPtr getCell(IndexType cellIndex) const;
   //  vector< pair< unsigned, unsigned > > getCellNeighbors(unsigned cellIndex, unsigned sideIndex); // second entry in return is the sideIndex in neighbor (note that in context of h-refinements, one or both of the sides may be broken)
   //  pair< CellPtr, unsigned > getCellAncestralNeighbor(unsigned cellIndex, unsigned sideIndex);
   bool cellHasCurvedEdges(IndexType cellIndex);
@@ -161,6 +167,9 @@ public:
   bool entityIsGeneralizedAncestor(unsigned ancestorDimension, IndexType ancestor,
                                    unsigned descendentDimension, IndexType descendent);
 
+  // ! If the MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
+  Epetra_CommPtr Comm() const;
+  
   CellPtr findCellWithVertices(const vector< vector<double> > &cellVertices);
 
   vector<IndexType> getChildEntities(unsigned d, IndexType entityIndex);
@@ -200,24 +209,32 @@ public:
   const std::vector<double>& getVertex(IndexType vertexIndex);
   
   bool isBoundarySide(IndexType sideEntityIndex);
-  bool isValidCellIndex(IndexType cellIndex);
+  bool isValidCellIndex(IndexType cellIndex) const;
   
   Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false);
   void refineCell(IndexType cellIndex, RefinementPatternPtr refPattern, IndexType firstChildCellIndex);
   
-  // ! Returns the global cell count.  In the future, may become MPI-communicating method.
+  // ! Returns the global cell count.
   IndexType cellCount();
+
+  // ! Returns the global active cell count.
   IndexType activeCellCount();
 
   //  pair<IndexType,IndexType> leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity(unsigned d, unsigned constrainingEntityIndex);
 
   void setGlobalDofAssignment(GlobalDofAssignment* gda); // for cubature degree lookups
 
-  const set<IndexType> &getActiveCellIndices();
+  // ! MPI-collective method for distributed MeshTopology.  The vector returned is ordered by the MPI rank that owns the cell indices (i.e. cell indices belonging to a single rank will be contiguous in this container).
+  vector<IndexType> getActiveCellIndicesGlobal() const;
+  
+  const set<IndexType> &getLocallyKnownActiveCellIndices();
+  // for a distributed MeshTopology, returns the set of cell indices owned by this MPI rank.  For a replicated MeshTopology, returns an empty set.
+  const set<IndexType> &getMyActiveCellIndices() const;
   set< pair<IndexType, unsigned> > getActiveBoundaryCells(); // (cellIndex, sideOrdinal)
   vector<double> getCellCentroid(IndexType cellIndex);
   
-  const set<IndexType> &getRootCellIndices();
+  const set<IndexType> &getRootCellIndicesLocal();
+  set<IndexType> getRootCellIndicesGlobal();
   
   vector<EntitySetPtr> getEntitySetsForTagID(string tagName, int tagID);
   
@@ -244,8 +261,11 @@ public:
 
   void printAllEntities();
   
-  // ! Removes all entities that do not belong to the "halo" of the cells indicated
-  void pruneToInclude(const std::set<GlobalIndexType> &cellIndices, unsigned dimForNeighborRelation);
+  // ! Removes all entities that do not belong to the "halo" of the cells indicated, stores ownedCellIndices, and sets the Comm object.
+  void pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalIndexType> &ownedCellIndices,
+                      unsigned dimForNeighborRelation);
+  // ! Returns a counter, incremented when pruneToInclude was last called.  Allows caching of things that depend on ownedCellIndices (used in MeshTopologyView's determination of *its* ownedCellIndices).
+  int pruningOrdinal() const;
 
   // not sure this should ultimately be exposed -- using it now to allow correctly timed call to updateCells()
   // (will be transitioning from having MeshTransformationFunction talk to Mesh to having it talk to MeshTopology)

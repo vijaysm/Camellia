@@ -279,74 +279,91 @@ void TRefinementStrategy<Scalar>::refine(bool printToConsole)
   MeshPtr mesh = this->mesh();
 
   double totalEnergyError = 0.0;
+  double maxError = 0.0;
 
   // NOTE 2/16/15: Both approaches, the RieszRep and the Solution, really do store on *each* MPI rank
   //               information about *every* active cell in the mesh.  This should be corrected!!
-  map<GlobalIndexType, double> energyError;
+  const map<GlobalIndexType, double>* rankLocalEnergyError;
+  bool energyErrorIsSquared;
   if (_rieszRep.get() != NULL)
   {
     _rieszRep->computeRieszRep();
-    energyError = _rieszRep->getNormsSquaredGlobal();
-    // take square roots:
-    for (map<GlobalIndexType, double>::iterator energyEntryIt = energyError.begin();
-         energyEntryIt != energyError.end(); energyEntryIt++)
+    rankLocalEnergyError = &_rieszRep->getNormsSquared();
+    // will need to take square roots:
+    energyErrorIsSquared = true;
+    double totalEnergyErrorSquaredLocal = 0.0;
+    double maxErrorLocal = 0.0;
+    for (auto entry : *rankLocalEnergyError)
     {
-      totalEnergyError += energyEntryIt->second;
-      energyEntryIt->second = sqrt( energyEntryIt->second );
+      double cellEnergyErrorSquared = entry.second;
+      totalEnergyErrorSquaredLocal += cellEnergyErrorSquared;
+      maxErrorLocal = max(sqrt(cellEnergyErrorSquared),maxErrorLocal);
     }
+    mesh->Comm()->MaxAll(&maxErrorLocal, &maxError, 1);
+    mesh->Comm()->SumAll(&totalEnergyErrorSquaredLocal, &totalEnergyError, 1);
+    
     totalEnergyError = sqrt(totalEnergyError);
   }
   else
   {
-    energyError = _solution->globalEnergyError();
+    rankLocalEnergyError = &_solution->rankLocalEnergyError();
     totalEnergyError = _solution->energyErrorTotal();
-  }
-  vector< Teuchos::RCP< Element > > activeElements = mesh->activeElements();
-
-  double maxError = 0.0;
-
-  map<GlobalIndexType, double> cellMeasures;
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
-  for (set<GlobalIndexType>::iterator cellIt=cellIDs.begin(); cellIt != cellIDs.end(); cellIt++)
-  {
-    int cellID = *cellIt;
-    cellMeasures[cellID] = mesh->getCellMeasure(cellID);
-    maxError = max(maxError,energyError.find(cellID)->second);
-  }
-
-  if ( printToConsole && _reportPerCellErrors )
-  {
-    cout << "per-cell Energy Error Squared for cells with > 0.1% of squared energy error\n";
-    for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin();
-         activeElemIt != activeElements.end(); activeElemIt++)
+    // square roots have already been taken
+    energyErrorIsSquared = false;
+    
+    double maxErrorLocal = 0.0;
+    for (auto entry : *rankLocalEnergyError)
     {
-      Teuchos::RCP< Element > current_element = *(activeElemIt);
-      GlobalIndexType cellID = current_element->cellID();
-      double cellEnergyError = energyError.find(cellID)->second;
-//      cout << "cellID " << cellID << " has energy error (not squared) " << cellEnergyError << endl;
-      double percent = (cellEnergyError*cellEnergyError) / (totalEnergyError*totalEnergyError) * 100;
-      if (percent > 0.1)
-      {
-        cout << cellID << ": " << cellEnergyError*cellEnergyError << " ( " << percent << " %)\n";
-      }
+      double cellEnergyError = entry.second;
+      maxErrorLocal = max(cellEnergyError,maxErrorLocal);
     }
+    mesh->Comm()->MaxAll(&maxErrorLocal, &maxError, 1);
   }
+
+  map<GlobalIndexType, double> cellMeasuresLocal;
+  const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : *myCellIDs)
+  {
+    cellMeasuresLocal[cellID] = mesh->getCellMeasure(cellID);
+  }
+
+//  if ( printToConsole && _reportPerCellErrors )
+//  {
+//    cout << "per-cell Energy Error Squared for cells with > 0.1% of squared energy error\n";
+//    for (GlobalIndexType cellID : cellIDs)
+//    {
+//      double cellEnergyError = energyError.find(cellID)->second;
+////      cout << "cellID " << cellID << " has energy error (not squared) " << cellEnergyError << endl;
+//      double percent = (cellEnergyError*cellEnergyError) / (totalEnergyError*totalEnergyError) * 100;
+//      if (percent > 0.1)
+//      {
+//        cout << cellID << ": " << cellEnergyError*cellEnergyError << " ( " << percent << " %)\n";
+//      }
+//    }
+//  }
 
   // record results prior to refinement
   RefinementResults results = setResults(mesh->numActiveElements(), mesh->numGlobalDofs(), totalEnergyError);
   _results.push_back(results);
 
-  vector<GlobalIndexType> cellsToRefine;
-  vector<GlobalIndexType> cellsToPRefine;
+  vector<GlobalIndexType> myCellsToRefine;
+  vector<GlobalIndexType> myCellsToPRefine;
 
   // do refinements on cells with error above threshold
-  for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin();
-       activeElemIt != activeElements.end(); activeElemIt++)
+  double meshDim = mesh->getDimension();
+  for (GlobalIndexType cellID : *myCellIDs)
   {
-    Teuchos::RCP< Element > current_element = *(activeElemIt);
-    int cellID = current_element->cellID();
-    double h = sqrt(cellMeasures[cellID]);
-    double cellEnergyError = energyError.find(cellID)->second;
+    double h = pow(cellMeasuresLocal[cellID], 1.0 / meshDim); // dth root of volume measure = h
+    double cellEnergyError;
+    if (energyErrorIsSquared)
+    {
+      cellEnergyError = sqrt(rankLocalEnergyError->find(cellID)->second);
+    }
+    else
+    {
+      cellEnergyError = rankLocalEnergyError->find(cellID)->second;
+    }
+    
     int p = mesh->cellPolyOrder(cellID);
 
     if ( cellEnergyError >= maxError * _relativeEnergyThreshold )
@@ -356,27 +373,61 @@ void TRefinementStrategy<Scalar>::refine(bool printToConsole)
       {
         if (h > _min_h)
         {
-          cellsToRefine.push_back(cellID);
+          myCellsToRefine.push_back(cellID);
         }
         else
         {
-          cellsToPRefine.push_back(cellID);
+          myCellsToPRefine.push_back(cellID);
         }
       }
       else
       {
         if (p < _max_p)
         {
-          cellsToPRefine.push_back(cellID);
+          myCellsToPRefine.push_back(cellID);
         }
         else
         {
-          cellsToRefine.push_back(cellID);
+          myCellsToRefine.push_back(cellID);
         }
       }
     }
   }
+  
+  GlobalIndexTypeToCast numCellsToRefine = 0;
+  GlobalIndexTypeToCast myNumCellsToRefine = myCellsToRefine.size();
+  mesh->Comm()->SumAll(&myNumCellsToRefine, &numCellsToRefine, 1);
+  GlobalIndexTypeToCast myCellOrdinalOffset = 0;
+  mesh->Comm()->ScanSum(&myNumCellsToRefine, &myCellOrdinalOffset, 1);
+  myCellOrdinalOffset -= myNumCellsToRefine;
+  
+  vector<GlobalIndexTypeToCast> globalCellsToRefineVector(numCellsToRefine, 0);
+  for (int i=0; i<myNumCellsToRefine; i++)
+  {
+    globalCellsToRefineVector[myCellOrdinalOffset + i] = myCellsToRefine[i];
+  }
+  vector<GlobalIndexTypeToCast> gatheredCellsToRefineVector(numCellsToRefine, 0);
+  mesh->Comm()->SumAll(&globalCellsToRefineVector[0], &gatheredCellsToRefineVector[0], numCellsToRefine);
 
+  vector<GlobalIndexType> cellsToRefine(gatheredCellsToRefineVector.begin(),gatheredCellsToRefineVector.end());;
+  
+  GlobalIndexTypeToCast numCellsToPRefine = 0;
+  GlobalIndexTypeToCast myNumCellsToPRefine = myCellsToPRefine.size();
+  mesh->Comm()->SumAll(&myNumCellsToPRefine, &numCellsToPRefine, 1);
+  myCellOrdinalOffset = 0;
+  mesh->Comm()->ScanSum(&myNumCellsToPRefine, &myCellOrdinalOffset, 1);
+  myCellOrdinalOffset -= myNumCellsToPRefine;
+  
+  vector<GlobalIndexTypeToCast> globalCellsToPRefineVector(numCellsToRefine, 0);
+  for (int i=0; i<myNumCellsToPRefine; i++)
+  {
+    globalCellsToPRefineVector[myCellOrdinalOffset + i] = myCellsToRefine[i];
+  }
+    vector<GlobalIndexTypeToCast> gatheredCellsToPRefineVector(numCellsToRefine, 0);
+  mesh->Comm()->SumAll(&globalCellsToPRefineVector[0], &gatheredCellsToPRefineVector[0], numCellsToPRefine);
+  
+  vector<GlobalIndexType> cellsToPRefine(gatheredCellsToPRefineVector.begin(),gatheredCellsToPRefineVector.end());
+  
   if (printToConsole)
   {
     if (cellsToRefine.size() > 0) Camellia::print("cells for h-refinement", cellsToRefine);
@@ -407,35 +458,46 @@ void TRefinementStrategy<Scalar>::getCellsAboveErrorThreshhold(vector<GlobalInde
 {
   // greedy refinement algorithm - mark cells for refinement
   MeshPtr mesh = this->mesh();
-  const map<GlobalIndexType, double>* energyError = &(_solution->globalEnergyError());
-  vector< Teuchos::RCP< Element > > activeElements = mesh->activeElements();
+  const map<GlobalIndexType,double>* rankLocalEnergy = &_solution->rankLocalEnergyError();
+  const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
 
-  double maxError = 0.0;
-  double totalEnergyError = 0.0;
+  double localMaxError = 0.0;
 
-  for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin();
-       activeElemIt != activeElements.end(); activeElemIt++)
+  for (GlobalIndexType cellID : *myCellIDs)
   {
-    Teuchos::RCP< Element > current_element = *(activeElemIt);
-    int cellID = current_element->cellID();
-    double cellEnergyError = energyError->find(cellID)->second;
-    maxError = max(cellEnergyError,maxError);
-    totalEnergyError += cellEnergyError * cellEnergyError;
+    double cellEnergyError = rankLocalEnergy->find(cellID)->second;
+    localMaxError = max(cellEnergyError,localMaxError);
   }
-  totalEnergyError = sqrt(totalEnergyError);
-
-  // do refinements on cells with error above threshold
-  for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin();
-       activeElemIt != activeElements.end(); activeElemIt++)
+  
+  double globalMaxError = 0.0;
+  mesh->Comm()->MaxAll(&localMaxError, &globalMaxError, 1);
+  
+  vector<GlobalIndexType> myCellsToRefine;
+  for (GlobalIndexType cellID : *myCellIDs)
   {
-    Teuchos::RCP< Element > current_element = *(activeElemIt);
-    int cellID = current_element->cellID();
-    double cellEnergyError = energyError->find(cellID)->second;
-    if ( cellEnergyError >= maxError * _relativeEnergyThreshold )
+    double cellEnergyError = rankLocalEnergy->find(cellID)->second;
+    if ( cellEnergyError >= globalMaxError * _relativeEnergyThreshold )
     {
-      cellsToRefine.push_back(cellID);
+      myCellsToRefine.push_back(cellID);
     }
   }
+  
+  GlobalIndexTypeToCast numCellsToRefine = 0;
+  GlobalIndexTypeToCast myNumCellsToRefine = myCellsToRefine.size();
+  mesh->Comm()->SumAll(&myNumCellsToRefine, &numCellsToRefine, 1);
+  GlobalIndexTypeToCast myCellOrdinalOffset = 0;
+  mesh->Comm()->ScanSum(&myNumCellsToRefine, &myCellOrdinalOffset, 1);
+  myCellOrdinalOffset -= myNumCellsToRefine;
+  
+  vector<GlobalIndexTypeToCast> globalCellsToRefineVector(numCellsToRefine, 0);
+  for (int i=0; i<myNumCellsToRefine; i++)
+  {
+    globalCellsToRefineVector[myCellOrdinalOffset + i] = myCellsToRefine[i];
+  }
+  vector<GlobalIndexTypeToCast> gatheredCellsToRefineVector(numCellsToRefine, 0);
+  mesh->Comm()->SumAll(&globalCellsToRefineVector[0], &gatheredCellsToRefineVector[0], numCellsToRefine);
+  
+  cellsToRefine = vector<GlobalIndexType>(gatheredCellsToRefineVector.begin(), gatheredCellsToRefineVector.end());
 }
 
 // defaults to h-refinement
@@ -486,7 +548,7 @@ void TRefinementStrategy<Scalar>::hRefineCells(MeshPtr mesh, const vector<Global
 template <typename Scalar>
 void TRefinementStrategy<Scalar>::hRefineUniformly(MeshPtr mesh)
 {
-  set<GlobalIndexType> cellsToRefine = mesh->getTopology()->getActiveCellIndices();
+  set<GlobalIndexType> cellsToRefine = mesh->getActiveCellIDsGlobal();
 //  vector< Teuchos::RCP< Element > > activeElements = mesh->activeElements();
 //  for (vector< Teuchos::RCP< Element > >::iterator activeElemIt = activeElements.begin();
 //       activeElemIt != activeElements.end(); activeElemIt++)
@@ -543,10 +605,10 @@ template <typename Scalar>
 void TRefinementStrategy<Scalar>::refine(bool printToConsole, map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, map<GlobalIndexType,double> &threshMap)
 {
   map<GlobalIndexType,bool> hRefMap;
-  vector<ElementPtr> elems = _solution->mesh()->activeElements();
-  for (vector<ElementPtr>::iterator elemIt = elems.begin(); elemIt!=elems.end(); elemIt++)
+  set<GlobalIndexType> cellIDs = _solution->mesh()->getActiveCellIDsGlobal();
+  for (GlobalIndexType cellID : cellIDs)
   {
-    hRefMap[(*elemIt)->cellID()] = true; // default to h-refinement
+    hRefMap[cellID] = true; // default to h-refinement
   }
   refine(printToConsole,xErr,yErr,threshMap,hRefMap);
 }
@@ -619,10 +681,10 @@ template <typename Scalar>
 void TRefinementStrategy<Scalar>::getAnisotropicCellsToRefine(map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, vector<GlobalIndexType> &xCells, vector<GlobalIndexType> &yCells, vector<GlobalIndexType> &regCells)
 {
   map<GlobalIndexType,double> threshMap;
-  vector<ElementPtr> elems = _solution->mesh()->activeElements();
-  for (vector<ElementPtr>::iterator elemIt = elems.begin(); elemIt!=elems.end(); elemIt++)
+  set<GlobalIndexType> cellIDs = _solution->mesh()->getActiveCellIDsGlobal();
+  for (GlobalIndexType cellID : cellIDs)
   {
-    threshMap[(*elemIt)->cellID()] = _anisotropicThreshhold;
+    threshMap[cellID] = _anisotropicThreshhold;
   }
   getAnisotropicCellsToRefine(xErr,yErr,xCells,yCells,regCells,threshMap);
 }
@@ -708,12 +770,11 @@ bool TRefinementStrategy<Scalar>::enforceAnisotropicOneIrregularity(vector<Globa
   while (meshIsNotRegular && i<maxIters)
   {
     vector<GlobalIndexType> irregularQuadCells,xUpgrades,yUpgrades;
-    vector< Teuchos::RCP< Element > > newActiveElements = mesh->activeElements();
-    vector< Teuchos::RCP< Element > >::iterator newElemIt;
+    set<GlobalIndexType> newActiveCellIDs = mesh->getActiveCellIDsGlobal();
 
-    for (newElemIt = newActiveElements.begin(); newElemIt != newActiveElements.end(); newElemIt++)
+    for (GlobalIndexType activeCellID : newActiveCellIDs)
     {
-      Teuchos::RCP< Element > current_element = *(newElemIt);
+      Teuchos::RCP< Element > current_element = mesh->getElement(activeCellID);
       bool isIrregular = false;
       for (int sideIndex=0; sideIndex < current_element->numSides(); sideIndex++)
       {

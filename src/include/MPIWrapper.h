@@ -35,6 +35,11 @@ private:
                                Intrepid::FieldContainer<Scalar> &gatheredValues,
                                Intrepid::FieldContainer<Scalar> &myValues,
                                Intrepid::FieldContainer<int> &offsets);
+  template<typename Scalar>
+  static void allGatherCompact(const Epetra_Comm &Comm,
+                               std::vector<Scalar> &gatheredValues,
+                               std::vector<Scalar> &myValues,
+                               std::vector<int> &offsets);
 public:
   // sum the contents of inValues across all processors, and stores the result in outValues
   // the rank of outValues determines the nature of the sum:
@@ -54,6 +59,20 @@ public:
                                Intrepid::FieldContainer<int> &gatheredValues,
                                Intrepid::FieldContainer<int> &myValues,
                                Intrepid::FieldContainer<int> &offsets);
+  
+  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
+  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  static void allGatherCompact(const Epetra_Comm &Comm,
+                               std::vector<int> &gatheredValues,
+                               std::vector<int> &myValues,
+                               std::vector<int> &offsets);
+  
+  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
+  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  static void allGatherCompact(const Epetra_Comm &Comm,
+                               std::vector<double> &gatheredValues,
+                               std::vector<double> &myValues,
+                               std::vector<int> &offsets);
 
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
   //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.

@@ -22,8 +22,7 @@ FieldContainer<double> GnuPlotUtil::cellCentroids(MeshTopology* meshTopo)
 
   FieldContainer<double> cellCentroids(numActiveElements,spaceDim); // used for labelling cells
 
-  set<IndexType> cellIDset = meshTopo->getActiveCellIndices();
-  vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
+  vector<IndexType> cellIDs = meshTopo->getActiveCellIndicesGlobal();
 
   for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
   {
@@ -46,7 +45,7 @@ FieldContainer<double> GnuPlotUtil::cellCentroids(MeshPtr mesh)
 
   FieldContainer<double> cellCentroids(numActiveElements,spaceDim); // used for labelling cells
 
-  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
 
   for (int cellOrdinal=0; cellOrdinal<numActiveElements; cellOrdinal++)
@@ -83,7 +82,7 @@ void GnuPlotUtil::writeComputationalMeshSkeleton(const string &filePath, MeshPtr
   double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
 
   FieldContainer<double> cellCentroids;
-  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
 
   for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
@@ -220,8 +219,7 @@ void GnuPlotUtil::writeExactMeshSkeleton(const string &filePath, MeshTopology* m
 
   double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
 
-  set<IndexType> cellIDset = meshTopo->getActiveCellIndices();
-  vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
+  vector<IndexType> cellIDs = meshTopo->getActiveCellIndicesGlobal();
 
   for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)
   {
@@ -311,7 +309,7 @@ void GnuPlotUtil::writeExactMeshSkeleton(const string &filePath, MeshPtr mesh, i
 
   double minX = 1e10, minY = 1e10, maxX = -1e10, maxY = -1e10;
 
-  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDset = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(cellIDset.begin(),cellIDset.end());
 
   for (int cellIndex=0; cellIndex<numActiveElements; cellIndex++)

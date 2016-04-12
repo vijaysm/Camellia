@@ -244,7 +244,7 @@ void RefinementHistory::playback(MeshPtr mesh)
     // check that the cellIDs are all active nodes
     if (refType != H_UNREFINEMENT)
     {
-      set<GlobalIndexType> activeIDs = mesh->getActiveCellIDs();
+      set<GlobalIndexType> activeIDs = mesh->getActiveCellIDsGlobal();
       for (set<GlobalIndexType>::iterator cellIt = cellIDs.begin(); cellIt != cellIDs.end(); cellIt++)
       {
         int cellID = *cellIt;

@@ -91,7 +91,7 @@ CellTopoPtr getBottomTopology(MeshTopology* meshTopo, IndexType cellID)
 
 map<IndexType,IndexType> MeshTools::mapActiveCellIndices(MeshTopologyViewPtr meshTopoFrom, MeshTopologyViewPtr meshTopoTo)
 {
-  const set<IndexType>* activeCellIndices = &meshTopoFrom->getActiveCellIndices();
+  const set<IndexType>* activeCellIndices = &meshTopoFrom->getLocallyKnownActiveCellIndices();
   vector<vector<double>> centroid(activeCellIndices->size());
   FieldContainer<double> centroidFC(activeCellIndices->size(),1,meshTopoFrom->getDimension());
   int cellOrdinal = 0;
@@ -115,15 +115,19 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
 {
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(spaceTimeMesh->getTopology().get());
   TEUCHOS_TEST_FOR_EXCEPTION(!meshTopo, std::invalid_argument, "timeSliceMesh() called with spaceTimeMesh that appears to be pure MeshTopologyView.  This is not supported.");
-  set<IndexType> cellIDsToCheck = meshTopo->getRootCellIndices();
   set<IndexType> activeCellIDsForTime;
-
-  set<IndexType> allActiveCellIDs = meshTopo->getActiveCellIndices();
+  
+  // for now, throw an exception if trying to do this with a distributed MeshTopology
+  // We need to think through the construction of sliceTopo more carefully in that case
+  TEUCHOS_TEST_FOR_EXCEPTION(spaceTimeMesh->Comm() != Teuchos::null, std::invalid_argument, "timeSliceMesh() does not yet supported distributed MeshTopology");
+  
+  set<GlobalIndexType> allActiveCellIDs = spaceTimeMesh->getActiveCellIDsGlobal();
 
   int spaceDim = meshTopo->getDimension() - 1;  // # of true spatial dimensions
 
   MeshTopologyPtr sliceTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
-  set<IndexType> rootCellIDs = meshTopo->getRootCellIndices();
+  set<IndexType> rootCellIDs = meshTopo->getRootCellIndicesLocal();
+  set<IndexType> cellIDsToCheck = rootCellIDs;
   for (set<IndexType>::iterator rootCellIt = rootCellIDs.begin(); rootCellIt != rootCellIDs.end(); rootCellIt++)
   {
     IndexType rootCellID = *rootCellIt;
@@ -140,7 +144,7 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
   MeshPtr sliceMesh = Teuchos::rcp( new Mesh(sliceTopo, spaceTimeMesh->bilinearForm(), H1OrderForSlice, spaceDim) );
 
   // process refinements.  For now, we assume isotropic refinements, which means that each refinement in spacetime induces a refinement in the spatial slice
-  set<IndexType> sliceCellIDsToCheckForRefinement = sliceTopo->getActiveCellIndices();
+  set<IndexType> sliceCellIDsToCheckForRefinement = sliceTopo->getLocallyKnownActiveCellIndices();
   while (sliceCellIDsToCheckForRefinement.size() > 0)
   {
     set<IndexType>::iterator cellIt = sliceCellIDsToCheckForRefinement.begin();

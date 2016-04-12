@@ -160,7 +160,7 @@ void Boundary::bcsToImpose(FieldContainer<GlobalIndexType> &globalIndices,
         set< pair<IndexType, unsigned> > cellsForVertex = _mesh->getTopology()->getCellsContainingEntity(vertexDim, vertexIndex);
         for (pair<IndexType, unsigned> cellForVertex : cellsForVertex)
         {
-          if (_mesh->getTopology()->getActiveCellIndices().find(cellForVertex.first) != _mesh->getTopology()->getActiveCellIndices().end())
+          if (_mesh->getTopology()->getLocallyKnownActiveCellIndices().find(cellForVertex.first) != _mesh->getTopology()->getLocallyKnownActiveCellIndices().end())
           {
             // active cell
             IndexType matchingCellID = cellForVertex.first;

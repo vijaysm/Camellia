@@ -67,7 +67,10 @@ HConvergenceStudy::HConvergenceStudy(Teuchos::RCP<ExactSolution<double>> exactSo
   _maxLogElements = maxLogElements;
   _H1Order = H1Order;
   _pToAdd = pToAdd;
-  _randomRefinements = randomRefinements;
+  if (randomRefinements)
+  {
+    cout << "WARNING: randomRefinements is no longer supported in HConvergenceStudy.\n";
+  }
   _reportConditionNumber = false;
   _useTriangles = useTriangles;
   _useHybrid = useHybrid;
@@ -113,55 +116,6 @@ TSolutionPtr<double> HConvergenceStudy::getSolution(int logElements)
 {
   int index = logElements - _minLogElements;
   return _solutions[index];
-}
-
-void HConvergenceStudy::randomlyRefine(Teuchos::RCP<Mesh> mesh)
-{
-  int numElements = mesh->activeElements().size();
-  vector<GlobalIndexType> elementsToRefineP;
-  /*  // every third element is: untouched, refined once, refined twice
-    for (int i=0; i<numElements; i++) {
-      if ((i%3)==1) {
-        elementsToRefineP.push_back(i);
-      } else if ((i%3)==2) {
-        elementsToRefineP.push_back(i);
-        elementsToRefineP.push_back(i);
-      }
-    }*/
-  // new rule: if all vertices' x >= 0, refine once.
-  //           if all vertices' y >= 0, refine once (more).
-  // for up to two refinements.
-  for (int i=0; i<numElements; i++)
-  {
-    GlobalIndexType cellID = mesh->activeElements()[i]->cellID();
-    int numVertices = mesh->activeElements()[i]->numSides();
-    int spaceDim = 2;
-    FieldContainer<double> vertices(numVertices,spaceDim);
-    mesh->verticesForCell(vertices,cellID);
-    bool positiveX = true, positiveY = true;
-    for (int vertexIndex=0; vertexIndex<numVertices; vertexIndex++)
-    {
-      double x = vertices(vertexIndex,0);
-      double y = vertices(vertexIndex,1);
-      if ( x < 0.0 )
-      {
-        positiveX = false;
-      }
-      if (y < 0.0 )
-      {
-        positiveY = false;
-      }
-    }
-    if ( positiveX )
-    {
-      elementsToRefineP.push_back(cellID);
-    }
-    if ( positiveY )
-    {
-      elementsToRefineP.push_back(cellID);
-    }
-  }
-  mesh->pRefine(elementsToRefineP);
 }
 
 int HConvergenceStudy::minNumElements()
@@ -401,10 +355,6 @@ void HConvergenceStudy::solve(Teuchos::RCP<MeshGeometry> geometry, bool useConfo
   for (int i=_minLogElements; i<=_maxLogElements; i++)
   {
     Teuchos::RCP<Mesh> mesh = buildMesh(geometry, i, useConformingTraces);
-    if (_randomRefinements)
-    {
-      randomlyRefine(mesh);
-    }
     TSolutionPtr<double> solution = Teuchos::rcp( new TSolution<double>(mesh, _bc, _rhs, _ip) );
     if (_writeGlobalStiffnessToDisk)
     {
@@ -472,10 +422,6 @@ void HConvergenceStudy::solve(const FieldContainer<double> &quadPoints, bool use
     {
       mesh = MeshFactory::buildQuadMeshHybrid(quadPoints, numElements, numElements,
                                               _bilinearForm, _H1Order, _H1Order + _pToAdd, useConformingTraces);
-    }
-    if (_randomRefinements)
-    {
-      randomlyRefine(mesh);
     }
     TSolutionPtr<double> solution = Teuchos::rcp( new TSolution<double>(mesh, _bc, _rhs, _ip) );
     if (_writeGlobalStiffnessToDisk)

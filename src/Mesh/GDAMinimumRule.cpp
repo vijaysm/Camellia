@@ -141,29 +141,33 @@ void GDAMinimumRule::didChangePartitionPolicy()
 void GDAMinimumRule::didHRefine(const set<GlobalIndexType> &parentCellIDs)
 {
   set<GlobalIndexType> neighborsOfNewElements;
-  for (set<GlobalIndexType>::const_iterator cellIDIt = parentCellIDs.begin(); cellIDIt != parentCellIDs.end(); cellIDIt++)
+  for (GlobalIndexType parentCellID : parentCellIDs)
   {
-    GlobalIndexType parentCellID = *cellIDIt;
-//    cout << "GDAMinimumRule: h-refining " << parentCellID << endl;
-    CellPtr parentCell = _meshTopology->getCell(parentCellID);
-    vector<IndexType> childIDs = parentCell->getChildIndices(_meshTopology);
-    vector<int> parentH1Order = getH1Order(parentCellID);
-    int parentDeltaP = getPRefinementDegree(parentCellID);
-    for (vector<IndexType>::iterator childIDIt = childIDs.begin(); childIDIt != childIDs.end(); childIDIt++)
+    if (_meshTopology->isValidCellIndex(parentCellID))
     {
-      GlobalIndexType childCellID = *childIDIt;
-      setPRefinementDegree(childCellID, parentDeltaP);
-      assignParities(childCellID);
-      // determine neighbors, so their parities can be updated below:
-      CellPtr childCell = _meshTopology->getCell(childCellID);
-
-      unsigned childSideCount = childCell->getSideCount();
-      for (int childSideOrdinal=0; childSideOrdinal<childSideCount; childSideOrdinal++)
+  //    cout << "GDAMinimumRule: h-refining " << parentCellID << endl;
+      CellPtr parentCell = _meshTopology->getCell(parentCellID);
+      vector<IndexType> childIDs = parentCell->getChildIndices(_meshTopology);
+      vector<int> parentH1Order = getH1Order(parentCellID);
+      int parentDeltaP = getPRefinementDegree(parentCellID);
+      for (IndexType childCellID : childIDs)
       {
-        GlobalIndexType neighborCellID = childCell->getNeighborInfo(childSideOrdinal, _meshTopology).first;
-        if (neighborCellID != -1)
+        if (_meshTopology->isValidCellIndex(childCellID))
         {
-          neighborsOfNewElements.insert(neighborCellID);
+          setPRefinementDegree(childCellID, parentDeltaP);
+          assignParities(childCellID);
+          // determine neighbors, so their parities can be updated below:
+          CellPtr childCell = _meshTopology->getCell(childCellID);
+
+          unsigned childSideCount = childCell->getSideCount();
+          for (int childSideOrdinal=0; childSideOrdinal<childSideCount; childSideOrdinal++)
+          {
+            GlobalIndexType neighborCellID = childCell->getNeighborInfo(childSideOrdinal, _meshTopology).first;
+            if (neighborCellID != -1)
+            {
+              neighborsOfNewElements.insert(neighborCellID);
+            }
+          }
         }
       }
     }
@@ -3542,7 +3546,7 @@ void GDAMinimumRule::printConstraintInfo(GlobalIndexType cellID)
 
 void GDAMinimumRule::printGlobalDofInfo()
 {
-  set<GlobalIndexType> cellIDs = _meshTopology->getActiveCellIndices();
+  set<GlobalIndexType> cellIDs = _meshTopology->getLocallyKnownActiveCellIndices();
   for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
   {
     GlobalIndexType cellID = *cellIDIt;
@@ -3655,15 +3659,20 @@ void GDAMinimumRule::rebuildLookups()
   }
 //  if (rank==0) cout << "globalDofCount: " << _globalDofCount << endl;
   // collect and communicate global cell dof offsets:
-  int activeCellCount = _meshTopology->getActiveCellIndices().size();
+  int activeCellCount = _meshTopology->activeCellCount();
   Intrepid::FieldContainer<int> globalCellIDDofOffsets(activeCellCount);
   int partitionCellOffset = 0;
   for (int i=0; i<rank; i++)
   {
     partitionCellOffset += _partitions[i].size();
   }
-  // fill in our _cellDofOffsets:
-
+  
+  {
+    // DEBUGGING
+    cout << "On rank " << rank << ", activeCellCount = " << activeCellCount << endl;
+  }
+  
+  // add in our _cellDofOffsets:
   int i=0;
   for (GlobalIndexType cellID : *myCellIDs)
   {

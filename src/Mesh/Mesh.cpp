@@ -327,30 +327,26 @@ Mesh::Mesh(MeshPtr mesh, GlobalIndexType cellID, Epetra_CommPtr Comm) : DofInter
   this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
-GlobalIndexType Mesh::numInitialElements()
-{
-  return _meshTopology->getRootCellIndices().size();
-}
-
 GlobalIndexType Mesh::activeCellOffset()
 {
   return _gda->activeCellOffset();
 }
 
-vector< ElementPtr > Mesh::activeElements()
-{
-  set< IndexType > activeCellIndices = _meshTopology->getActiveCellIndices();
+//vector< ElementPtr > Mesh::activeElements()
+//{
+//  set< IndexType > activeCellIndices = _meshTopology->getActiveCellIndicesGlobal();
+//
+//  vector< ElementPtr > activeElements;
+//
+//  for (set< IndexType >::iterator cellIt = activeCellIndices.begin(); cellIt != activeCellIndices.end(); cellIt++)
+//  {
+//    activeElements.push_back(getElement(*cellIt));
+//  }
+//
+//  return activeElements;
+//}
 
-  vector< ElementPtr > activeElements;
-
-  for (set< IndexType >::iterator cellIt = activeCellIndices.begin(); cellIt != activeCellIndices.end(); cellIt++)
-  {
-    activeElements.push_back(getElement(*cellIt));
-  }
-
-  return activeElements;
-}
-
+// TODO: replace this with a method that takes a CellID as first argument and returns a CellID (or -1).
 ElementPtr Mesh::ancestralNeighborForSide(ElementPtr elem, int sideIndex, int &elemSideIndexInNeighbor)
 {
   CellPtr cell = _meshTopology->getCell(elem->cellID());
@@ -405,11 +401,6 @@ vector< GlobalIndexType > Mesh::cellIDsOfTypeGlobal(ElementTypePtr elemTypePtr)
 const set<GlobalIndexType> & Mesh::cellIDsInPartition()
 {
   return _gda->cellsInPartition(-1);
-}
-
-bool Mesh::cellIsActive(GlobalIndexType cellID) const
-{
-  return _meshTopology->getActiveCellIndices().find(cellID) != _meshTopology->getActiveCellIndices().end();
 }
 
 int Mesh::cellPolyOrder(GlobalIndexType cellID)   // aka H1Order
@@ -490,8 +481,7 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
     if (spaceDim == 1) return;
 
     map< Camellia::CellTopologyKey, set<GlobalIndexType> > irregularCellIDs; // key is CellTopology key
-    set< GlobalIndexType > activeCellIDs = _meshTopology->getActiveCellIndices();
-    set< GlobalIndexType >::iterator cellIDIt;
+    set< GlobalIndexType > activeCellIDs = this->getActiveCellIDsGlobal();
 
     bool useSideIrregularityEnforcement = false; // this is the old way
     if (useSideIrregularityEnforcement)
@@ -684,10 +674,33 @@ vector< ElementTypePtr > Mesh::elementTypes(PartitionIndexType partitionNumber)
   return _gda->elementTypes(partitionNumber);
 }
 
-set<GlobalIndexType> Mesh::getActiveCellIDs()
+set<GlobalIndexType> Mesh::getActiveCellIDsGlobal()
 {
-  set<IndexType> activeCellIndices = _meshTopology->getActiveCellIndices();
-  set<GlobalIndexType> activeCellIDs(activeCellIndices.begin(), activeCellIndices.end());
+//  vector<IndexType> activeCellIndicesVector = _meshTopology->getActiveCellIndicesGlobal();
+//  set<GlobalIndexType> activeCellIDs(activeCellIndicesVector.begin(), activeCellIndicesVector.end());
+  if (_meshTopology->Comm() == Teuchos::null)
+  {
+    // not distributed; we can use locally known cells because they're *all* locally known
+    return _meshTopology->getLocallyKnownActiveCellIndices();
+  }
+  
+  const set<GlobalIndexType>* myCellIDs = &cellIDsInPartition();
+  int myCellCount = myCellIDs->size();
+  int priorCellCount = 0;
+  Comm()->ScanSum(&myCellCount, &priorCellCount, 1);
+  priorCellCount -= myCellCount;
+  int globalCellCount = 0;
+  Comm()->SumAll(&myCellCount, &globalCellCount, 1);
+  vector<int> allCellIDs(globalCellCount);
+  auto myCellIDPtr = myCellIDs->begin();
+  for (int i=priorCellCount; i<priorCellCount+myCellCount; i++)
+  {
+    allCellIDs[i] = *myCellIDPtr;
+    myCellIDPtr++;
+  }
+  vector<int> gatheredCellIDs(globalCellCount);
+  Comm()->SumAll(&allCellIDs[0], &gatheredCellIDs[0], globalCellCount);
+  set<GlobalIndexType> activeCellIDs(gatheredCellIDs.begin(),gatheredCellIDs.end());
   return activeCellIDs;
 }
 
@@ -1120,7 +1133,7 @@ int Mesh::irregularity()
 
 GlobalIndexType Mesh::numActiveElements()
 {
-  return _meshTopology->getActiveCellIndices().size();
+  return _meshTopology->activeCellCount();
 }
 
 GlobalIndexType Mesh::numElements()
@@ -1701,9 +1714,15 @@ void Mesh::saveToHDF5(string filename)
 {
   int commRank = Comm()->MyPID();
 
+  // TODO: Add support for distributed MeshTopology to this and MeshFactory::loadFromHDF5.
+  if (getTopology()->baseMeshTopology()->Comm() != Teuchos::null)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Mesh::saveToHDF5 not yet supported for distributed MeshTopology");
+  }
+  
   if (commRank == 0)
   {
-    set<IndexType> rootCellIndicesSet = getTopology()->getRootCellIndices();
+    set<IndexType> rootCellIndicesSet = getTopology()->getRootCellIndicesLocal();
     vector<IndexType> rootCellIndices(rootCellIndicesSet.begin(), rootCellIndicesSet.end());
     vector<IndexType> rootVertexIndices;
     vector<Camellia::CellTopologyKey> rootKeys;

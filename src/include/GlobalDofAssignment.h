@@ -35,6 +35,8 @@ class GlobalDofAssignment : public DofInterpreter
 protected:
   map< GlobalIndexType, vector<int> > _cellSideParitiesForCellID;
 
+  bool _allowMeshTopologyPruning = true; // GDAMaximumRule2D sets to false, since its global dof numbering is not distributed...
+  
   ElementTypeFactory _elementTypeFactory;
   bool _enforceConformityLocally; // whether the local DofOrdering should e.g. identify vertex dofs belonging to trace bases on sides -- currently true for max rule, false for min rule.  (Min rule will still enforce conformity, but this does not depend on it being enforced locally).  Set in base class constructor
 

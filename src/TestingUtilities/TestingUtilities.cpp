@@ -42,7 +42,7 @@ bool TestingUtilities::isFluxOrTraceDof(MeshPtr mesh, GlobalIndexType globalDofI
   map<GlobalIndexType,set<GlobalIndexType> > fluxInds, fieldInds;
   getGlobalFieldFluxDofInds(mesh, fluxInds,fieldInds);
   bool value = false;
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
   for (set<GlobalIndexType>::iterator cellIt = activeCellIDs.begin(); cellIt != activeCellIDs.end(); cellIt++)
   {
     GlobalIndexType cellID = *cellIt;
@@ -77,6 +77,11 @@ void TestingUtilities::setSolnCoeffForGlobalDofIndex(TSolutionPtr<double> soluti
 
 void TestingUtilities::getGlobalFieldFluxDofInds(MeshPtr mesh, map<GlobalIndexType,set<GlobalIndexType> > &fluxIndices, map<GlobalIndexType,set<GlobalIndexType> > &fieldIndices)
 {
+  /*
+   Worth noting that this will fail for some distributed MeshTopologies.
+   TODO: remove this method.  (Only used by InviscidBurgers.cpp.)
+   */
+  
   // determine trialIDs
   vector< int > trialIDs = mesh->bilinearForm()->trialIDs();
   vector< int > fieldIDs;
@@ -97,15 +102,14 @@ void TestingUtilities::getGlobalFieldFluxDofInds(MeshPtr mesh, map<GlobalIndexTy
   }
 
   // get all elems in mesh (more than just local info)
-  vector< ElementPtr > activeElems = mesh->activeElements();
-  vector< ElementPtr >::iterator elemIt;
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
 
   // gets dof indices
-  for (elemIt=activeElems.begin(); elemIt!=activeElems.end(); elemIt++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    GlobalIndexType cellID = (*elemIt)->cellID();
-    int numSides = (*elemIt)->numSides();
-    ElementTypePtr elemType = (*elemIt)->elementType();
+    CellPtr cell = mesh->getTopology()->getCell(cellID);
+    int numSides = cell->getSideCount();
+    ElementTypePtr elemType = mesh->getElementType(cellID);
 
     // get indices (for cell)
     vector<int> indices;

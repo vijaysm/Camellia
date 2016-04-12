@@ -38,6 +38,7 @@ void MeshTopology::init(unsigned spaceDim)
   _childEntities = vector< map< unsigned, vector< pair<RefinementPatternPtr, vector<unsigned> > > > >(numEntityDimensions);
   _entityCellTopologyKeys = vector< map<CellTopologyKey, RangeList<IndexType> > >(numEntityDimensions);
   _nextCellIndex = 0;
+  _activeCellCount = 0;
   
   _gda = NULL;
 }
@@ -93,9 +94,43 @@ unsigned MeshTopology::activeCellCount()
   return _activeCells.size();
 }
 
-const set<unsigned> & MeshTopology::getActiveCellIndices()
+const set<unsigned> & MeshTopology::getLocallyKnownActiveCellIndices()
 {
   return _activeCells;
+}
+
+const set<IndexType> & MeshTopology::getMyActiveCellIndices() const
+{
+  return _ownedCellIndices;
+}
+
+vector<IndexType> MeshTopology::getActiveCellIndicesGlobal() const
+{
+  if (Comm() == Teuchos::null)
+  {
+    // then the MeshTopology should be *replicated*, and _activeCells will do the trick
+    vector<IndexType> activeCellsVector(_activeCells.begin(), _activeCells.end());
+    return activeCellsVector;
+  }
+  
+  const set<GlobalIndexType>* myCellIDs = &_ownedCellIndices;
+  int myCellCount = myCellIDs->size();
+  int priorCellCount = 0;
+  Comm()->ScanSum(&myCellCount, &priorCellCount, 1);
+  priorCellCount -= myCellCount;
+  int globalCellCount = 0;
+  Comm()->SumAll(&myCellCount, &globalCellCount, 1);
+  vector<int> allCellIDsInt(globalCellCount);
+  auto myCellIDPtr = myCellIDs->begin();
+  for (int i=priorCellCount; i<priorCellCount+myCellCount; i++)
+  {
+    allCellIDsInt[i] = *myCellIDPtr;
+    myCellIDPtr++;
+  }
+  vector<int> gatheredCellIDs(globalCellCount);
+  Comm()->SumAll(&allCellIDsInt[0], &gatheredCellIDs[0], globalCellCount);
+  vector<IndexType> allCellIDs(gatheredCellIDs.begin(),gatheredCellIDs.end());
+  return allCellIDs;
 }
 
 // LLVM memory approximations come from http://info.prelert.com/blog/stl-container-memory-usage
@@ -397,6 +432,7 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const 
   else if (cellIndex == _nextCellIndex)
   {
     _nextCellIndex++;
+    _activeCellCount++;
   }
   else
   {
@@ -1005,14 +1041,14 @@ IndexType MeshTopology::cellCount()
 
 vector<IndexType> MeshTopology::cellIDsForPoints(const FieldContainer<double> &physicalPoints)
 {
-  // returns a vector of an active element per point, or null if there is no element including that point
+  // returns a vector of an active element per point, or null if there is no locally known element including that point
   vector<GlobalIndexType> cellIDs;
   //  cout << "entered elementsForPoints: \n" << physicalPoints;
   int numPoints = physicalPoints.dimension(0);
 
   int spaceDim = this->getDimension();
 
-  set<GlobalIndexType> rootCellIndices = this->getRootCellIndices();
+  set<GlobalIndexType> rootCellIndices = this->getRootCellIndicesLocal();
 
   // NOTE: the above does depend on the domain of the mesh remaining fixed after refinements begin.
 
@@ -1136,6 +1172,12 @@ EntitySetPtr MeshTopology::createEntitySet()
   _entitySets[handle] = entitySet;
   
   return entitySet;
+}
+
+// ! If the MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
+Epetra_CommPtr MeshTopology::Comm() const
+{
+  return _Comm;
 }
 
 CellPtr MeshTopology::findCellWithVertices(const vector< vector<double> > &cellVertices)
@@ -1623,20 +1665,21 @@ vector< pair<unsigned,unsigned> > MeshTopology::getActiveCellIndices(unsigned d,
   return _activeCellsForEntities[d][entityIndex];
 }
 
-CellPtr MeshTopology::getCell(unsigned cellIndex)
+CellPtr MeshTopology::getCell(unsigned cellIndex) const
 {
-  if (_cells.find(cellIndex) == _cells.end())
+  auto entry = _cells.find(cellIndex);
+  if (entry == _cells.end())
   {
     cout << "MeshTopology::getCell: cellIndex " << cellIndex << " is invalid.\n";
     vector<GlobalIndexType> validIndices;
-    for (auto entry : _cells)
+    for (auto cellEntry : _cells)
     {
-      validIndices.push_back(entry.first);
+      validIndices.push_back(cellEntry.first);
     }
     print("valid cells", validIndices);
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex is invalid.\n");
   }
-  return _cells[cellIndex];
+  return entry->second;
 }
 
 vector<IndexType> MeshTopology::getCellsForSide(IndexType sideEntityIndex)
@@ -2467,7 +2510,7 @@ bool MeshTopology::isBoundarySide(IndexType sideEntityIndex)
   return _boundarySides.find(sideEntityIndex) != _boundarySides.end();
 }
 
-bool MeshTopology::isValidCellIndex(IndexType cellIndex)
+bool MeshTopology::isValidCellIndex(IndexType cellIndex) const
 {
   return _cells.find(cellIndex) != _cells.end();
 }
@@ -2785,11 +2828,10 @@ void MeshTopology::printAllEntities()
   cout << "Cells:";
   cout << "      ****************************\n";
 
-  int numCells = _cells.size();
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+  for (auto entry : _cells)
   {
-    CellPtr cell = getCell(cellIndex);
-    cout << "Cell " << cellIndex << ":\n";
+    CellPtr cell = entry.second;
+    cout << "Cell " << entry.first << ":\n";
     int vertexCount = cell->vertices().size();
     for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
     {
@@ -2840,7 +2882,8 @@ FieldContainer<double> MeshTopology::physicalCellNodesForCell(unsigned int cellI
   return nodes;
 }
 
-void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, unsigned dimForNeighborRelation)
+void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalIndexType> &ownedCellIndices,
+                                  unsigned dimForNeighborRelation)
 {
   // the cells passed in are the ones the user wants to include -- e.g. those owned by the MPI rank.
   // we keep more than that; we keep all ancestors and siblings of the cells, as well as all cells that share
@@ -2848,9 +2891,14 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   
   MeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
   
+  _pruningOrdinal++;
+  
+  _Comm = Comm;
+  _ownedCellIndices = ownedCellIndices;
+  
   // first, let's find all the entities that our cells touch
   set<pair<unsigned,IndexType>> entitiesToMatch;
-  for (GlobalIndexType cellID : cellIndices)
+  for (GlobalIndexType cellID : ownedCellIndices)
   {
     CellPtr cell = getCell(cellID);
     set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
@@ -3153,12 +3201,22 @@ void MeshTopology::pruneToInclude(const std::set<GlobalIndexType> &cellIndices, 
   
 }
 
+int MeshTopology::pruningOrdinal() const
+{
+  return _pruningOrdinal;
+}
+
 void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPattern, IndexType firstChildCellIndex)
 {
   // TODO: worry about the case (currently unsupported in RefinementPattern) of children that do not share topology with the parent.  E.g. quad broken into triangles.  (3D has better examples.)
 
-  // if we get request to refine a cell that we don't know about, we simply increment the _cellCount and return
-  _nextCellIndex = firstChildCellIndex + refPattern->numChildren();
+  // if we get request to refine a cell that we don't know about, we simply increment the _nextCellIndex and return
+  // if we get a request to refine a cell whose first child has index less than _nextCellIndex, then we're being told about one that we already accounted for...
+  if (firstChildCellIndex >= _nextCellIndex)
+  {
+    _nextCellIndex = firstChildCellIndex + refPattern->numChildren();
+    _activeCellCount += refPattern->numChildren() - 1;
+  }
   if (!isValidCellIndex(cellIndex))
   {
     return;
@@ -3521,9 +3579,74 @@ void MeshTopology::determineGeneralizedParentsForRefinement(CellPtr cell, Refine
   }
 }
 
-const set<unsigned> &MeshTopology::getRootCellIndices()
+const set<unsigned> &MeshTopology::getRootCellIndicesLocal()
 {
   return _rootCells;
+}
+
+set<IndexType> MeshTopology::getRootCellIndicesGlobal()
+{
+  if (Comm() == Teuchos::null)
+  {
+    // replicated: _rootCells contains the global root cells
+    return _rootCells;
+  }
+  
+  /*
+   If MeshTopology is distributed, then we use the owner of children
+   to determine an owner for the parent.  Whichever rank owns the first
+   child owns the parent.
+   
+   To determine whether we own a given root cell, we take its first child,
+   then its first child, and so on, until we reach an unrefined cell.  If
+   that cell is locally owned, then we own the root cell.
+   */
+  
+  // which of my root cells do I own?
+  MeshTopologyPtr thisPtr = Teuchos::rcp(this,false);
+  vector<GlobalIndexTypeToCast> ownedRootCells;
+  for (IndexType rootCellIndex : _rootCells)
+  {
+    IndexType firstChildCellIndex = rootCellIndex;
+    bool leafReached = false; // if we don't reach the leaf because some firstChildCellIndex isn't valid, then we can't possibly own the corresponding cell
+    while (this->isValidCellIndex(firstChildCellIndex)) {
+      CellPtr cell = getCell(firstChildCellIndex);
+      if (cell->isParent(thisPtr))
+      {
+        firstChildCellIndex = cell->getChildIndices(thisPtr)[0];
+      }
+      else
+      {
+        leafReached = true;
+        break;
+      }
+    }
+    if (leafReached && (_ownedCellIndices.find(firstChildCellIndex) != _ownedCellIndices.end()))
+    {
+      ownedRootCells.push_back(rootCellIndex);
+    }
+  }
+  
+  GlobalIndexTypeToCast myOwnedRootCellCount = ownedRootCells.size();
+  GlobalIndexTypeToCast globalRootCellCount = 0;
+  Comm()->SumAll(&myOwnedRootCellCount, &globalRootCellCount, 1);
+  
+  GlobalIndexTypeToCast myEntryOffset = 0;
+  Comm()->ScanSum(&myOwnedRootCellCount, &myEntryOffset, 1);
+  myEntryOffset -= myOwnedRootCellCount;
+  
+  vector<GlobalIndexTypeToCast> allRootCellIDs(globalRootCellCount);
+  for (GlobalIndexTypeToCast myEntryOrdinal=0; myEntryOrdinal<myOwnedRootCellCount; myEntryOrdinal++)
+  {
+    allRootCellIDs[myEntryOrdinal + myEntryOffset] = ownedRootCells[myEntryOrdinal];
+  }
+  vector<GlobalIndexTypeToCast> gatheredRootCellIDs(globalRootCellCount);
+  Comm()->SumAll(&allRootCellIDs[0], &gatheredRootCellIDs[0], globalRootCellCount);
+  
+  set<IndexType> allRootSet(gatheredRootCellIDs.begin(),gatheredRootCellIDs.end());
+  TEUCHOS_TEST_FOR_EXCEPTION(allRootSet.size() != globalRootCellCount, std::invalid_argument, "Internal error: some root cell indices appear to have been doubly claimed.");
+  
+  return allRootSet;
 }
 
 void MeshTopology::setEdgeToCurveMap(const map< pair<IndexType, IndexType>, ParametricCurvePtr > &edgeToCurveMap, MeshPtr mesh)

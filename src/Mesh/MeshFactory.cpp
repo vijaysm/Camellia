@@ -186,6 +186,7 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
       GlobalIndexType firstCellID = histArray[i];
       cellTopo = mesh->getElementType(firstCellID)->cellTopoPtr;
     }
+    set<GlobalIndexType> activeIDs = mesh->getActiveCellIDsGlobal();
     set<GlobalIndexType> cellIDs;
     for (int c=0; c < numCells; c++)
     {
@@ -195,7 +196,6 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
       // check that the cellIDs are all active nodes
       if (refType != H_UNREFINEMENT)
       {
-        set<GlobalIndexType> activeIDs = mesh->getActiveCellIDs();
         if (activeIDs.find(cellID) == activeIDs.end())
         {
           TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID for refinement is not an active cell of the mesh");
@@ -1347,7 +1347,7 @@ MeshTopologyPtr MeshFactory::spaceTimeMeshTopology(MeshTopologyPtr spatialMeshTo
 
   // for now, we only do refinements on the first temporal subdivision
   // later, we might want to enforce 1-irregularity, at least
-  set<IndexType> cellIndices = rootSpatialTopology->getRootCellIndices();
+  set<IndexType> cellIndices = rootSpatialTopology->getRootCellIndicesGlobal();
   int tensorialDegree = 1;
   vector< FieldContainer<double> > componentNodes(2);
   FieldContainer<double> spatialCellNodes;
@@ -1411,7 +1411,9 @@ MeshTopologyPtr MeshFactory::spaceTimeMeshTopology(MeshTopologyPtr spatialMeshTo
   {
     noCellsToRefine = true;
 
-    set<IndexType> activeSpaceTimeCellIndices = spaceTimeTopology->getActiveCellIndices();
+    // TODO: check whether the set conversion here is necessary; putting it right now to avoid changing the effect of the code below.  (The vector is not sorted by cell index, but by owning MPI rank followed by cell index.  So there certainly could be some change in the execution.)
+    vector<IndexType> activeSpaceTimeCellIndicesVector = spaceTimeTopology->getActiveCellIndicesGlobal();
+    set<IndexType> activeSpaceTimeCellIndices(activeSpaceTimeCellIndicesVector.begin(), activeSpaceTimeCellIndicesVector.end());
     for (set<IndexType>::iterator cellIt = activeSpaceTimeCellIndices.begin(); cellIt != activeSpaceTimeCellIndices.end(); cellIt++)
     {
       IndexType spaceTimeCellIndex = *cellIt;

@@ -904,7 +904,7 @@ void GMGOperator::setDimensionForSchwarzNeighborRelationship(int value)
 
 GlobalIndexType GMGOperator::getCoarseCellID(GlobalIndexType fineCellID) const
 {
-  const set<IndexType>* coarseCellIDs = &_coarseMesh->getTopology()->getActiveCellIndices();
+  const set<IndexType>* coarseCellIDs = &_coarseMesh->getTopology()->getLocallyKnownActiveCellIndices();
   CellPtr fineCell = _fineMesh->getTopology()->getCell(fineCellID);
   CellPtr ancestor = fineCell;
   RefinementBranch refBranch;
@@ -1045,7 +1045,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
     weights = BasisReconciliation::filterOutZeroRowsAndColumns(weights);
   };
   
-  const set<IndexType>* coarseCellIDs = &_coarseMesh->getTopology()->getActiveCellIndices();
+  const set<IndexType>* coarseCellIDs = &_coarseMesh->getTopology()->getLocallyKnownActiveCellIndices();
   CellPtr fineCell = _fineMesh->getTopology()->getCell(fineCellID);
   CellPtr ancestor = fineCell;
   RefinementBranch refBranch;

@@ -31,6 +31,11 @@ namespace Camellia {
   {
     MeshTopologyPtr _meshTopo; // null when subclass constructor is used
     std::set<IndexType> _allKnownCells; // empty when subclass constructor is used
+    mutable std::set<GlobalIndexType> _ownedCellIndices; // depends on base MeshTopology's _ownedCellIndices.
+    mutable int _ownedCellIndicesPruningOrdinal = -1; // what the pruningOrdinal was when _ownedCellIndices was last determined.  If _meshTopo->pruningOrdinal is different, we need to rebuild.
+    
+    IndexType _globalCellCount;
+    IndexType _globalActiveCellCount;
     
     void buildLookups(); // _rootCellIndices and _ancestralCells
   protected:
@@ -55,6 +60,12 @@ namespace Camellia {
     virtual std::vector<IndexType> cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints);
     virtual IndexType cellCount();
     
+    // ! Returns the global active cell count.
+    virtual IndexType activeCellCount();
+    
+    // ! If the base MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
+    virtual Epetra_CommPtr Comm() const;
+    
     // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs).  Not supported for MeshTopologyViews with _meshTopo defined (i.e. those that are themselves defined in terms of another MeshTopology object).
     virtual Teuchos::RCP<MeshTopology> deepCopy();
     
@@ -63,12 +74,13 @@ namespace Camellia {
                                              unsigned descendentDimension, IndexType descendent);
     
     virtual IndexType getActiveCellCount(unsigned d, IndexType entityIndex);
-    virtual const std::set<IndexType> &getActiveCellIndices();
+    virtual const std::set<IndexType> &getLocallyKnownActiveCellIndices();
+    virtual const std::set<IndexType> &getMyActiveCellIndices() const;
     virtual std::vector< std::pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex); // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
     
     virtual MeshTopology* baseMeshTopology();
     
-    virtual CellPtr getCell(IndexType cellIndex);
+    virtual CellPtr getCell(IndexType cellIndex) const;
     virtual std::vector<double> getCellCentroid(IndexType cellIndex);
     virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, unsigned entityIndex);
     virtual std::vector<IndexType> getCellsForSide(IndexType sideEntityIndex);
@@ -81,13 +93,13 @@ namespace Camellia {
     
     virtual std::vector<IndexType> getEntityVertexIndices(unsigned d, IndexType entityIndex);
     
-    virtual const std::set<IndexType> &getRootCellIndices();
+    virtual const std::set<IndexType> &getRootCellIndicesLocal();
     
     virtual std::vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex);
     
     virtual bool isParent(IndexType cellIndex);
     
-    virtual bool isValidCellIndex(IndexType cellIndex);
+    virtual bool isValidCellIndex(IndexType cellIndex) const;
     
     virtual const std::vector<double>& getVertex(IndexType vertexIndex);
     

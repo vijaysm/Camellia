@@ -50,6 +50,8 @@ private:
   bool _printAll;
   bool _repsNotComputed;
 
+  bool _distributeDofs = false; // old behavior corresponds to "true" value.
+  
 public:
   TRieszRep(MeshPtr mesh, TIPPtr<Scalar> ip, TLinearTermPtr<Scalar> functional)
   {
@@ -91,7 +93,7 @@ public:
 
   void computeRepresentationValues(Intrepid::FieldContainer<Scalar> &values, int testID, EOperator op, BasisCachePtr basisCache);
 
-  double computeAlternativeNormSqOnCell(TIPPtr<Scalar> ip, ElementPtr elem);
+  double computeAlternativeNormSqOnCell(TIPPtr<Scalar> ip, GlobalIndexType cellID);
   map<GlobalIndexType,double> computeAlternativeNormSqOnCells(TIPPtr<Scalar> ip, vector<GlobalIndexType> cellIDs);
 
   static TFunctionPtr<Scalar> repFunction( VarPtr var, TRieszRepPtr<Scalar> rep );

@@ -238,8 +238,6 @@ public:
   vector< GlobalIndexType > cellIDsOfTypeGlobal(ElementTypePtr elemTypePtr);
 
   const set<GlobalIndexType> & cellIDsInPartition(); // rank-local cellIDs
-
-  bool cellIsActive(GlobalIndexType cellID) const;
   
   int cellPolyOrder(GlobalIndexType cellID);
   vector<int> cellTensorPolyOrder(GlobalIndexType cellID);
@@ -266,9 +264,10 @@ public:
 
   GlobalDofAssignmentPtr globalDofAssignment();
 
-  set<GlobalIndexType> getActiveCellIDs();
+  // ! Collective method.  Returns all cell IDs that are active.
+  set<GlobalIndexType> getActiveCellIDsGlobal();
 
-  vector< ElementPtr > activeElements();  // deprecated -- use getActiveElement instead
+//  vector< ElementPtr > activeElements();  // deprecated -- use getActiveElement instead
   ElementPtr ancestralNeighborForSide(ElementPtr elem, int sideOrdinal, int &elemSideOrdinalInNeighbor);
 
   vector< ElementPtr > elementsOfType(PartitionIndexType partitionNumber, ElementTypePtr elemTypePtr);
@@ -323,8 +322,6 @@ public:
   GlobalIndexType numElements();
 
   GlobalIndexType numElementsOfType( Teuchos::RCP< ElementType > elemTypePtr );
-
-  GlobalIndexType numInitialElements();
 
   int parityForSide(GlobalIndexType cellID, int sideOrdinal);
 

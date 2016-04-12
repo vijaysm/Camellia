@@ -268,44 +268,44 @@ std::set<GlobalIndexType> OverlappingRowMatrix::overlappingCells(GlobalIndexType
     {
       CellPtr cell = mesh->getTopology()->getCell(*cellIDIt);
       
-      bool useOldSideBasedNeighborRelation = false;
-      
-      if (useOldSideBasedNeighborRelation)
-      {
-        int numSides = cell->getSideCount();
-        for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
-        {
-          pair<GlobalIndexType, unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal,mesh->getTopology());
-          if (neighborInfo.first != -1)   // -1 indicates boundary/no neighbor
-          {
-            GlobalIndexType neighborCellID = neighborInfo.first;
-            unsigned neighborSideOrdinal = neighborInfo.second;
-            if (mesh->cellIsActive(neighborCellID))
-            {
-              cellNeighbors.insert(neighborCellID);
-            }
-            else
-            {
-              CellPtr neighborCell = mesh->getTopology()->getCell(neighborCellID);
-              vector< pair< GlobalIndexType, unsigned> > activeDescendants = neighborCell->getDescendantsForSide(neighborSideOrdinal,
-                                                                                                                 mesh->getTopology());
-              for (auto descendantCellPair : activeDescendants)
-              {
-                cellNeighbors.insert(descendantCellPair.first);
-              }
-            }
-          }
-        }
-      }
-      else
-      {
+//      bool useOldSideBasedNeighborRelation = false;
+//      
+//      if (useOldSideBasedNeighborRelation)
+//      {
+//        int numSides = cell->getSideCount();
+//        for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
+//        {
+//          pair<GlobalIndexType, unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal,mesh->getTopology());
+//          if (neighborInfo.first != -1)   // -1 indicates boundary/no neighbor
+//          {
+//            GlobalIndexType neighborCellID = neighborInfo.first;
+//            unsigned neighborSideOrdinal = neighborInfo.second;
+//            if (mesh->cellIsActive(neighborCellID))
+//            {
+//              cellNeighbors.insert(neighborCellID);
+//            }
+//            else
+//            {
+//              CellPtr neighborCell = mesh->getTopology()->getCell(neighborCellID);
+//              vector< pair< GlobalIndexType, unsigned> > activeDescendants = neighborCell->getDescendantsForSide(neighborSideOrdinal,
+//                                                                                                                 mesh->getTopology());
+//              for (auto descendantCellPair : activeDescendants)
+//              {
+//                cellNeighbors.insert(descendantCellPair.first);
+//              }
+//            }
+//          }
+//        }
+//      }
+//      else
+//      {
         // if dimensionForNeighborRelation < 0, then use sideDim.
         int sideDim = cell->topology()->getDimension() - 1;
         if (dimensionForNeighborRelation < 0) dimensionForNeighborRelation = sideDim;
         
         set<GlobalIndexType> thisCellNeighbors = cell->getActiveNeighborIndices(dimensionForNeighborRelation, mesh->getTopology());
         cellNeighbors.insert(thisCellNeighbors.begin(),thisCellNeighbors.end());
-      }
+//      }
     }
     cells.insert(cellNeighbors.begin(), cellNeighbors.end());
     lastNeighbors = cellNeighbors;

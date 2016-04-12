@@ -33,25 +33,25 @@ void MeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType numPartit
 {
   // default simply divides the active cells into equally-sized partitions, in the order listed in activeCells…
   MeshTopologyViewPtr meshTopology = mesh->getTopology();
-  int numActiveCells = meshTopology->getActiveCellIndices().size(); // leaf nodes
-  FieldContainer<GlobalIndexType> partitionedActiveCells(numPartitions,numActiveCells);
+  int numActiveCells = meshTopology->activeCellCount(); // leaf nodes
+  std::vector<std::set<GlobalIndexType> > partitionedActiveCells(numPartitions);
 
-  partitionedActiveCells.initialize(-1); // cellID == -1 signals end of partition
   int chunkSize = numActiveCells / numPartitions;
   int remainder = numActiveCells % numPartitions;
-  IndexType activeCellIndex = 0;
-  vector<GlobalIndexType> activeCellIDs;
-  set<IndexType> cellIDSet = meshTopology->getActiveCellIndices();
-  activeCellIDs.insert(activeCellIDs.begin(),cellIDSet.begin(),cellIDSet.end());
+  IndexType activeCellOrdinal = 0;
+  set<GlobalIndexType> activeCellIDsSet = mesh->getActiveCellIDsGlobal();
+  vector<GlobalIndexType> activeCellIDs(activeCellIDsSet.begin(),activeCellIDsSet.end());
+  TEUCHOS_TEST_FOR_EXCEPTION(activeCellIDs.size() != numActiveCells, std::invalid_argument, "meshTopology->getActiveCellCount() != mesh->getActiveCellIDsGlobal().size()");
   for (int i=0; i<numPartitions; i++)
   {
     int chunkSizeWithRemainder = (i < remainder) ? chunkSize + 1 : chunkSize;
     for (int j=0; j<chunkSizeWithRemainder; j++)
     {
-      partitionedActiveCells(i,j) = activeCellIDs[activeCellIndex];
-      activeCellIndex++;
+      partitionedActiveCells[i].insert(activeCellIDs[activeCellOrdinal]);
+      activeCellOrdinal++;
     }
   }
+  
   mesh->globalDofAssignment()->setPartitions(partitionedActiveCells);
 }
 
@@ -111,7 +111,7 @@ Teuchos_CommPtr& MeshPartitionPolicy::TeuchosComm()
 //  }
 //  void partitionMesh(Mesh *mesh, PartitionIndexType numPartitions)
 //  {
-//    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+//    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
 //    vector< set<GlobalIndexType> > partitions(numPartitions);
 //    partitions[_rankNumber] = activeCellIDs;
 //    mesh->globalDofAssignment()->setPartitions(partitions);

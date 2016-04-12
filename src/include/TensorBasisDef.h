@@ -7,6 +7,7 @@
 //
 
 #include "CamelliaCellTools.h"
+#include "SerialDenseWrapper.h"
 
 #define TENSOR_POINT_ORDINAL(spacePointOrdinal,timePointOrdinal,numSpacePoints) timePointOrdinal * numSpacePoints + spacePointOrdinal
 #define TENSOR_FIELD_ORDINAL(spaceFieldOrdinal,timeFieldOrdinal) timeFieldOrdinal * _spatialBasis->getCardinality() + spaceFieldOrdinal
@@ -253,12 +254,17 @@ void TensorBasis<Scalar,ArrayScalar>::getTensorValues(ArrayScalar& outputValues,
   outputValues.initialize(0.0);
   int numPointsSpace = spatialValues->dimension(fieldIndex + 1);
   int numPointsTime = temporalValues->dimension(fieldIndex + 1);
+  int numFieldsSpace = _spatialBasis->getCardinality();
+  int numFieldsTime = _temporalBasis->getCardinality();
 
-  Teuchos::Array<int> spaceTimeValueCoordinate(outputValues.rank(), 0);
-  Teuchos::Array<int> spatialValueCoordinate(outputValues.rank(), 0);
+  std::vector<int> spaceTimeValueCoordinate(outputValues.rank(), 0);
+  std::vector<int> spatialValueCoordinate(outputValues.rank(), 0);
 
+  function<int()> getSpaceTimeEnumeration = SerialDenseWrapper::getEnumerator(spaceTimeValueCoordinate, outputValues);
+  function<int()> getSpatialEnumeration = SerialDenseWrapper::getEnumerator(spatialValueCoordinate, *spatialValues);
+  
   int numCells = (fieldIndex==0) ? 1 : outputValues.dimension(0);
-
+  
   for (int cellOrdinal=0; cellOrdinal < numCells; cellOrdinal++)
   {
     if (fieldIndex==1)   // have a cell index
@@ -267,10 +273,10 @@ void TensorBasis<Scalar,ArrayScalar>::getTensorValues(ArrayScalar& outputValues,
       spatialValueCoordinate[0] = cellOrdinal;
     }
     // combine values:
-    for (int spaceFieldOrdinal=0; spaceFieldOrdinal<_spatialBasis->getCardinality(); spaceFieldOrdinal++)
+    for (int spaceFieldOrdinal=0; spaceFieldOrdinal<numFieldsSpace; spaceFieldOrdinal++)
     {
       spatialValueCoordinate[fieldIndex] = spaceFieldOrdinal;
-      for (int timeFieldOrdinal=0; timeFieldOrdinal<_temporalBasis->getCardinality(); timeFieldOrdinal++)
+      for (int timeFieldOrdinal=0; timeFieldOrdinal<numFieldsTime; timeFieldOrdinal++)
       {
         int spaceTimeFieldOrdinal = TENSOR_FIELD_ORDINAL(spaceFieldOrdinal, timeFieldOrdinal);
         spaceTimeValueCoordinate[fieldIndex] = spaceTimeFieldOrdinal;
@@ -283,8 +289,11 @@ void TensorBasis<Scalar,ArrayScalar>::getTensorValues(ArrayScalar& outputValues,
             spatialValueCoordinate[fieldIndex+1] = spacePointOrdinal;
             spaceTimeValueCoordinate[fieldIndex+1] = spaceTimePointOrdinal;
 
-            int spatialValueEnumeration = spatialValues->getEnumeration(spatialValueCoordinate);
-            int spaceTimeValueEnumeration = outputValues.getEnumeration(spaceTimeValueCoordinate);
+            int spatialValueEnumeration = SerialDenseWrapper::getEnumeration(spatialValueCoordinate, *spatialValues);
+            int spaceTimeValueEnumeration = SerialDenseWrapper::getEnumeration(spaceTimeValueCoordinate, outputValues);
+            
+//            int spatialValueEnumeration = getSpatialEnumeration();
+//            int spaceTimeValueEnumeration = getSpaceTimeEnumeration();
 
             for (int offset=0; offset<valuesPerPointSpace; offset++)
             {
@@ -414,8 +423,8 @@ void TensorBasis<Scalar,ArrayScalar>::getValues(ArrayScalar &values, const Array
 //    cout << "spatialValues:\n" << spatialValues;
 //    cout << "temporalValues:\n" << temporalValues;
 
-  Teuchos::Array<int> spaceTimeValueCoordinate(valuesDim.size(), 0);
-  Teuchos::Array<int> spatialValueCoordinate(valuesDim.size(), 0);
+  std::vector<int> spaceTimeValueCoordinate(valuesDim.size(), 0);
+  std::vector<int> spatialValueCoordinate(valuesDim.size(), 0);
   
   if (gradInBoth && (_spatialBasis->rangeDimension() == 0))
     valuesPerPointSpace = 0;
@@ -450,7 +459,7 @@ void TensorBasis<Scalar,ArrayScalar>::getValues(ArrayScalar &values, const Array
         {
           if (! (gradInBoth && (spaceDim == 0)) )
           {
-            int spatialValueEnumerationOld = spatialValues.getEnumeration(spatialValueCoordinate);
+            int spatialValueEnumerationOld = SerialDenseWrapper::getEnumeration(spatialValueCoordinate, spatialValues);
             if (spatialValueEnumerationOld != spatialValueEnumeration)
             {
               TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "not equal");
@@ -460,7 +469,7 @@ void TensorBasis<Scalar,ArrayScalar>::getValues(ArrayScalar &values, const Array
 
         if (! gradInBoth)
         {
-//          int spaceTimeValueEnumeration = values.getEnumeration(spaceTimeValueCoordinate);
+//          int spaceTimeValueEnumeration = SerialDenseWrapper::getEnumeration(spaceTimeValueCoordinate, values);
           for (int offset=0; offset<valuesPerPointSpace; offset++)
           {
             double spatialValue = spatialValues[spatialValueEnumeration++];
@@ -477,7 +486,7 @@ void TensorBasis<Scalar,ArrayScalar>::getValues(ArrayScalar &values, const Array
           if (CHECK_ENUMERATIONS)
           {
             spaceTimeValueCoordinate[2] = 0;
-            int spaceTimeValueEnumerationOld = values.getEnumeration(spaceTimeValueCoordinate);
+            int spaceTimeValueEnumerationOld = SerialDenseWrapper::getEnumeration(spaceTimeValueCoordinate, values);
             if (spaceTimeValueEnumerationOld != spaceTimeValueEnumeration)
             {
               TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "not equal");
@@ -496,7 +505,7 @@ void TensorBasis<Scalar,ArrayScalar>::getValues(ArrayScalar &values, const Array
           if (CHECK_ENUMERATIONS)
           {
             spaceTimeValueCoordinate[2] = _spatialBasis->rangeDimension();
-            int spaceTimeValueEnumerationOld = values.getEnumeration(spaceTimeValueCoordinate);
+            int spaceTimeValueEnumerationOld = SerialDenseWrapper::getEnumeration(spaceTimeValueCoordinate, values);
 
             if (spaceTimeValueEnumerationOld != spaceTimeValueEnumeration)
             {

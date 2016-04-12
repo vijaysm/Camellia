@@ -869,7 +869,7 @@ TFunctionPtr<double> TFunction<Scalar>::cellCharacteristic(set<GlobalIndexType> 
 template <typename Scalar>
 map<int, Scalar> TFunction<Scalar>::cellIntegrals(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment, bool testVsTest)
 {
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
   vector<GlobalIndexType> cellIDs(activeCellIDs.begin(),activeCellIDs.end());
   return cellIntegrals(cellIDs,mesh,cubatureDegreeEnrichment,testVsTest);
 }

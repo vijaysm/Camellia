@@ -29,8 +29,8 @@ InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr
   _thisMesh = Teuchos::rcp(thisMesh.get(), false); // weak RCP to avoid circular references
   _otherMesh = otherMesh;
   
-  set<GlobalIndexType> cellIDs = thisMesh->getActiveCellIDs();
-  set<GlobalIndexType> otherCellIDs = otherMesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = thisMesh->getActiveCellIDsGlobal();
+  set<GlobalIndexType> otherCellIDs = otherMesh->getActiveCellIDsGlobal();
   
   TEUCHOS_TEST_FOR_EXCEPTION(cellIDs.size() != otherCellIDs.size(), std::invalid_argument, "thisMesh and otherMesh must match in their activeCellIDs");
   set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin();
@@ -80,7 +80,7 @@ void InducedMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType nu
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Induced partition count must be greater than or equal to otherMesh's");
   }
   
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
   vector< set<GlobalIndexType> > partitions(numPartitions);
   
   for (set<GlobalIndexType>::iterator myCellIDIt = activeCellIDs.begin(); myCellIDIt != activeCellIDs.end(); myCellIDIt++)

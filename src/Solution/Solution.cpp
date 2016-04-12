@@ -473,7 +473,7 @@ void TSolution<Scalar>::applyDGJumpTerms()
   Epetra_FECrsMatrix* stiffnessMatrix = dynamic_cast<Epetra_FECrsMatrix*>(_globalStiffMatrix.get());
   
   MeshTopologyViewPtr meshTopo = _mesh->getTopology();
-  set<GlobalIndexType> activeCellIDs = _mesh->getActiveCellIDs();
+  set<GlobalIndexType> activeCellIDs = meshTopo->getLocallyKnownActiveCellIndices();
   set<GlobalIndexType> myCellIDs = _mesh->cellIDsInPartition();
   int sideDim = meshTopo->getDimension() - 1;
   
@@ -1331,15 +1331,18 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
 //    {
 //      int trialID = *trialIt;
 //
-//      // sample an element to make sure that the basis used for trialID is nodal
-//      // (this is assumed in our imposition mechanism)
-//      GlobalIndexType firstActiveCellID = *_mesh->getActiveCellIDs().begin();
-//      ElementTypePtr elemTypePtr = _mesh->getElementType(firstActiveCellID);
+    // sample an element to make sure that the basis used for trialID is nodal
+    // (this is assumed in our imposition mechanism)
+//    if (_mesh->cellIDsInPartition().size() > 0)
+//    {
+//      GlobalIndexType myFirstActiveCellID = *_mesh->cellIDsInPartition().begin();
+//      ElementTypePtr elemTypePtr = _mesh->getElementType(myFirstActiveCellID);
 //      BasisPtr trialBasis = elemTypePtr->trialOrderPtr->getBasis(trialID);
 //      if (!trialBasis->isNodal())
 //      {
 //        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Zero-mean constraint imposition assumes a nodal basis, and this basis isn't nodal.");
 //      }
+//    }
 //
 //      GlobalIndexTypeToCast zmcIndex;
 //      if (rank==0)
@@ -1822,7 +1825,7 @@ void TSolution<Scalar>::importGlobalSolution()
   Epetra_Vector  solnCoeff(myCellsMap);
   solnCoeff.Import(*_lhsVector, solnImporter, Insert);
 
-  set<GlobalIndexType> globalActiveCellIDs = _mesh->getActiveCellIDs();
+  set<GlobalIndexType> globalActiveCellIDs = _mesh->getActiveCellIDsGlobal();
   // copy the dof coefficients into our data structure
   for (set<GlobalIndexType>::iterator cellIDIt = globalActiveCellIDs.begin(); cellIDIt != globalActiveCellIDs.end(); cellIDIt++)
   {
@@ -1964,12 +1967,15 @@ void TSolution<Scalar>::imposeZMCsUsingLagrange()
 
     // sample an element to make sure that the basis used for trialID is nodal
     // (this is assumed in our imposition mechanism)
-    GlobalIndexType firstActiveCellID = *_mesh->getActiveCellIDs().begin();
-    ElementTypePtr elemTypePtr = _mesh->getElementType(firstActiveCellID);
-    BasisPtr trialBasis = elemTypePtr->trialOrderPtr->getBasis(trialID);
-    if (!trialBasis->isNodal())
+    if (_mesh->cellIDsInPartition().size() > 0)
     {
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Zero-mean constraint imposition assumes a nodal basis, and this basis isn't nodal.");
+      GlobalIndexType myFirstActiveCellID = *_mesh->cellIDsInPartition().begin();
+      ElementTypePtr elemTypePtr = _mesh->getElementType(myFirstActiveCellID);
+      BasisPtr trialBasis = elemTypePtr->trialOrderPtr->getBasis(trialID);
+      if (!trialBasis->isNodal())
+      {
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Zero-mean constraint imposition assumes a nodal basis, and this basis isn't nodal.");
+      }
     }
 
     GlobalIndexTypeToCast zmcIndex;
@@ -2355,7 +2361,7 @@ double TSolution<Scalar>::energyErrorTotal()
   {
     energyErrorSquared += (cellEnergyIt->second) * (cellEnergyIt->second);
   }
-  energyErrorSquared = MPIWrapper::sum(energyErrorSquared);
+  energyErrorSquared = MPIWrapper::sum(*_mesh->Comm(),energyErrorSquared);
   return sqrt(energyErrorSquared);
 }
 
@@ -2572,7 +2578,7 @@ void TSolution<Scalar>::computeResiduals()
 template <typename Scalar>
 void TSolution<Scalar>::discardInactiveCellCoefficients()
 {
-  set< GlobalIndexType > activeCellIDs = _mesh->getActiveCellIDs();
+  set< GlobalIndexType > activeCellIDs = _mesh->getTopology()->getLocallyKnownActiveCellIndices();
   vector<GlobalIndexType> cellIDsToErase;
   for (typename map< GlobalIndexType, Intrepid::FieldContainer<Scalar> >::iterator solnIt = _solutionForCellIDGlobal.begin();
        solnIt != _solutionForCellIDGlobal.end(); solnIt++)

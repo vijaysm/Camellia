@@ -24,6 +24,7 @@ GDAMaximumRule2D::GDAMaximumRule2D(MeshPtr mesh, VarFactoryPtr varFactory, DofOr
 {
 //  cout << "Entered constructor of GDAMaximumRule2D.\n";
   _enforceMBFluxContinuity = enforceMBFluxContinuity;
+  _allowMeshTopologyPruning = false;
 }
 
 void GDAMaximumRule2D::addDofPairing(GlobalIndexType cellID1, IndexType dofIndex1, GlobalIndexType cellID2, IndexType dofIndex2)
@@ -135,7 +136,7 @@ void GDAMaximumRule2D::buildLocalToGlobalMap()
   GlobalIndexType globalIndex = 0;
   vector< int > trialIDs = _varFactory->trialIDs();
 
-  set<IndexType> activeCellIndices = _meshTopology->getActiveCellIndices();
+  set<IndexType> activeCellIndices = _meshTopology->getLocallyKnownActiveCellIndices(); // we don't allow pruning of MeshTopology, so this is guaranteed to be the same on every MPI rank.
   set<GlobalIndexType> activeCellIDs(activeCellIndices.begin(),activeCellIndices.end());
 
   for (cellIDIt = activeCellIDs.begin(); cellIDIt != activeCellIDs.end(); cellIDIt++)
@@ -401,11 +402,11 @@ void GDAMaximumRule2D::determineDofPairings()
 
   vector< int > trialIDs = _varFactory->trialIDs();
 
-  set<unsigned> activeCellIDs = _meshTopology->getActiveCellIndices();
+  set<IndexType> activeCellIDs = _meshTopology->getLocallyKnownActiveCellIndices(); // we don't allow pruning of MeshTopology, so this is guaranteed to be the same on every MPI rank.
 
-  for (set<unsigned>::iterator cellIDIt = activeCellIDs.begin(); cellIDIt != activeCellIDs.end(); cellIDIt++)
+  for (set<IndexType>::iterator cellIDIt = activeCellIDs.begin(); cellIDIt != activeCellIDs.end(); cellIDIt++)
   {
-    unsigned cellID = *cellIDIt;
+    IndexType cellID = *cellIDIt;
     CellPtr cell = _meshTopology->getCell(cellID);
     ElementTypePtr elemTypePtr = elementType(cellID);
 

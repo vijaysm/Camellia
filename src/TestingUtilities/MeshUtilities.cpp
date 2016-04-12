@@ -150,12 +150,7 @@ MeshPtr MeshUtilities::buildLongRampMesh(double rampHeight, BFPtr bilinearForm, 
   elementVertices.push_back(el3);
   int pToAdd = pTest-H1Order;
   mesh = Teuchos::rcp( new Mesh(vertices, elementVertices, bilinearForm, H1Order, pToAdd) );
-  vector<ElementPtr> elems = mesh->activeElements();
-  vector<GlobalIndexType> cellsToRefine;
-  for (vector<ElementPtr>::iterator elemIt = elems.begin(); elemIt!=elems.end(); elemIt++)
-  {
-    cellsToRefine.push_back((*elemIt)->cellID());
-  }
+  set<GlobalIndexType> cellsToRefine = mesh->getActiveCellIDsGlobal();
   mesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPatternQuad()); // refine all cells (we know they're quads)
   return mesh;
 }

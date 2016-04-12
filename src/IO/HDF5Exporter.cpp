@@ -1262,10 +1262,15 @@ void HDF5Exporter::getPoints(Intrepid::FieldContainer<double> &points, CellTopoP
 }
 
 namespace Camellia {
-  // TODO: move this into HDF5Exporter class??  Weird to have it sitting in the plain Camellia namespace, I think.
+  // TODO: move this into HDF5Exporter class??  Weird to have it sitting in the plain Camellia namespace, I think. [NVR]
   map<int,int> cellIDToSubdivision(MeshPtr mesh, unsigned int subdivisionFactor, set<GlobalIndexType> cellIndices)
   {
-    if (cellIndices.size()==0) cellIndices = mesh->getTopology()->getActiveCellIndices();
+    if (cellIndices.size()==0)
+    {
+      cellIndices = mesh->getActiveCellIDsGlobal();
+      // TODO: check whether the following would also work: [NVR]
+//      cellIndices = mesh->cellIDsInPartition();
+    }
     map<int,int> cellIDToPolyOrder;
     for (set<GlobalIndexType>::iterator cellIt = cellIndices.begin(); cellIt != cellIndices.end(); cellIt++)
     {

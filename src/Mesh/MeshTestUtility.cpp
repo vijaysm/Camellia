@@ -40,7 +40,7 @@ bool MeshTestUtility::constraintIsConsistent(MeshTopologyViewPtr meshTopo, Annot
   if (requireConstrainingEntityBelongToActiveCell)
   {
     set<pair<IndexType,unsigned>> cellEntries = meshTopo->getCellsContainingEntity(constrainingEntity.dimension, constrainingEntityIndex);
-    auto activeCells = &meshTopo->getActiveCellIndices();
+    auto activeCells = &meshTopo->getLocallyKnownActiveCellIndices();
     for (auto cellEntry : cellEntries)
     {
       IndexType cellID = cellEntry.first;
@@ -111,7 +111,7 @@ bool MeshTestUtility::checkLocalGlobalConsistency(MeshPtr mesh, double tol)
 {
   bool success = true;
 
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
 
   GlobalDofAssignmentPtr gda = mesh->globalDofAssignment();
 
@@ -135,10 +135,8 @@ bool MeshTestUtility::checkLocalGlobalConsistency(MeshPtr mesh, double tol)
     globalCoefficientsVector[i] = globalCoefficients(i);
   }
 
-  cellIDs = mesh->getActiveCellIDs();
-  for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    GlobalIndexType cellID = *cellIDIt;
     gda->interpretGlobalCoefficients(cellID, localCoefficients, globalCoefficientsVector);
     FieldContainer<GlobalIndexType> globalDofIndices;
     FieldContainer<double> globalCoefficientsForCell;
@@ -336,15 +334,15 @@ bool MeshTestUtility::checkMeshConsistency(Teuchos::RCP<Mesh> mesh)
 
 bool MeshTestUtility::checkMeshDofConnectivities(Teuchos::RCP<Mesh> mesh)
 {
-  int numCells = mesh->activeElements().size();
+  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
+  int numCells = mesh->numActiveElements();
   bool success = true;
   int numGlobalDofs = mesh->numGlobalDofs();
   vector<int> globalDofIndexHitCount(numGlobalDofs,0);
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+  for (GlobalIndexType cellID : cellIDs)
   {
-    Teuchos::RCP<Element> elem = mesh->activeElements()[cellIndex];
-    GlobalIndexType cellID = elem->cellID();
-    DofOrdering trialOrder = *(elem->elementType()->trialOrderPtr.get());
+    ElementTypePtr elemType = mesh->getElementType(cellID);
+    DofOrdering trialOrder = *(elemType->trialOrderPtr.get());
     vector< int > trialIDs = mesh->bilinearForm()->trialIDs();
     for (vector< int >::iterator trialIt = trialIDs.begin(); trialIt != trialIDs.end(); trialIt++)
     {
@@ -384,6 +382,7 @@ bool MeshTestUtility::checkMeshDofConnectivities(Teuchos::RCP<Mesh> mesh)
           {
             //            if (neighbor->cellID() != -1) { // not boundary...
             int ancestralSideIndexInNeighbor;
+            ElementPtr elem = mesh->getElement(cellID);
             Teuchos::RCP<Element> neighbor = mesh->ancestralNeighborForSide(elem, sideIndex, ancestralSideIndexInNeighbor);
 
             Teuchos::RCP<DofOrdering> neighborTrialOrder = neighbor->elementType()->trialOrderPtr;
@@ -737,20 +736,19 @@ bool MeshTestUtility::neighborBasesAgreeOnSides(Teuchos::RCP<Mesh> mesh, Epetra_
   MeshTopologyViewPtr meshTopo = mesh->getTopology();
   int spaceDim = meshTopo->getDimension();
 
-  set<IndexType> activeCellIndices = meshTopo->getActiveCellIndices();
-  for (set<IndexType>::iterator cellIt=activeCellIndices.begin(); cellIt != activeCellIndices.end(); cellIt++)
+  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
+  for (GlobalIndexType cellID : activeCellIDs)
   {
-    IndexType cellIndex = *cellIt;
-    CellPtr cell = meshTopo->getCell(cellIndex);
+    CellPtr cell = meshTopo->getCell(cellID);
 
-    BasisCachePtr fineCellBasisCache = BasisCache::basisCacheForCell(mesh, cellIndex);
-    ElementTypePtr fineElemType = mesh->getElementType(cellIndex);
+    BasisCachePtr fineCellBasisCache = BasisCache::basisCacheForCell(mesh, cellID);
+    ElementTypePtr fineElemType = mesh->getElementType(cellID);
     DofOrderingPtr fineElemTrialOrder = fineElemType->trialOrderPtr;
 
     FieldContainer<double> fineSolutionCoefficients(fineElemTrialOrder->totalDofs());
-    mesh->globalDofAssignment()->interpretGlobalCoefficients(cellIndex, fineSolutionCoefficients, globalSolutionCoefficients);
-//    if ((cellIndex==0) || (cellIndex==2)) {
-//      cout << "MeshTestUtility: local coefficients for cell " << cellIndex << ":\n" << fineSolutionCoefficients;
+    mesh->globalDofAssignment()->interpretGlobalCoefficients(cellID, fineSolutionCoefficients, globalSolutionCoefficients);
+//    if ((cellID==0) || (cellID==2)) {
+//      cout << "MeshTestUtility: local coefficients for cell " << cellID << ":\n" << fineSolutionCoefficients;
 //    }
 
     unsigned sideCount = cell->getSideCount();
@@ -766,7 +764,7 @@ bool MeshTestUtility::neighborBasesAgreeOnSides(Teuchos::RCP<Mesh> mesh, Epetra_
 
       unsigned numTestPoints = coarseCellRefPoints.dimension(0);
 
-      //        cout << "testing neighbor agreement between cell " << cellIndex << " and " << neighborCell->cellIndex() << endl;
+      //        cout << "testing neighbor agreement between cell " << cellID << " and " << neighborCell->cellIndex() << endl;
 
       // if we get here, the cell has a neighbor on this side, and is at least as fine as that neighbor.
 
@@ -974,7 +972,7 @@ bool MeshTestUtility::neighborBasesAgreeOnSides(Teuchos::RCP<Mesh> mesh, Epetra_
             FieldContainer<double> globalValuesFromFine, globalValuesFromCoarse;
             FieldContainer<GlobalIndexType> globalDofIndicesFromFine, globalDofIndicesFromCoarse;
 
-            mesh->globalDofAssignment()->interpretLocalData(cellIndex, localPointValuesFine, globalValuesFromFine, globalDofIndicesFromFine);
+            mesh->globalDofAssignment()->interpretLocalData(cellID, localPointValuesFine, globalValuesFromFine, globalDofIndicesFromFine);
             mesh->globalDofAssignment()->interpretLocalData(neighborInfo.first, localPointValuesCoarse, globalValuesFromCoarse, globalDofIndicesFromCoarse);
 
             std::map<GlobalIndexType, double> fineValuesMap;

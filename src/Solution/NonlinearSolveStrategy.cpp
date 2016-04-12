@@ -28,9 +28,6 @@ void NonlinearSolveStrategy::solve(bool printToConsole)
 {
   Teuchos::RCP< Mesh > mesh = _solution->mesh();
 
-  vector< Teuchos::RCP< Element > > activeElements = mesh->activeElements();
-  vector< Teuchos::RCP< Element > >::iterator activeElemIt;
-
   int i = 0;
   double prevError = 0.0;
   bool converged = false;

@@ -258,8 +258,8 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   }
   
   MeshTopologyViewPtr fineMeshTopo = fineMesh->getTopology();
-  set<GlobalIndexType> thisLevelCellIndices = fineMeshTopo->getRootCellIndices();
-  GlobalIndexType thisLevelNumCells = thisLevelCellIndices.size();
+  set<GlobalIndexType> thisLevelCellIndices = fineMeshTopo->getRootCellIndicesLocal();
+  GlobalIndexType thisLevelNumCells = 0;
 
   int tensorialDegree = 1;
   if (fineMeshTopo->cellCount() > 0)
@@ -267,7 +267,7 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
     tensorialDegree = fineMeshTopo->getCell(0)->topology()->getTensorialDegree();
   }
   
-  GlobalIndexType fineMeshNumCells = fineMeshTopo->getActiveCellIndices().size();
+  GlobalIndexType fineMeshNumCells = fineMeshTopo->activeCellCount();
   
   vector<MeshPtr> meshesCoarseToFine;
   
@@ -290,7 +290,13 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
       if (cell->isParent(fineMeshTopo))
       {
         vector<IndexType> childIndices = cell->getChildIndices(fineMeshTopo);
-        nextLevelCellIndices.insert(childIndices.begin(),childIndices.end());
+        for (IndexType childCellID : childIndices)
+        {
+          if (fineMeshTopo->isValidCellIndex(childCellID))
+          {
+            nextLevelCellIndices.insert(childCellID);
+          }
+        }
       }
       else
       {
@@ -298,7 +304,7 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
       }
     }
     
-    thisLevelNumCells = thisLevelCellIndices.size();
+    thisLevelNumCells = thisLevelMeshTopo->activeCellCount();
     
     thisLevelCellIndices = nextLevelCellIndices;
   } while (fineMeshNumCells > thisLevelNumCells);
@@ -314,11 +320,12 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
     
     bool someCellWasRefined = true;
     
+    set<GlobalIndexType> fineCellIndices = fineMeshTopo->getLocallyKnownActiveCellIndices();
+
     while (someCellWasRefined)
     {
       someCellWasRefined = false;
       
-      set<GlobalIndexType> fineCellIndices = fineMeshTopo->getActiveCellIndices();
       for (GlobalIndexType cellIndex : fineCellIndices)
       {
         ElementTypePtr coarseElemType = meshToPRefine->getElementType(cellIndex);

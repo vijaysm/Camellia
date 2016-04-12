@@ -80,9 +80,16 @@ MeshTopologyPtr MOABReader::readMOABMesh(string filePath, bool replicateCells)
   
   MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
 
-  TEUCHOS_TEST_FOR_EXCEPTION(!replicateCells, std::invalid_argument,
-                             "MOABReader doesn't yet implement cell labeling for the case when replicateCells is false");
-  
+  if (!replicateCells)
+  {
+    int globalElementCount;
+    mb->get_number_entities_by_dimension(0, spaceDim, globalElementCount);
+//    meshTopo->setNextCellIndex(globalElementCount);
+    cout << "globalElementCount: " << globalElementCount << endl;
+    
+    TEUCHOS_TEST_FOR_EXCEPTION(!replicateCells, std::invalid_argument,
+                               "MOABReader doesn't yet implement cell labeling for the case when replicateCells is false");
+  }
   // if we get here, replicateCells is true, so every rank sees the same cells
   GlobalIndexType cellID = 0;
   while (all_elements.size() > 0)
@@ -107,7 +114,7 @@ MeshTopologyPtr MOABReader::readMOABMesh(string filePath, bool replicateCells)
         vertices[i][d] = vertexCoords[i*VERTICES_PER_POINT + d];
       }
     }
-    meshTopo->addCell(cellID, cellTopo, vertices);
+    meshTopo->addCell(cellTopo, vertices);
     cellID++;
   }
   

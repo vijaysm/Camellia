@@ -38,32 +38,72 @@ GlobalDofAssignment::GlobalDofAssignment(MeshPtr mesh, VarFactoryPtr varFactory,
   _initialH1OrderTrial = initialH1OrderTrial;
   _testOrderEnhancement = testOrderEnhancement;
   _enforceConformityLocally = enforceConformityLocally;
-
-//  unsigned testOrder = initialH1OrderTrial + testOrderEnhancement;
-  // assign some initial element types:
-  set<IndexType> cellIndices = _meshTopology->getActiveCellIndices();
-  set<GlobalIndexType> activeCellIDs;
-  activeCellIDs.insert(cellIndices.begin(),cellIndices.end()); // for distributed mesh, we'd do some logic with cellID offsets for each MPI rank.  (cellID = cellIndex + cellIDOffsetForRank)
-
-  for (set<GlobalIndexType>::iterator cellIDIt = activeCellIDs.begin(); cellIDIt != activeCellIDs.end(); cellIDIt++)
+  
+  Epetra_CommPtr Comm = _mesh->getTopology()->Comm();
+  
+  if (_mesh->getTopology()->Comm() != Teuchos::null)
   {
-    GlobalIndexType cellID = *cellIDIt;
-//    CellPtr cell = _meshTopology->getCell(cellID);
-//    if (cell->isParent() || (cell->getParent().get() != NULL)) {
-//      // enforcing this allows us to assume that each face that isn't on the boundary will be treated exactly twice...
-//      cout << "GlobalDofAssignment constructor only supports mesh topologies that are unrefined.\n";
-//      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "GlobalDofAssignment constructor only supports mesh topologies that are unrefined.\n");
-//    }
+    set<GlobalIndexType> localActiveCellIDs = _mesh->getTopology()->getLocallyKnownActiveCellIndices();
+    
+    for (IndexType cellID : localActiveCellIDs)
+    {
+      assignParities(cellID);
+    }
+    
+    _numPartitions = Comm->NumProc();
+    int myRank = Comm->MyPID();
+    
+    int globalActiveCellCount = _mesh->getTopology()->activeCellCount();
+    set<GlobalIndexType> myCellIDs = _mesh->getTopology()->getMyActiveCellIndices();
+    int numMyCellIDs = myCellIDs.size();
 
-    assignParities(cellID);
+    vector<int> myPartitionOffset(_numPartitions,0);
+    Comm->ScanSum(&numMyCellIDs, &myPartitionOffset[myRank], 1);
+    myPartitionOffset[myRank] -= numMyCellIDs;
+    
+    vector<int> gatheredPartitionOffsets(_numPartitions,0);
+    Comm->SumAll(&myPartitionOffset[0], &gatheredPartitionOffsets[0], _numPartitions);
+    
+    vector<GlobalIndexTypeToCast> partitionOrderedCells(globalActiveCellCount,0);
+    vector<GlobalIndexTypeToCast> gatheredPartitionOrderedCells(globalActiveCellCount,0);
+    
+    int i=0;
+    for (GlobalIndexType cellID : myCellIDs)
+    {
+      partitionOrderedCells[i + myPartitionOffset[myRank]] = cellID;
+      i++;
+    }
+    Comm->SumAll(&partitionOrderedCells[0], &gatheredPartitionOrderedCells[0], globalActiveCellCount);
+    
+    _partitions = vector<set<GlobalIndexType> >(_numPartitions);
+    for (int partitionOrdinal=0; partitionOrdinal<_numPartitions; partitionOrdinal++)
+    {
+      set<GlobalIndexType>* partitionCellIDs = &_partitions[partitionOrdinal];
+      int startOffset = gatheredPartitionOffsets[partitionOrdinal];
+      int endOffset = (partitionOrdinal < _numPartitions-1) ? gatheredPartitionOffsets[partitionOrdinal+1] : globalActiveCellCount;
+      for (int i=startOffset; i<endOffset; i++)
+      {
+        partitionCellIDs->insert(gatheredPartitionOrderedCells[i]);
+      }
+    }
+  }
+  else
+  {
+    // MeshTopology not already distributed
+    set<GlobalIndexType> activeCellIDs = _mesh->getActiveCellIDsGlobal();
+    
+    for (IndexType cellID : activeCellIDs)
+    {
+      assignParities(cellID);
+    }
+    
+    _numPartitions = _partitionPolicy->Comm()->NumProc();
+    _partitions = vector<set<GlobalIndexType> >(_numPartitions);
+    
+    // before repartitioning (which should happen immediately), put all active cells on rank 0
+    _partitions[0] = activeCellIDs;
   }
 
-  _numPartitions = _partitionPolicy->Comm()->NumProc();
-
-  _partitions = vector<set<GlobalIndexType> >(_numPartitions);
-
-  // before repartitioning (which should happen immediately), put all active cells on rank 0
-  _partitions[0] = _mesh->getActiveCellIDs();
   constructActiveCellMap();
 }
 
@@ -314,7 +354,19 @@ ElementTypePtr GlobalDofAssignment::elementType(GlobalIndexType cellID)
 
 void GlobalDofAssignment::repartitionAndMigrate()
 {
+  int myRank = _mesh->Comm()->MyPID();
+  cout << "Entered repartitionAndMigrate() on rank " << myRank << endl;
   _partitionPolicy->partitionMesh(_mesh.get(),_numPartitions);
+  // if our MeshTopology is the base, then we can prune
+  if (_meshTopology->baseMeshTopology() == _meshTopology.get())
+  {
+    if (_allowMeshTopologyPruning)
+    {
+      int dimForNeighborRelation = minimumSubcellDimensionForContinuityEnforcement(); // collective operation
+      const set<GlobalIndexType>* myCells = &cellsInPartition(-1);
+      _meshTopology->baseMeshTopology()->pruneToInclude(_partitionPolicy->Comm(), *myCells, dimForNeighborRelation);
+    }
+  }
   for (vector< TSolutionPtr<double> >::iterator solutionIt = _registeredSolutions.begin();
        solutionIt != _registeredSolutions.end(); solutionIt++)
   {
@@ -339,12 +391,20 @@ void GlobalDofAssignment::didHRefine(const set<GlobalIndexType> &parentCellIDs) 
     PartitionIndexType partitionForParent = partitionForCellID(parentID);
     if (partitionForParent != -1) // this check allows us to be robust against getting the notification twice.
     {
-      CellPtr parent = _meshTopology->getCell(parentID);
-      vector<GlobalIndexType> childIDs = parent->getChildIndices(_meshTopology);
-      _partitions[partitionForParent].insert(childIDs.begin(),childIDs.end());
-      for (GlobalIndexType childID : childIDs)
+      // If we don't know the parent cell, then for the moment we won't see even the child indices
+      // I'm hoping that we will soon be able to relax the requirement that every partition knows about
+      // every other partition's cell assignments; _partitionForCellID is one of the few containers
+      // that grows with the number of global cells.
+      
+      if (_meshTopology->isValidCellIndex(parentID))
       {
-        _partitionForCellID[childID] = partitionForParent;
+        CellPtr parent = _meshTopology->getCell(parentID);
+        vector<GlobalIndexType> childIDs = parent->getChildIndices(_meshTopology);
+        _partitions[partitionForParent].insert(childIDs.begin(),childIDs.end());
+        for (GlobalIndexType childID : childIDs)
+        {
+          _partitionForCellID[childID] = partitionForParent;
+        }
       }
       _partitions[partitionForParent].erase(parentID);
       _partitionForCellID.erase(parentID);
@@ -469,6 +529,7 @@ ElementTypePtr GlobalDofAssignment::getElementTypeForKey(pair<CellTopologyKey,in
 pair<CellTopologyKey,int> GlobalDofAssignment::getElementTypeLookupKey(GlobalIndexType cellID)
 {
   int deltaP = getPRefinementDegree(cellID);
+  TEUCHOS_TEST_FOR_EXCEPTION(!_meshTopology->isValidCellIndex(cellID), std::invalid_argument, "cellID not found in MeshTopology!");
   CellTopologyKey cellTopoKey = _meshTopology->getCell(cellID)->topology()->getKey();
   
   pair<CellTopologyKey, int> key = {cellTopoKey,deltaP};
@@ -704,7 +765,7 @@ void GlobalDofAssignment::projectParentCoefficientsOntoUnsetChildren()
 
 void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partitionedMesh)
 {
-//  set<unsigned> activeCellIDs = _meshTopology->getActiveCellIndices();
+//  set<unsigned> activeCellIDs = _meshTopology->getActiveCellIndicesGlobal();
 
   int partitionNumber     = _partitionPolicy->Comm()->MyPID();
   int partitionCount      = _partitionPolicy->Comm()->NumProc();

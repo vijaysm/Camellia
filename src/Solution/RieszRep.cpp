@@ -1,40 +1,3 @@
-// @HEADER
-//
-// Copyright © 2011 Sandia Corporation. All Rights Reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are
-// permitted provided that the following conditions are met:
-// 1. Redistributions of source code must retain the above copyright notice, this list of
-// conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright notice, this list of
-// conditions and the following disclaimer in the documentation and/or other materials
-// provided with the distribution.
-// 3. The name of the author may not be used to endorse or promote products derived from
-// this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY SANDIA CORPORATION "AS IS" AND ANY
-// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-// ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
-// OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-// BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Questions? Contact Nate Roberts (nate@nateroberts.com).
-//
-// @HEADER
-
-/*
-#ifdef HAVE_MPI
-#include "Epetra_MpiComm.h"
-#else
-#include "Epetra_SerialComm.h"
-#endif
-*/
 #include "RieszRep.h"
 #include "Epetra_Vector.h"
 #include "Epetra_Import.h"
@@ -96,13 +59,6 @@ map<GlobalIndexType,FieldContainer<Scalar> > TRieszRep<Scalar>::integrateFunctio
 template <typename Scalar>
 void TRieszRep<Scalar>::computeRieszRep(int cubatureEnrichment)
 {
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-  //cout << "rank: " << rank << " of " << numProcs << endl;
-#else
-  Epetra_SerialComm Comm;
-#endif
-
   set<GlobalIndexType> cellIDs = _mesh->cellIDsInPartition();
   for (set<GlobalIndexType>::iterator cellIDIt=cellIDs.begin(); cellIDIt !=cellIDs.end(); cellIDIt++)
   {
@@ -161,7 +117,8 @@ void TRieszRep<Scalar>::computeRieszRep(int cubatureEnrichment)
     }
     _rieszRepDofs[cellID] = dofs;
   }
-  distributeDofs();
+  if (_distributeDofs)
+    distributeDofs();
   _repsNotComputed = false;
 }
 
@@ -175,17 +132,16 @@ double TRieszRep<Scalar>::getNorm()
     computeRieszRep();
   }
 
-  vector< ElementPtr > allElems = _mesh->activeElements();
-  vector< ElementPtr >::iterator elemIt;
-  double normSum = 0.0;
-  for (elemIt=allElems.begin(); elemIt!=allElems.end(); elemIt++)
+  const set<GlobalIndexType>* myCells = &_mesh->cellIDsInPartition();
+  
+  double normSumLocal = 0.0;
+  for (GlobalIndexType cellID : *myCells)
   {
-
-    ElementPtr elem = *elemIt;
-    int cellID = elem->cellID();
-    normSum+= _rieszRepNormSquaredGlobal[cellID];
+    normSumLocal += _rieszRepNormSquared[cellID];
   }
-  return sqrt(normSum);
+  double normSumGlobal = 0.0;
+  _mesh->Comm()->SumAll(&normSumLocal, &normSumGlobal, 1);
+  return sqrt(normSumGlobal);
 }
 
 template <typename Scalar>
@@ -195,24 +151,21 @@ const map<GlobalIndexType,double> & TRieszRep<Scalar>::getNormsSquared()
 }
 
 template <typename Scalar>
-const map<GlobalIndexType,double> & TRieszRep<Scalar>::getNormsSquaredGlobal()   // should be renamed getNormsSquaredGlobal()
+const map<GlobalIndexType,double> & TRieszRep<Scalar>::getNormsSquaredGlobal()
 {
-  return _rieszRepNormSquaredGlobal;
+  if (_distributeDofs)
+    return _rieszRepNormSquaredGlobal;
+  else
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "_distributeDofs must be true for getNormsSquaredGlobal()");
 }
 
 template <typename Scalar>
 void TRieszRep<Scalar>::distributeDofs()
 {
-  int myRank = Teuchos::GlobalMPISession::getRank();
-  int numRanks = Teuchos::GlobalMPISession::getNProc();
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-  //cout << "rank: " << rank << " of " << numProcs << endl;
-#else
-  Epetra_SerialComm Comm;
-#endif
+  int myRank = _mesh->Comm()->MyPID();
+  int numRanks = _mesh->Comm()->NumProc();
 
-  // the code below could stand to be reworked; I'm pretty sure this is not the best way to distribute the data, and it would also be best to get rid of the iteration over the global set of active elements.  But a similar point could be made about this method as a whole: do we really need to distribute all the dofs to every rank?  It may be best to eliminate this method altogether.
+  // the code below could stand to be reworked; I'm pretty sure this is not the best way to distribute the data, and it would also be best to get rid of the iteration over the global set of active elements.  But a similar point could be made about this method as a whole: do we really need to distribute all the dofs to every rank?  It may be best to eliminate this method altogether. [NVR]
 
   vector<GlobalIndexType> cellIDsByPartitionOrdering;
   for (int rank=0; rank<numRanks; rank++)
@@ -251,7 +204,7 @@ void TRieszRep<Scalar>::distributeDofs()
       numMyDofs = 0;
     }
 
-    Epetra_Map dofMap(numDofs,numMyDofs,0,Comm);
+    Epetra_Map dofMap(numDofs,numMyDofs,0,*_mesh->Comm());
     Epetra_Vector distributedRieszDofs(dofMap);
     if (isInPartition)
     {
@@ -260,7 +213,7 @@ void TRieszRep<Scalar>::distributeDofs()
         distributedRieszDofs.ReplaceGlobalValues(1,&dofs(i),&i);
       }
     }
-    Epetra_Map importMap(numDofs,numDofs,0,Comm); // every proc should own their own copy of the dofs
+    Epetra_Map importMap(numDofs,numDofs,0,*_mesh->Comm()); // every proc should own their own copy of the dofs
     Epetra_Import testDofImporter(importMap, dofMap);
     Epetra_Vector globalRieszDofs(importMap);
     globalRieszDofs.Import(distributedRieszDofs, testDofImporter, Insert);
@@ -296,7 +249,7 @@ void TRieszRep<Scalar>::distributeDofs()
     rankLocalRieszNorms[myCellOrdinal] = _rieszRepNormSquared[cellID];
     myCellOrdinal++;
   }
-  Epetra_Map normMap((GlobalIndexTypeToCast)numElems,(int)numMyElems,(GlobalIndexTypeToCast *)myElems,(GlobalIndexTypeToCast)0,Comm);
+  Epetra_Map normMap((GlobalIndexTypeToCast)numElems,(int)numMyElems,(GlobalIndexTypeToCast *)myElems,(GlobalIndexTypeToCast)0,*_mesh->Comm());
 
   Epetra_Vector distributedRieszNorms(normMap);
   int err = distributedRieszNorms.ReplaceGlobalValues(numMyElems,rankLocalRieszNorms,(GlobalIndexTypeToCast *)myElems);
@@ -305,7 +258,7 @@ void TRieszRep<Scalar>::distributeDofs()
     cout << "TRieszRep<Scalar>::distributeDofs(): on rank" << myRank << ", ReplaceGlobalValues returned error code " << err << endl;
   }
 
-  Epetra_Map normImportMap((GlobalIndexTypeToCast)numElems,(GlobalIndexTypeToCast)numElems,0,Comm);
+  Epetra_Map normImportMap((GlobalIndexTypeToCast)numElems,(GlobalIndexTypeToCast)numElems,0,*_mesh->Comm());
   Epetra_Import normImporter(normImportMap,normMap);
   Epetra_Vector globalNorms(normImportMap);
   globalNorms.Import(distributedRieszNorms, normImporter, Add);  // add should be OK (everything should be zeros)
@@ -359,6 +312,11 @@ void TRieszRep<Scalar>::computeRepresentationValues(FieldContainer<Scalar> &valu
   for (int cellIndex = 0; cellIndex<numCells; cellIndex++)
   {
     int cellID = cellIDs[cellIndex];
+    if (_rieszRepDofs.find(cellID) == _rieszRepDofs.end())
+    {
+      cout << "cellID " << cellID << " not found in _riesRepDofs container.\n";
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID not found");
+    }
     for (int j = 0; j<numTestDofsForVarID; j++)
     {
       int dofIndex = testOrderingPtr->getDofIndex(testID, j);
@@ -367,20 +325,19 @@ void TRieszRep<Scalar>::computeRepresentationValues(FieldContainer<Scalar> &valu
         if (rank==0)
         {
           double basisValue = (*transformedBasisValues)(cellIndex,j,i);
-          values(cellIndex,i) += basisValue*_rieszRepDofsGlobal[cellID](dofIndex);
+          values(cellIndex,i) += basisValue*_rieszRepDofs[cellID](dofIndex);
         }
         else
         {
           for (int d = 0; d<spaceDim; d++)
           {
             double basisValue = (*transformedBasisValues)(cellIndex,j,i,d);
-            values(cellIndex,i,d) += basisValue*_rieszRepDofsGlobal[cellID](dofIndex);
+            values(cellIndex,i,d) += basisValue*_rieszRepDofs[cellID](dofIndex);
           }
         }
       }
     }
   }
-//  TestSuite::serializeOutput("rep values", values);
 }
 
 template <typename Scalar>
@@ -390,59 +347,15 @@ map<GlobalIndexType,double> TRieszRep<Scalar>::computeAlternativeNormSqOnCells(T
   int numCells = cellIDs.size();
   for (int i = 0; i<numCells; i++)
   {
-    altNorms[cellIDs[i]] = computeAlternativeNormSqOnCell(ip, _mesh->getElement(cellIDs[i]));
+    altNorms[cellIDs[i]] = computeAlternativeNormSqOnCell(ip, cellIDs[i]);
   }
   return altNorms;
-  /*
-  // distribute norms as well
-  int numElems = _mesh->activeElements().size();
-  int numMyElems = _mesh->elementsInPartition(rank).size();
-  int myElems[numMyElems];
-  // build cell index
-  int cellIndex = 0;
-  int myCellIndex = 0;
-
-  vector<ElementPtr> elemsInPartition = _mesh->elementsInPartition(rank);
-  for (elemIt=elems.begin();elemIt!=elems.end();elemIt++){
-    int cellID = (*elemIt)->cellID();
-    if (rank==_mesh->partitionForCellID(cellID)){ // if cell is in partition
-      myElems[myCellIndex] = cellIndex;
-      myCellIndex++;
-    }
-    cellIndex++;
-  }
-  Epetra_Map normMap(numElems,numMyElems,myElems,0,Comm);
-
-  Epetra_Vector distributedRieszNorms(normMap);
-  cellIndex = 0;
-  for (elemIt=elems.begin();elemIt!=elems.end();elemIt++){
-    int cellID = (*elemIt)->cellID();
-    if (rank==_mesh->partitionForCellID(cellID)){ // if cell is in partition
-      int ind = cellIndex;
-      int err = distributedRieszNorms.ReplaceGlobalValues(1,&_rieszRepNormSquared[cellID],&ind);
-    }
-    cellIndex++;
-  }
-
-  Epetra_Map normImportMap(numElems,numElems,0,Comm);
-  Epetra_Import normImporter(normImportMap,normMap);
-  Epetra_Vector globalNorms(normImportMap);
-  globalNorms.Import(distributedRieszNorms, normImporter, Add);  // add should be OK (everything should be zeros)
-
-  cellIndex = 0;
-  for (elemIt=elems.begin();elemIt!=elems.end();elemIt++){
-    int cellID = (*elemIt)->cellID();
-    _rieszRepNormSquaredGlobal[cellID] = globalNorms[cellIndex];
-    cellIndex++;
-  }
-  */
 }
 
 template <typename Scalar>
-double TRieszRep<Scalar>::computeAlternativeNormSqOnCell(TIPPtr<Scalar> ip, ElementPtr elem)
+double TRieszRep<Scalar>::computeAlternativeNormSqOnCell(TIPPtr<Scalar> ip, GlobalIndexType cellID)
 {
-  GlobalIndexType cellID = elem->cellID();
-  Teuchos::RCP<DofOrdering> testOrdering= elem->elementType()->testOrderPtr;
+  Teuchos::RCP<DofOrdering> testOrdering= _mesh->getElementType(cellID)->testOrderPtr;
   bool testVsTest = true;
   Teuchos::RCP<BasisCache> basisCache =   BasisCache::basisCacheForCell(_mesh, cellID, testVsTest,1);
 
@@ -450,12 +363,18 @@ double TRieszRep<Scalar>::computeAlternativeNormSqOnCell(TIPPtr<Scalar> ip, Elem
   FieldContainer<Scalar> ipMat(1,numDofs,numDofs);
   ip->computeInnerProductMatrix(ipMat,testOrdering,basisCache);
 
+  if (_rieszRepDofs.find(cellID) == _rieszRepDofs.end())
+  {
+    cout << "cellID " << cellID << " not found in _riesRepDofs container.\n";
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID not found");
+  }
+  
   double sum = 0.0;
   for (int i = 0; i<numDofs; i++)
   {
     for (int j = 0; j<numDofs; j++)
     {
-      sum += _rieszRepDofsGlobal[cellID](i)*_rieszRepDofsGlobal[cellID](j)*ipMat(0,i,j);
+      sum += _rieszRepDofs[cellID](i)*_rieszRepDofs[cellID](j)*ipMat(0,i,j);
     }
   }
 

@@ -660,11 +660,10 @@ public:
         // note: this is not the most efficient way to do this (would be faster if we set basisCoefficients
         //       for all fluxes at once, and faster still if we did managed this within the addSolution() call below)
         vector<int> fluxIDs = _bf->trialBoundaryIDs();
-        set<GlobalIndexType> cellIDs = _mesh->getActiveCellIDs();
-        for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+        const set<GlobalIndexType>* myCellIDs = &_mesh->cellIDsInPartition();
+        for (GlobalIndexType cellID : *myCellIDs)
         {
-          GlobalIndexType cellID = *cellIDIt;
-          int numSides = _mesh->getElement(cellID)->numSides();
+          int numSides = _mesh->getTopology()->getCell(cellID)->getSideCount();
           Intrepid::FieldContainer<double> solnCoeffs;
           for (int sideIndex=0; sideIndex<numSides; sideIndex++)
           {
