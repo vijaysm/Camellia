@@ -139,10 +139,10 @@ namespace
     set<GlobalIndexType> cellsToRefine = {0};
     mesh->hRefine(cellsToRefine);
     
-    cellsToRefine = mesh->getTopology()->getActiveCellIndices();
+    cellsToRefine = mesh->getActiveCellIDsGlobal();
     mesh->hRefine(cellsToRefine);
     
-    cellsToRefine = mesh->getTopology()->getActiveCellIndices();
+    cellsToRefine = mesh->getActiveCellIDsGlobal();
     mesh->hRefine(cellsToRefine);
     
     testPackAndUnpackGeometry(mesh, out, success);
@@ -162,7 +162,7 @@ namespace
     set<GlobalIndexType> cellsToRefine = {0};
     mesh->hRefine(cellsToRefine);
 
-    cellsToRefine = mesh->getTopology()->getActiveCellIndices();
+    cellsToRefine = mesh->getActiveCellIDsGlobal();
     mesh->hRefine(cellsToRefine);
     
     testPackAndUnpackGeometry(mesh, out, success);
@@ -182,7 +182,7 @@ namespace
     set<GlobalIndexType> cellsToRefine = {0};
     mesh->hRefine(cellsToRefine);
     
-    cellsToRefine = mesh->getTopology()->getActiveCellIndices();
+    cellsToRefine = mesh->getActiveCellIDsGlobal();
     mesh->hRefine(cellsToRefine);
     
     testPackAndUnpackGeometry(mesh, out, success);

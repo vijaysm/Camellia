@@ -474,7 +474,7 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, Projection_2D_Slow )
   BFPtr stokesBF = form.bf();
 
   //uniform h-refinement:
-  stokesMesh->hRefine(stokesMesh->getActiveCellIDs());
+  stokesMesh->hRefine(stokesMesh->getActiveCellIDsGlobal());
 
   form.solve();
 

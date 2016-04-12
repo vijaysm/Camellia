@@ -625,7 +625,7 @@ void testHGRADTrace(MeshTopologyPtr meshTopo, int polyOrder, Teuchos::FancyOStre
 
   int cubatureDegree = polyOrder*2;
 
-  set<IndexType> cellIDs = meshTopo->getActiveCellIndices();
+  set<IndexType> cellIDs = meshTopo->getLocallyKnownActiveCellIndices();
 
   BasisReconciliation br;
   for (IndexType cellID1 : cellIDs)
@@ -944,7 +944,7 @@ void testHGRADVolumeNoHangingNodes(MeshTopologyPtr meshTopo, int polyOrder, Teuc
   int spaceDim = meshTopo->getDimension();
   int sideDim = spaceDim - 1;
 
-  set<IndexType> cellIndices = meshTopo->getActiveCellIndices();
+  set<IndexType> cellIndices = meshTopo->getLocallyKnownActiveCellIndices();
 
   map<IndexType, BasisPtr> basisForCell;
   for (IndexType cellIndex : cellIndices)
@@ -957,7 +957,7 @@ void testHGRADVolumeNoHangingNodes(MeshTopologyPtr meshTopo, int polyOrder, Teuc
 
   int cubatureDegree = polyOrder*2;
 
-  set<IndexType> cellIDs = meshTopo->getActiveCellIndices();
+  set<IndexType> cellIDs = meshTopo->getLocallyKnownActiveCellIndices();
 
   BasisReconciliation br;
   for (IndexType cellID1 : cellIDs)

@@ -77,15 +77,15 @@ namespace
   {
     TEST_EQUALITY(topo->cellCount(), view->cellCount());
     
-    set<IndexType> topoIndicesSet = topo->getActiveCellIndices();
+    set<IndexType> topoIndicesSet = topo->getLocallyKnownActiveCellIndices();
     vector<IndexType> topoIndicesVector(topoIndicesSet.begin(),topoIndicesSet.end());
-    set<IndexType> viewIndicesSet = view->getActiveCellIndices();
+    set<IndexType> viewIndicesSet = view->getLocallyKnownActiveCellIndices();
     vector<IndexType> viewIndicesVector(viewIndicesSet.begin(),viewIndicesSet.end());
     TEST_COMPARE_ARRAYS(topoIndicesVector, viewIndicesVector);
     
-    set<IndexType> topoRootCellsSet = topo->getRootCellIndices();
+    set<IndexType> topoRootCellsSet = topo->getRootCellIndicesLocal();
     vector<IndexType> topoRootCells(topoRootCellsSet.begin(),topoRootCellsSet.end());
-    set<IndexType> viewRootCellsSet = view->getRootCellIndices();
+    set<IndexType> viewRootCellsSet = view->getRootCellIndicesLocal();
     vector<IndexType> viewRootCells(viewRootCellsSet.begin(),viewRootCellsSet.end());
     TEST_COMPARE_ARRAYS(topoRootCells, viewRootCells);
     
@@ -251,7 +251,7 @@ namespace
     MeshPtr mesh = poissonIrregularMesh(spaceDim, irregularity, H1Order);
     MeshTopologyPtr meshTopoCopy = mesh->getTopology()->deepCopy(); // the object we'll check agreement with
     
-    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
     
     // refine original 2-irregular mesh uniformly:
     mesh->hRefine(activeCellIDs);
@@ -272,7 +272,7 @@ namespace
     MeshTopology* meshTopoCast = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
     MeshTopologyPtr meshTopo = Teuchos::rcp(meshTopoCast,false); // the object we'll check agreement with
     
-    set<IndexType> activeCellIDs = meshTopo->getActiveCellIndices();
+    set<IndexType> activeCellIDs = meshTopo->getLocallyKnownActiveCellIndices();
     MeshTopologyViewPtr topoView = Teuchos::rcp(new MeshTopologyView(meshTopo, activeCellIDs));
     
     testMeshTopologyAgreesWithView(meshTopo, topoView, out, success);
@@ -287,7 +287,7 @@ namespace
     MeshTopology* meshTopoCast = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
     MeshTopologyPtr meshTopo = Teuchos::rcp(meshTopoCast,false); // the object we'll check agreement with
     
-    set<IndexType> activeCellIDs = meshTopo->getActiveCellIndices();
+    set<IndexType> activeCellIDs = meshTopo->getLocallyKnownActiveCellIndices();
     MeshTopologyViewPtr topoView = Teuchos::rcp(new MeshTopologyView(meshTopo, activeCellIDs));
     
     testMeshTopologyAgreesWithView(meshTopo, topoView, out, success);
@@ -325,21 +325,37 @@ namespace
     MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
     
     GlobalIndexType cellIndex = 0;
-    CellPtr cell = mesh->getTopology()->getCell(cellIndex);
     unsigned sideOrdinal = 1;
     
-    GlobalIndexType neighborCellIndexToRefine = cell->getNeighbor(sideOrdinal, mesh->getTopology())->cellIndex();
+    GlobalIndexTypeToCast neighborCellIndexToRefineLocal = 0;
+    const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+    if (myCellIDs->find(cellIndex) != myCellIDs->end())
+    {
+      CellPtr cell = mesh->getTopology()->getCell(cellIndex);
+      neighborCellIndexToRefineLocal = cell->getNeighbor(sideOrdinal, mesh->getTopology())->cellIndex();
+    }
+    GlobalIndexTypeToCast neighborCellIndexToRefineGlobal = 0;
+    mesh->Comm()->SumAll(&neighborCellIndexToRefineLocal, &neighborCellIndexToRefineGlobal, 1);
+    
+    GlobalIndexType neighborCellIndexToRefine = neighborCellIndexToRefineGlobal;
+    
     mesh->hRefine(set<GlobalIndexType>{neighborCellIndexToRefine}, RefinementPattern::xAnisotropicRefinementPatternQuad());
     
-    // now, cell 0 has neighbor that is child of its original neighbor
-    CellPtr newNeighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
-    TEST_INEQUALITY(newNeighbor->cellIndex(), neighborCellIndexToRefine);
-    
-    // but if we use the root mesh topology view, we should recover the original neighbor
-    set<IndexType> rootCells = mesh->getTopology()->getRootCellIndices();
+    myCellIDs = &mesh->cellIDsInPartition();
+    set<IndexType> rootCells = mesh->getTopology()->getRootCellIndicesLocal();
     MeshTopologyViewPtr rootMeshTopoView = mesh->getTopology()->getView(rootCells);
-    CellPtr oldNeighbor = cell->getNeighbor(sideOrdinal, rootMeshTopoView);
-    TEST_EQUALITY(oldNeighbor->cellIndex(), neighborCellIndexToRefine);
+
+    if (myCellIDs->find(cellIndex) != myCellIDs->end())
+    {
+      CellPtr cell = mesh->getTopology()->getCell(cellIndex);
+      // now, cell 0 has neighbor that is child of its original neighbor
+      CellPtr newNeighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
+      TEST_INEQUALITY(newNeighbor->cellIndex(), neighborCellIndexToRefine);
+      
+      // but if we use the root mesh topology view, we should recover the original neighbor
+      CellPtr oldNeighbor = cell->getNeighbor(sideOrdinal, rootMeshTopoView);
+      TEST_EQUALITY(oldNeighbor->cellIndex(), neighborCellIndexToRefine);
+    }
   }
   
   TEUCHOS_UNIT_TEST( MeshTopologyView, NeighborIsCorrectAnisotropicRefinement_TwoLevel_2D )
@@ -351,30 +367,57 @@ namespace
     MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
     
     GlobalIndexType cellIndex = 0;
-    CellPtr cell = mesh->getTopology()->getCell(cellIndex);
     unsigned sideOrdinal = 1;
+
+    GlobalIndexTypeToCast neighborCellIndexToRefineLocal = 0;
+    const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+    if (myCellIDs->find(cellIndex) != myCellIDs->end())
+    {
+      CellPtr cell = mesh->getTopology()->getCell(cellIndex);
+      neighborCellIndexToRefineLocal = cell->getNeighbor(sideOrdinal, mesh->getTopology())->cellIndex();
+    }
+    GlobalIndexTypeToCast neighborCellIndexToRefineGlobal = 0;
+    mesh->Comm()->SumAll(&neighborCellIndexToRefineLocal, &neighborCellIndexToRefineGlobal, 1);
     
-    CellPtr neighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
-    GlobalIndexType neighborCellIndexToRefine = neighbor->cellIndex();
+    GlobalIndexType neighborCellIndexToRefine = neighborCellIndexToRefineGlobal;
+    
     mesh->hRefine(set<GlobalIndexType>{neighborCellIndexToRefine}, RefinementPattern::xAnisotropicRefinementPatternQuad());
     
-    // now, cell 0 has a new neighbor that is child of its original neighbor
-    CellPtr newNeighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
-    TEST_INEQUALITY(newNeighbor->cellIndex(), neighborCellIndexToRefine);
-    TEST_EQUALITY(newNeighbor->getParent()->cellIndex(), neighborCellIndexToRefine);
-    
-    mesh->hRefine(set<GlobalIndexType>{newNeighbor->cellIndex()}, RefinementPattern::xAnisotropicRefinementPatternQuad());
-
-    // now, cell 0 has another new neighbor that is the grandchild of its original neighbor
-    CellPtr newNewNeighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
-    TEST_INEQUALITY(newNeighbor->cellIndex(), newNewNeighbor->cellIndex());
-    TEST_EQUALITY(newNewNeighbor->getParent()->cellIndex(), newNeighbor->cellIndex());
-    
-    // but if we use the root mesh topology view, we should recover the original neighbor
-    set<IndexType> rootCells = mesh->getTopology()->getRootCellIndices();
+    set<IndexType> rootCells = mesh->getTopology()->getRootCellIndicesLocal();
     MeshTopologyViewPtr rootMeshTopoView = mesh->getTopology()->getView(rootCells);
-    CellPtr oldNeighbor = cell->getNeighbor(sideOrdinal, rootMeshTopoView);
-    TEST_EQUALITY(oldNeighbor->cellIndex(), neighborCellIndexToRefine);
+    
+    GlobalIndexTypeToCast newNeighborCellIndexLocal = 0;
+    myCellIDs = &mesh->cellIDsInPartition();
+    if (myCellIDs->find(cellIndex) != myCellIDs->end())
+    {
+      CellPtr cell = mesh->getTopology()->getCell(cellIndex);
+      // now, cell 0 has a new neighbor that is child of its original neighbor
+      CellPtr newNeighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
+      TEST_INEQUALITY(newNeighbor->cellIndex(), neighborCellIndexToRefine);
+      TEST_EQUALITY(newNeighbor->getParent()->cellIndex(), neighborCellIndexToRefine);
+      newNeighborCellIndexLocal = newNeighbor->cellIndex();
+    }
+    GlobalIndexTypeToCast newNeighborCellIndexGlobal = 0;
+    mesh->Comm()->SumAll(&newNeighborCellIndexLocal, &newNeighborCellIndexGlobal, 1);
+    
+    GlobalIndexType newNeighborCellIndex = newNeighborCellIndexGlobal;
+    
+    mesh->hRefine(set<GlobalIndexType>{newNeighborCellIndex}, RefinementPattern::xAnisotropicRefinementPatternQuad());
+    
+    myCellIDs = &mesh->cellIDsInPartition();
+    if (myCellIDs->find(cellIndex) != myCellIDs->end())
+    {
+      // now, cell 0 has another new neighbor that is the grandchild of its original neighbor
+      CellPtr cell = mesh->getTopology()->getCell(cellIndex);
+      CellPtr newNeighbor = mesh->getTopology()->getCell(newNeighborCellIndex);
+      CellPtr newNewNeighbor = cell->getNeighbor(sideOrdinal, mesh->getTopology());
+      TEST_INEQUALITY(newNeighbor->cellIndex(), newNewNeighbor->cellIndex());
+      TEST_EQUALITY(newNewNeighbor->getParent()->cellIndex(), newNeighbor->cellIndex());
+      
+      // but if we use the root mesh topology view, we should recover the original neighbor
+      CellPtr oldNeighbor = cell->getNeighbor(sideOrdinal, rootMeshTopoView);
+      TEST_EQUALITY(oldNeighbor->cellIndex(), neighborCellIndexToRefine);
+    }
   }
   
   TEUCHOS_UNIT_TEST( MeshTopologyView, OneElementMeshIdentityAgrees_1D )

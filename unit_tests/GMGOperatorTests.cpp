@@ -236,7 +236,7 @@ namespace
     // some refinements in an effort to replicate an issue...
     // 1. Uniform refinement
     IndexType nextElement = meshTopo->cellCount();
-    set<IndexType> cellsToRefine = meshTopo->getActiveCellIndices();
+    vector<IndexType> cellsToRefine = meshTopo->getActiveCellIndicesGlobal();
     CellTopoPtr cellTopo = meshTopo->getCell(0)->topology();
     RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
     for (IndexType cellIndex : cellsToRefine)
@@ -410,7 +410,7 @@ namespace
 
     MeshPtr mesh = MeshFactory::intervalMesh(bf, xLeft, xRight, coarseElementCount, H1Order, delta_k);
     // for debugging, do a refinement first:
-    //  mesh->hRefine(mesh->getActiveCellIDs());
+    //  mesh->hRefine(mesh->getActiveCellIDsGlobal());
     
     SolutionPtr coarseSoln = Solution::solution(mesh);
     
@@ -465,8 +465,8 @@ namespace
     
     MeshPtr fineMesh = mesh->deepCopy();
     
-    fineMesh->hRefine(fineMesh->getActiveCellIDs());
-    //  fineMesh->hRefine(fineMesh->getActiveCellIDs());
+    fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
+    //  fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
     
     SolutionPtr fineSoln = Solution::solution(fineMesh);
     fineSoln->setBC(bc);
@@ -611,7 +611,7 @@ namespace
       set<GlobalIndexType> cellsToRefine;
       if (uniform)
       {
-        cellsToRefine = fineMesh->getActiveCellIDs();
+        cellsToRefine = fineMesh->getActiveCellIDsGlobal();
       }
       else
       {
@@ -619,7 +619,7 @@ namespace
         if (lastRefinedCellID == -1)
         {
           // then refine the first active guy:
-          lastRefinedCellID = *fineMesh->getActiveCellIDs().begin();
+          lastRefinedCellID = *fineMesh->getActiveCellIDsGlobal().begin();
         }
         else if (testHMultigrid)
         {
@@ -669,7 +669,6 @@ namespace
     
     fineSoln->importSolution();
     
-    set<GlobalIndexType> cellIDs = fineSoln->mesh()->getActiveCellIDs();
     
     energyError = fineSoln->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
@@ -702,6 +701,7 @@ namespace
     fineSoln->addSolution(exactSoln, -1.0); // should recover zero solution this way
     
     // import global solution data onto each rank:
+    set<GlobalIndexType> cellIDs = fineMesh->getActiveCellIDsGlobal();
     fineSoln->importSolutionForOffRankCells(cellIDs);
     
     for (GlobalIndexType cellID : cellIDs) {
@@ -811,13 +811,12 @@ namespace
     
     coarseSoln->importSolution();
     
-    set<GlobalIndexType> cellIDs = coarseSoln->mesh()->getActiveCellIDs();
-    
     energyError = coarseSoln->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
     
     bool warnAboutOffRank = false;
 //    VarFactoryPtr vf = bf->varFactory();
+//        set<GlobalIndexType> cellIDs = coarseSoln->mesh()->cellIDsInPartition();
     //    for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++) {
     //      cout << "\n\n******************** Dofs for cell " << *cellIDIt << " (fineSoln before subtracting exact) ********************\n";
     //      FieldContainer<double> coefficients = fineSoln->allCoefficientsForCellID(*cellIDIt, warnAboutOffRank);
@@ -853,6 +852,7 @@ namespace
     coarseSoln->addSolution(exactSoln, -1.0); // should recover zero solution this way
     
     // import global solution data onto each rank:
+    set<GlobalIndexType> cellIDs = coarseMesh->getActiveCellIDsGlobal();
     coarseSoln->importSolutionForOffRankCells(cellIDs);
     
     for (GlobalIndexType cellID : cellIDs) {

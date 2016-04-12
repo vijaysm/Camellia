@@ -1137,7 +1137,7 @@ namespace
     
     if (!success)
     {
-      set<GlobalIndexType> cellIDs = mesh->getTopology()->getActiveCellIndices();
+      set<GlobalIndexType> cellIDs = mesh->getTopology()->getMyActiveCellIndices();
       for (GlobalIndexType cellID : cellIDs)
       {
         FieldContainer<double> coefficients;

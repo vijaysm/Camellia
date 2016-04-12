@@ -102,6 +102,8 @@ namespace
   
   TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, DofCount_ContinuousTriangles )
   {
+    MPIWrapper::CommWorld()->Barrier();
+    
     // a couple tests to ensure that the dof counts are correct in linear, triangular Bubnov-Galerkin meshes
     int spaceDim = 2;
     bool useTriangles = true;

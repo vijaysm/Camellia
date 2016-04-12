@@ -174,7 +174,7 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
   RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo->getKey());
 
   mesh->registerSolution(solution); // this way, solution will get the memo to project
-  mesh->hRefine(mesh->getActiveCellIDs(), refPattern);
+  mesh->hRefine(mesh->getActiveCellIDsGlobal(), refPattern);
 
   err_L2 = phi_hat_err->l2norm(mesh);
   if (err_L2 > tol)

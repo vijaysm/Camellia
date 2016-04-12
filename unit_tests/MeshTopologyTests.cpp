@@ -11,12 +11,14 @@
 #include "CamelliaCellTools.h"
 #include "CellDataMigration.h"
 #include "MeshTopology.h"
+#include "MPIWrapper.h"
 #include "PoissonFormulation.h"
 
 #include "MeshFactory.h"
 
 using namespace Camellia;
 using namespace Intrepid;
+using namespace std;
 
 namespace
 {
@@ -64,11 +66,10 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
   string meshName = "mesh";
 
   // check constraints for entities belonging to active cells
-  set<unsigned> activeCells = mesh->getActiveCellIndices();
+  set<IndexType> activeCells = mesh->getMyActiveCellIndices();
 
-  for (set<unsigned>::iterator cellIt = activeCells.begin(); cellIt != activeCells.end(); cellIt++)
+  for (IndexType cellIndex : activeCells)
   {
-    unsigned cellIndex = *cellIt;
     CellPtr cell = mesh->getCell(cellIndex);
     vector<unsigned> entitiesForCell = cell->getEntityIndices(entityDim);
     for (vector<unsigned>::iterator entityIt = entitiesForCell.begin(); entityIt != entitiesForCell.end(); entityIt++)
@@ -168,7 +169,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
   void testNeighbors(MeshTopologyPtr mesh, Teuchos::FancyOStream &out, bool &success)
   {
     // Worth noting: while the assertions this makes are necessary, they aren't sufficient for correctness of neighbor relationships.
-    set<IndexType> activeCellIndices = mesh->getActiveCellIndices();
+    set<IndexType> activeCellIndices = mesh->getMyActiveCellIndices();
     for (IndexType activeCellIndex : activeCellIndices)
     {
       CellPtr cell = mesh->getCell(activeCellIndex);
@@ -272,9 +273,10 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     // Simulate what happens when distributing the mesh geometry
     // keep a canonical copy
     MeshTopologyPtr originalMesh = meshTopo->deepCopy();
-    const set<IndexType>* activeCellIDs = &originalMesh->getActiveCellIndices();
+    vector<IndexType> activeCellIDsVector = originalMesh->getActiveCellIndicesGlobal();
+    set<IndexType> activeCellIDs(activeCellIDsVector.begin(),activeCellIDsVector.end());
     // define 4 partitions -- and simply go in numerical order
-    int numCells = activeCellIDs->size();
+    int numCells = activeCellIDs.size();
     int numPartitions = 4;
     vector<int> partitionSizes(numPartitions);
     partitionSizes[0] = 1;
@@ -282,7 +284,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     partitionSizes[2] = 0;
     partitionSizes[3] = numCells - partitionSizes[0] - partitionSizes[1] - partitionSizes[2];
     vector<set<GlobalIndexType>> partitions(numPartitions);
-    auto cellIndexPtr = activeCellIDs->begin();
+    auto cellIndexPtr = activeCellIDs.begin();
     for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
     {
       int partitionSize = partitionSizes[partitionOrdinal];
@@ -297,7 +299,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
     {
       localMeshTopos[partitionOrdinal] = originalMesh->deepCopy();
-      localMeshTopos[partitionOrdinal]->pruneToInclude(partitions[partitionOrdinal], vertexDim);
+      localMeshTopos[partitionOrdinal]->pruneToInclude(MPIWrapper::CommSerial(), partitions[partitionOrdinal], vertexDim);
       // pretty much a sanity check (we have other tests against pruneToInclude):
       testMeshTopologiesMatchOnCells(originalMesh, localMeshTopos[partitionOrdinal], partitions[partitionOrdinal], vertexDim, out, success);
     }
@@ -335,7 +337,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
       MeshTopologyPtr thisLocalMeshTopo = localMeshTopos[partitionOrdinal];
       int previousPartitionOrdinal = (partitionOrdinal + numPartitions - 1) % numPartitions;
       set<GlobalIndexType> previousCells = partitions[previousPartitionOrdinal];
-      thisLocalMeshTopo->pruneToInclude(previousCells, vertexDim);
+      thisLocalMeshTopo->pruneToInclude(MPIWrapper::CommSerial(), previousCells, vertexDim);
       
       testMeshTopologiesMatchOnCells(originalMesh, thisLocalMeshTopo, previousCells, vertexDim, out, success);
     }
@@ -346,7 +348,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     MeshTopologyPtr originalMesh = meshTopo->deepCopy();
     unsigned originalMemoryFootprint = originalMesh->approximateMemoryFootprint();
     
-    const set<GlobalIndexType>* activeCellIDs = &originalMesh->getActiveCellIndices();
+    const set<GlobalIndexType>* activeCellIDs = &originalMesh->getMyActiveCellIndices();
     
     int vertexDim = 0; // for now, let's just test the vertex-continuity case
     for (GlobalIndexType cellID : *activeCellIDs)
@@ -388,7 +390,7 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
       
       // check if there are any missing active cells; if not, then we shouldn't expect a memory footprint reduction
       bool someCellsShouldBeDeleted = (activeCellsToKeep.size() != activeCellIDs->size());
-      meshTopo->pruneToInclude({cellID}, vertexDim);
+      meshTopo->pruneToInclude(MPIWrapper::CommWorld(), {cellID}, vertexDim);
       unsigned prunedMemoryFootprint = meshTopo->approximateMemoryFootprint();
       if (someCellsShouldBeDeleted)
       {
@@ -739,20 +741,22 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
   int numUniformRefinements = 3;
   for (int i=0; i<numUniformRefinements; i++)
   {
-    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDs();
+    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
     mesh->RefinementObserver::hRefine(activeCellIDs, refPattern);
   }
 
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
   
   MeshTopologyPtr rootMeshTopology = meshTopo->getRootMeshTopology();
-  MeshTopologyViewPtr originalMeshTopology = originalMesh->getTopology();
+  MeshTopology* originalMeshTopology = originalMesh->getTopology()->baseMeshTopology();
 
   TEST_EQUALITY(rootMeshTopology->cellCount(), originalMeshTopology->cellCount());
 
-  std::set<IndexType> rootCellIndices = rootMeshTopology->getActiveCellIndices();
-  std::set<IndexType> originalCellIndices = originalMeshTopology->getActiveCellIndices();
+  vector<IndexType> rootCellIndicesVector = rootMeshTopology->getActiveCellIndicesGlobal();
+  vector<IndexType> originalCellIndicesVector = originalMeshTopology->getActiveCellIndicesGlobal();
 
+  set<IndexType> rootCellIndices(rootCellIndicesVector.begin(), rootCellIndicesVector.end());
+  set<IndexType> originalCellIndices(originalCellIndicesVector.begin(), originalCellIndicesVector.end());
   // compare sets:
   std::set<IndexType>::iterator rootCellIt = rootCellIndices.begin(), originalCellIt = originalCellIndices.begin();
   for (int i=0; i<rootMeshTopology->cellCount(); i++)
@@ -1005,11 +1009,10 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
       for (GlobalIndexType cellIndex : cellsToCutVertically)
       {
         meshTopo->refineCell(cellIndex, verticalCut, nextCellID);
-        nextCellID += verticalCut->numChildren();
-        
-        CellPtr cell = meshTopo->getCell(cellIndex);
-        vector<IndexType> childCellIndices = cell->getChildIndices(meshTopo);
-        newCells.insert(childCellIndices.begin(),childCellIndices.end());
+        for (int i=0; i<verticalCut->numChildren(); i++)
+        {
+          newCells.insert(nextCellID++);
+        }
       }
       cellsToCutVertically = newCells;
     }
@@ -1020,11 +1023,11 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
       for (GlobalIndexType cellIndex : cellsToCutHorizontally)
       {
         meshTopo->refineCell(cellIndex, horizontalCut, nextCellID);
-        nextCellID += horizontalCut->numChildren();
-        
-        CellPtr cell = meshTopo->getCell(cellIndex);
-        vector<IndexType> childCellIndices = cell->getChildIndices(meshTopo);
-        newCells.insert(childCellIndices.begin(),childCellIndices.end());
+
+        for (int i=0; i<horizontalCut->numChildren(); i++)
+        {
+          newCells.insert(nextCellID++);
+        }
       }
       cellsToCutHorizontally = newCells;
     }
@@ -1047,7 +1050,7 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
     int irregularity = 2;
     MeshTopologyPtr meshTopo = constructIrregularMeshTopology(irregularity);
     IndexType irregularCellIndex = -1;
-    set<IndexType> activeCells = meshTopo->getActiveCellIndices();
+    vector<IndexType> activeCells = meshTopo->getActiveCellIndicesGlobal();
     IndexType activeCellWithLargeNeighbor;
     IndexType activeCellWithLargeNeighborSideOrdinal; // the side shared with the irregular cell
     for (IndexType activeCellIndex : activeCells)

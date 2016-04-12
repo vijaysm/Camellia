@@ -27,7 +27,7 @@ TEUCHOS_UNIT_TEST( Cell, FindSubcellOrdinalInSide )
   MeshTopologyPtr meshTopo = MeshFactory::quadMeshTopology(width,height,horizontalElements,verticalElements);
 
   int sideDim = meshTopo->getDimension() - 1;
-  for (auto cellIndex : meshTopo->getActiveCellIndices())
+  for (auto cellIndex : meshTopo->getLocallyKnownActiveCellIndices())
   {
     CellPtr cell = meshTopo->getCell(cellIndex);
     CellTopoPtr cellTopo = cell->topology();

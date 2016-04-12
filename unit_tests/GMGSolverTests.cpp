@@ -118,7 +118,7 @@ namespace
     coarseSoln->projectOntoMesh(exactSolnMap);
 
     MeshPtr fineMesh = mesh->deepCopy();
-    fineMesh->hRefine(fineMesh->getActiveCellIDs());
+    fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
 
     // rhs = f * q, where f = \Delta phi
     RHSPtr rhs = RHS::rhs();
@@ -486,7 +486,7 @@ namespace
     int numHRefs = 3;
     for (int i=0; i<numHRefs; i++)
     {
-      mesh->hRefine(mesh->getActiveCellIDs());
+      mesh->hRefine(mesh->getActiveCellIDsGlobal());
       expectedDofCounts.push_back(mesh->numGlobalDofs());
     }
     
@@ -496,7 +496,7 @@ namespace
     int numPRefs = H1Order_fine - H1Order_coarse;
     for (int i=0; i< numPRefs; i++)
     {
-      mesh->pRefine(mesh->getActiveCellIDs());
+      mesh->pRefine(mesh->getActiveCellIDsGlobal());
     }
     
     expectedDofCounts.push_back(mesh->numGlobalDofs());

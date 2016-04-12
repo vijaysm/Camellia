@@ -48,26 +48,29 @@ void testSpaceTimeTraceBCFunction(int spaceDim, Teuchos::FancyOStream &out, bool
 
   GlobalIndexType cellID = 0;
 
-  // use our knowledge that we have a one-element mesh: every last dof for u_hat should be present, and have coefficient CONST_VALUE
-  DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
-  CellTopoPtr cellTopo = mesh->getElementType(cellID)->cellTopoPtr;
-
-  BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
-
-  double tol = 1e-13;
-  for (int sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
+  if (spaceTimeMeshTopo->isValidCellIndex(cellID))
   {
-    out << "******** SIDE " << sideOrdinal << " ********" << endl;
-    BasisPtr basis = trialOrder->getBasis(u_hat->ID(),sideOrdinal);
+    // use our knowledge that we have a one-element mesh: every last dof for u_hat should be present, and have coefficient CONST_VALUE
+    DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
+    CellTopoPtr cellTopo = mesh->getElementType(cellID)->cellTopoPtr;
 
-    int numCells = 1;
-    Intrepid::FieldContainer<double> dirichletValues(numCells,basis->getCardinality());
-    // project bc function onto side basis:
-    Teuchos::RCP<BCFunction<double>> bcFunction = BCFunction<double>::bcFunction(bc, u_hat->ID());
-    bc->coefficientsForBC(dirichletValues, bcFunction, basis, basisCache->getSideBasisCache(sideOrdinal));
-    for (int basisOrdinal=0; basisOrdinal<dirichletValues.dimension(1); basisOrdinal++)
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+
+    double tol = 1e-13;
+    for (int sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
     {
-      TEST_FLOATING_EQUALITY(CONST_VALUE, dirichletValues(0,basisOrdinal), tol);
+      out << "******** SIDE " << sideOrdinal << " ********" << endl;
+      BasisPtr basis = trialOrder->getBasis(u_hat->ID(),sideOrdinal);
+
+      int numCells = 1;
+      Intrepid::FieldContainer<double> dirichletValues(numCells,basis->getCardinality());
+      // project bc function onto side basis:
+      Teuchos::RCP<BCFunction<double>> bcFunction = BCFunction<double>::bcFunction(bc, u_hat->ID());
+      bc->coefficientsForBC(dirichletValues, bcFunction, basis, basisCache->getSideBasisCache(sideOrdinal));
+      for (int basisOrdinal=0; basisOrdinal<dirichletValues.dimension(1); basisOrdinal++)
+      {
+        TEST_FLOATING_EQUALITY(CONST_VALUE, dirichletValues(0,basisOrdinal), tol);
+      }
     }
   }
 }
@@ -88,13 +91,19 @@ void testSpaceTimeTraceBCFunction(int spaceDim, Teuchos::FancyOStream &out, bool
     // add a tag for the Dirichlet BC region (all the sides of the single cell in the mesh)
     int tagID = 34;
     EntitySetPtr allSides = meshTopo->createEntitySet();
-    CellPtr cell = meshTopo->getCell(0);
-    int sideCount = cell->getSideCount();
-    int sideDim = spaceDim - 1;
-    for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
+    
+    // on any ranks that can see cell 0, add its sides to allSides
+    GlobalIndexType cellID = 0;
+    if (meshTopo->isValidCellIndex(cellID))
     {
-      IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
-      allSides->addEntity(sideDim, sideEntityIndex);
+      CellPtr cell = meshTopo->getCell(cellID);
+      int sideCount = cell->getSideCount();
+      int sideDim = spaceDim - 1;
+      for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
+      {
+        IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
+        allSides->addEntity(sideDim, sideEntityIndex);
+      }
     }
     meshTopo->applyTag(DIRICHLET_SET_TAG_NAME, tagID, allSides);
 

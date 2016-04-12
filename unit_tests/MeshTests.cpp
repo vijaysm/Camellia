@@ -118,9 +118,11 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     
     MeshPtr originalMesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
     
-    if (globalRank==0)
+    GlobalIndexType coarseCellID = *originalMesh->getActiveCellIDsGlobal().begin();
+    auto myCellIDs = &originalMesh->cellIDsInPartition();
+    
+    if (myCellIDs->find(coarseCellID) != myCellIDs->end())
     {
-      GlobalIndexType coarseCellID = *originalMesh->getActiveCellIDs().begin();
       DofOrderingPtr trialOrdering = originalMesh->getElementType(coarseCellID)->trialOrderPtr;
       int localDofs = trialOrdering->totalDofs();
       
@@ -145,7 +147,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
     
     int numActiveElementsExpected = elemCounts[0] * elemCounts[1] * elemCounts[2];
-    int numActiveElementsActual = meshTopo->getActiveCellIndices().size();
+    int numActiveElementsActual = meshTopo->activeCellCount();
     TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
     
     // there should be one edge that is shared by all four cells; let's find it
@@ -172,7 +174,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     
     // that should add 7 new active elements
     numActiveElementsExpected += 7;
-    numActiveElementsActual = meshTopo->getActiveCellIndices().size();
+    numActiveElementsActual = meshTopo->activeCellCount();
     TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
     
     // now, our central edge should have a couple children
@@ -188,7 +190,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     
     // should have another 7 new active elements:
     numActiveElementsExpected += 7;
-    numActiveElementsActual = meshTopo->getActiveCellIndices().size();
+    numActiveElementsActual = meshTopo->activeCellCount();
     TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
     
     // right now, we've only refined one original cell and one of its children; therefore, the original central edge
@@ -250,7 +252,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
           {
             IndexType grandparentEdgeIndex = meshTopo->getEntityParent(edgeDim, parentEdgeIndex);
             set<pair<IndexType,unsigned>> cellEntries = meshTopo->getCellsContainingEntity(edgeDim, grandparentEdgeIndex);
-            auto activeCells = &meshTopo->getActiveCellIndices();
+            auto activeCells = &meshTopo->getMyActiveCellIndices();
             for (auto cellEntry : cellEntries)
             {
               IndexType cellID = cellEntry.first;
@@ -324,7 +326,7 @@ TEUCHOS_UNIT_TEST( Mesh, ParitySpaceTime1D )
   bool spaceTime = true;
   MeshPtr spaceTimeMesh = makeTestMesh(spaceDim, spaceTime);
 
-  set<GlobalIndexType> cellIDs = spaceTimeMesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = spaceTimeMesh->cellIDsInPartition();
   for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
   {
     GlobalIndexType cellID = *cellIDIt;
@@ -358,7 +360,7 @@ TEUCHOS_UNIT_TEST( Mesh, NormalSpaceTime1D )
   MeshPtr spaceTimeMesh = makeTestMesh(spaceDim, spaceTime);
 
   double tol = 1e-15;
-  set<GlobalIndexType> cellIDs = spaceTimeMesh->getActiveCellIDs();
+  set<GlobalIndexType> cellIDs = spaceTimeMesh->cellIDsInPartition();
   for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
   {
     GlobalIndexType cellID = *cellIDIt;

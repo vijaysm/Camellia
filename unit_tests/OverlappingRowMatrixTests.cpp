@@ -31,7 +31,7 @@ namespace
   void testNeighborRelationshipIsSymmetric(MeshPtr mesh, int dimensionToUseForNeighbor, int overlapLevel, bool hierarchical,
                                            Teuchos::FancyOStream &out, bool &success)
   {
-    set<GlobalIndexType> activeCells = mesh->getActiveCellIDs();
+    set<GlobalIndexType> activeCells = mesh->cellIDsInPartition();
     
     GlobalIndexType maxCellID = *max_element(activeCells.begin(), activeCells.end());
     
@@ -185,8 +185,8 @@ namespace
     int sideDim = mesh->getTopology()->getDimension() - 1;
     
     // refine uniformly twice:
-    mesh->hRefine(mesh->getTopology()->getActiveCellIndices());
-    mesh->hRefine(mesh->getTopology()->getActiveCellIndices());
+    mesh->hRefine(mesh->getTopology()->baseMeshTopology()->getActiveCellIndicesGlobal());
+    mesh->hRefine(mesh->getTopology()->baseMeshTopology()->getActiveCellIndicesGlobal());
     
     SolutionPtr soln = Solution::solution(mesh, BC::bc(), RHS::rhs(), form.bf()->graphNorm());
     soln->setUseCondensedSolve(useStaticCondensation);
@@ -267,8 +267,8 @@ namespace
     MeshPtr mesh = MeshFactory::quadMesh(pl);
     
     // refine uniformly twice:
-    mesh->hRefine(mesh->getTopology()->getActiveCellIndices());
-    mesh->hRefine(mesh->getTopology()->getActiveCellIndices());
+    mesh->hRefine(mesh->getTopology()->baseMeshTopology()->getActiveCellIndicesGlobal());
+    mesh->hRefine(mesh->getTopology()->baseMeshTopology()->getActiveCellIndicesGlobal());
     
     SolutionPtr soln = Solution::solution(mesh, BC::bc(), RHS::rhs(), form.bf()->graphNorm());
     

@@ -462,6 +462,60 @@ namespace
 //    cout << forcingFunction->displayString();
   }
 
+  TEUCHOS_UNIT_TEST( NavierStokesVGPFormulation, SpaceTimeConservation_FormMeshAgreesWithManualMesh )
+  {
+    double pi = atan(1)*4;
+    vector<double> x0 = {0.0, 0.0};;
+    vector<double> dims = {2*pi, 2*pi};
+    vector<int> numElements = {2,2};
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dims,numElements,x0);
+    double t0 = 0;
+    double t1 = pi;
+    int temporalDivisions = 1;
+    meshTopo = MeshFactory::spaceTimeMeshTopology(meshTopo, t0, t1, temporalDivisions);
+    // some refinements in an effort to replicate an issue, which may be revealed in a difference between
+    // the dofs assigned to a MeshTopology and a MeshTopologyView with the same elements
+    // 1. Uniform refinement
+    IndexType nextElement = meshTopo->cellCount();
+    vector<IndexType> cellsToRefine = meshTopo->getActiveCellIndicesGlobal();
+    CellTopoPtr cellTopo = meshTopo->getCell(0)->topology();
+    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
+    for (IndexType cellIndex : cellsToRefine)
+    {
+      meshTopo->refineCell(cellIndex, refPattern, nextElement);
+      nextElement += refPattern->numChildren();
+    }
+    // 2. Selective refinement
+    cellsToRefine = {4,15,21,30};
+    for (IndexType cellIndex : cellsToRefine)
+    {
+      meshTopo->refineCell(cellIndex, refPattern, nextElement);
+      nextElement += refPattern->numChildren();
+    }
+    
+    int fieldPolyOrder = 1, delta_k = 1;
+    int spaceDim = x0.size();
+    double Re = 1.0;
+    bool useConformingTraces = true;
+
+//    NavierStokesVGPFormulation form = NavierStokesVGPFormulation::spaceTimeConservationFormulation(spaceDim, Re, useConformingTraces,
+//                                                                                                   meshTopo, fieldPolyOrder, fieldPolyOrder, delta_k);
+    
+    NavierStokesVGPFormulation form = NavierStokesVGPFormulation::spaceTimeFormulation(spaceDim, Re, useConformingTraces,
+                                                                                       meshTopo, fieldPolyOrder, fieldPolyOrder, delta_k);
+    
+    MeshPtr formMesh = form.solutionIncrement()->mesh(); //Teuchos::rcp( new Mesh(meshTopo, form.bf(), fieldPolyOrder+1, delta_k) ) ;
+    vector<int> H1Order = {fieldPolyOrder + 1, fieldPolyOrder + 1};
+    MeshPtr manualMesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) ) ;
+    
+    GlobalIndexType numGlobalDofsFormMesh = formMesh->numGlobalDofs();
+    GlobalIndexType numGlobalDofsManualMesh = manualMesh->numGlobalDofs();
+    
+//    cout << "numGlobalDofsFormMesh: " << numGlobalDofsFormMesh << endl;
+    
+    TEST_EQUALITY(numGlobalDofsManualMesh, numGlobalDofsFormMesh);
+  }
+  
   TEUCHOS_UNIT_TEST( NavierStokesVGPFormulation, StokesConsistency_Steady_2D )
   {
     int spaceDim = 2;
