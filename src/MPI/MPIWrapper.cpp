@@ -13,6 +13,7 @@
 
 using namespace Intrepid;
 using namespace Camellia;
+using namespace std;
 
 void MPIWrapper::allGather(const Epetra_Comm &Comm, FieldContainer<int> &allValues, int myValue)
 {
@@ -91,11 +92,59 @@ void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm, FieldContainer<Scalar
 }
 
 void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm,
+                                  vector<pair<pair<unsigned,unsigned>,int>> &gatheredValues,
+                                  vector<pair<pair<unsigned,unsigned>,int>> &myValues,
+                                  vector<int> &offsets)
+{
+  // rewrite myValues as triples of ints
+  vector<int> myValuesExpanded(myValues.size() * 3);
+  vector<int> gatheredValuesExpanded;
+  for (int i=0; i<myValues.size(); i++)
+  {
+    myValuesExpanded[i*3+0] = (int) myValues[i].first.first;
+    myValuesExpanded[i*3+1] = (int) myValues[i].first.second;
+    myValuesExpanded[i*3+2] =       myValues[i].second;
+  }
+  allGatherCompact(Comm, gatheredValuesExpanded, myValuesExpanded, offsets);
+  int expandedTotalSize = gatheredValuesExpanded.size();
+  int totalSize = expandedTotalSize / 3;
+  gatheredValues.resize(totalSize);
+  
+  for (int i=0; i<totalSize; i++)
+  {
+    gatheredValues[i].first.first  = (unsigned) gatheredValuesExpanded[i*3+0];
+    gatheredValues[i].first.second = (unsigned) gatheredValuesExpanded[i*3+1];
+    gatheredValues[i].second       =            gatheredValuesExpanded[i*3+2];
+  }
+  int numOffsets = offsets.size();
+  for (int i=0; i<numOffsets; i++)
+  {
+    offsets[i] /= 3;
+  }
+}
+
+void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm,
                                   std::vector<int> &gatheredValues,
                                   std::vector<int> &myValues,
                                   std::vector<int> &offsets)
 {
   MPIWrapper::allGatherCompact<int>(Comm,gatheredValues,myValues,offsets);
+}
+
+void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm,
+                                  vector<unsigned> &gatheredValues,
+                                  vector<unsigned> &myValues,
+                                  vector<int> &offsets)
+{
+  vector<int> myValuesInt(myValues.begin(),myValues.end());
+  vector<int> gatheredValuesInt;
+  MPIWrapper::allGatherCompact(Comm, gatheredValuesInt, myValuesInt, offsets);
+  int gatheredSize = gatheredValuesInt.size();
+  gatheredValues.resize(gatheredSize);
+  for (int i=0; i<gatheredSize; i++)
+  {
+    gatheredValues[i] = (unsigned) gatheredValuesInt[i];
+  }
 }
 
 void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm,
