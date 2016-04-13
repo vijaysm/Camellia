@@ -76,7 +76,6 @@ protected:
   vector<int> getH1OrderForPRefinement(int deltaP);
   
   void projectParentCoefficientsOntoUnsetChildren();
-  virtual void rebuildLookups() = 0;
   
   // for subclasses to let super know about changes to the p-refinement degree...
   void setPRefinementDegree(GlobalIndexType cellID, int deltaP);
@@ -176,14 +175,16 @@ public:
 
   MeshPartitionPolicyPtr getPartitionPolicy();
   
+  virtual void rebuildLookups() = 0;
+  
   void repartitionAndMigrate();
 
   void registerSolution(TSolutionPtr<double> solution);
   vector<TSolutionPtr<double>> getRegisteredSolutions();
   void unregisterSolution(TSolutionPtr<double> solution);
 
-  void setPartitions(std::vector< std::set<IndexType> > &partitions);
-  void setPartitions(Intrepid::FieldContainer<GlobalIndexType> &partitions);
+  void setPartitions(std::vector< std::set<IndexType> > &partitions, bool rebuildLookups=true);
+  void setPartitions(Intrepid::FieldContainer<GlobalIndexType> &partitions, bool rebuildLookups=true);
   void setPartitionPolicy( MeshPartitionPolicyPtr partitionPolicy );
 
   // static constructors:

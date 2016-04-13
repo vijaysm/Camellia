@@ -354,8 +354,6 @@ ElementTypePtr GlobalDofAssignment::elementType(GlobalIndexType cellID)
 
 void GlobalDofAssignment::repartitionAndMigrate()
 {
-  int myRank = _mesh->Comm()->MyPID();
-  cout << "Entered repartitionAndMigrate() on rank " << myRank << endl;
   _partitionPolicy->partitionMesh(_mesh.get(),_numPartitions);
   // if our MeshTopology is the base, then we can prune
   if (_meshTopology->baseMeshTopology() == _meshTopology.get())
@@ -763,7 +761,7 @@ void GlobalDofAssignment::projectParentCoefficientsOntoUnsetChildren()
   }
 }
 
-void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partitionedMesh)
+void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partitionedMesh, bool rebuildDofLookups)
 {
 //  set<unsigned> activeCellIDs = _meshTopology->getActiveCellIndicesGlobal();
 
@@ -812,10 +810,13 @@ void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partiti
   
   constructActiveCellMap();
   projectParentCoefficientsOntoUnsetChildren();
-  rebuildLookups();
+  if (rebuildDofLookups)
+  {
+    rebuildLookups();
+  }
 }
 
-void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > &partitions)
+void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > &partitions, bool rebuildDofLookups)
 {
   int thisPartitionNumber = _partitionPolicy->Comm()->MyPID();
 
@@ -843,7 +844,10 @@ void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > 
   }
   constructActiveCellMap();
   projectParentCoefficientsOntoUnsetChildren();
-  rebuildLookups();
+  if (rebuildDofLookups)
+  {
+    rebuildLookups();
+  }
 }
 
 void GlobalDofAssignment::setPartitionPolicy( MeshPartitionPolicyPtr partitionPolicy )
