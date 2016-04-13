@@ -3667,11 +3667,6 @@ void GDAMinimumRule::rebuildLookups()
     partitionCellOffset += _partitions[i].size();
   }
   
-  {
-    // DEBUGGING
-    cout << "On rank " << rank << ", activeCellCount = " << activeCellCount << endl;
-  }
-  
   // add in our _cellDofOffsets:
   int i=0;
   for (GlobalIndexType cellID : *myCellIDs)
