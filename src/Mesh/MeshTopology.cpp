@@ -91,7 +91,7 @@ MeshTopology::MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> p
 
 unsigned MeshTopology::activeCellCount()
 {
-  return _activeCells.size();
+  return _activeCellCount;
 }
 
 const set<unsigned> & MeshTopology::getLocallyKnownActiveCellIndices()
@@ -527,8 +527,8 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const 
     unsigned cellCountForSide = getCellCountForSide(sideEntityIndex);
     if (cellCountForSide == 2)   // compatible neighbors
     {
-      pair<unsigned,unsigned> firstNeighbor  = getFirstCellForSide(sideEntityIndex);
-      pair<unsigned,unsigned> secondNeighbor = getSecondCellForSide(sideEntityIndex);
+      pair<IndexType,unsigned> firstNeighbor  = getFirstCellForSide(sideEntityIndex);
+      pair<IndexType,unsigned> secondNeighbor = getSecondCellForSide(sideEntityIndex);
       CellPtr firstCell = _cells[firstNeighbor.first];
       CellPtr secondCell = _cells[secondNeighbor.first];
       firstCell->setNeighbor(firstNeighbor.second, secondNeighbor.first, secondNeighbor.second, allowSameCellIndices);
@@ -630,6 +630,17 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const 
 
 void MeshTopology::addCellForSide(unsigned int cellIndex, unsigned int sideOrdinal, unsigned int sideEntityIndex)
 {
+//  {
+//    // DEBUGGING
+//    if ((Comm() != Teuchos::null) && (Comm()->MyPID() == 1) && (_spaceDim == 1))
+//    {
+//      if ((sideEntityIndex == 0) && (_vertices[sideEntityIndex][0] == 0.0))
+//      {
+//        cout << "addCellForSide(" << cellIndex << "," << sideOrdinal << "," << sideEntityIndex << ")\n";
+//      }
+//    }
+//  }
+  
   if (_cellsForSideEntities.find(sideEntityIndex) == _cellsForSideEntities.end())
   {
     pair< unsigned, unsigned > cell1 = make_pair(cellIndex, sideOrdinal);
@@ -669,6 +680,7 @@ void MeshTopology::addCellForSide(unsigned int cellIndex, unsigned int sideOrdin
     else
     {
       cout << "Internal error: attempt to add 3rd cell for side with entity index " << sideEntityIndex << endl;
+      printAllEntities();
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Internal error: attempt to add 3rd cell for side");
     }
     _cellsForSideEntities[sideEntityIndex] = make_pair(cell1, cell2);
@@ -2995,6 +3007,11 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   for (int prunedSideEntityIndex=0; prunedSideEntityIndex<prunedSideCount; prunedSideEntityIndex++)
   {
     IndexType oldSideEntityIndex = oldEntityIndices[sideDim][prunedSideEntityIndex];
+    if (_cellsForSideEntities.find(oldSideEntityIndex) == _cellsForSideEntities.end())
+    {
+      // no entries for this side.
+      continue;
+    }
     (*reverseSideLookup)[oldSideEntityIndex] = prunedSideEntityIndex;
     auto cellsForSideEntry = _cellsForSideEntities[oldSideEntityIndex];
     // check if the cells listed are still present; if not, set default values
@@ -3022,6 +3039,15 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
     {
       // if one of the entries remains, store in pruned container:
       prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
+//      {
+//        // DEBUGGING
+//        if ((1 == Comm->MyPID()) && (prunedSideEntityIndex == 0))
+//        {
+//          cout << "prunedCellsForSideEntities[0] = {{";
+//          cout << cellsForSideEntry.first.first << "," << cellsForSideEntry.first.second << "}, {";
+//          cout << cellsForSideEntry.second.first << "," << cellsForSideEntry.second.second << "}}\n";
+//        }
+//      }
     }
   }
   
@@ -3243,6 +3269,9 @@ void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPatte
 {
   // TODO: worry about the case (currently unsupported in RefinementPattern) of children that do not share topology with the parent.  E.g. quad broken into triangles.  (3D has better examples.)
 
+//  cout << "MeshTopology::refineCell(" << cellIndex << ", refPattern, " << firstChildCellIndex << ") -- _nextCellIndex = ";
+//  cout << _nextCellIndex << "; _activeCellCount = " << _activeCellCount << "\n";
+  
   // if we get request to refine a cell that we don't know about, we simply increment the _nextCellIndex and return
   // if we get a request to refine a cell whose first child has index less than _nextCellIndex, then we're being told about one that we already accounted for...
   if (firstChildCellIndex >= _nextCellIndex)
