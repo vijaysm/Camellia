@@ -188,6 +188,8 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
           Camellia::print(rankListLabel.str(), rankLocalCells);
         }
 
+        // TODO: change this to use (a) allGatherCompact(), and (b) STL vectors.
+        
         int myPartitionSize = rankLocalCells.size();
         int maxPartitionSize;
         Comm()->MaxAll(&myPartitionSize, &maxPartitionSize, 1);
@@ -196,7 +198,7 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
 
         partitionedActiveCells.initialize(-1); // cellID == -1 signals end of partition
 
-        // need to pass around information about partitions here thru MPI - each processor must know all other processors' partitions
+        // need to communicate partitions - on the present design, each rank needs to know every other rank's assignments
         FieldContainer<int> myPartition(maxPartitionSize);
         myPartition.initialize(-1);
 
@@ -219,12 +221,14 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
         }
 
         // now that we have the new partition, communicate it:
-        mesh->globalDofAssignment()->setPartitions(partitionedActiveCells);
+        mesh->globalDofAssignment()->setPartitions(partitionedActiveCells, false); // false: delay rebuild.  May depend on geometric information communicated by Migrate() call below.
 
   //      cout << "about to call zz->Migrate on rank " << myNode << endl;
         int rc = zz->Migrate(numImport, importGlobalIds, importLocalIds, importProcs, importToPart,
                              numExport, exportGlobalIds, exportLocalIds, exportProcs, exportToPart);
 
+        mesh->globalDofAssignment()->rebuildLookups();
+        
         if (rc == ZOLTAN_FATAL)
         {
           printf("Zoltan: migration failed on process %d with a fatal error.  Exiting...\n",myNode);
