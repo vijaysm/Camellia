@@ -38,7 +38,13 @@ void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
     }
     for (int j=1; j<labels->size(); j++)
     {
-      GlobalIndexType parentCellID = (*labels)[j-1];
+      GlobalIndexType grandparentFirstChildCellID = (*labels)[j-1];
+      int parentOffset = 0;
+      if (j >= 2)
+      {
+        parentOffset = (*refBranch)[j-2].second; // parent's childOrdinal in grandparent
+      }
+      GlobalIndexType parentCellID = grandparentFirstChildCellID + parentOffset;
       GlobalIndexType firstChildCellID = (*labels)[j];
       RefinementPatternPtr refPattern = RefinementPattern::refinementPattern((*refBranch)[j-1].first->getKey());
       bool allChildrenKnown = true;
