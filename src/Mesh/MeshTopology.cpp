@@ -533,12 +533,21 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const 
       CellPtr secondCell = _cells[secondNeighbor.first];
       firstCell->setNeighbor(firstNeighbor.second, secondNeighbor.first, secondNeighbor.second, allowSameCellIndices);
       secondCell->setNeighbor(secondNeighbor.second, firstNeighbor.first, firstNeighbor.second, allowSameCellIndices);
+      // TODO: Consider--might want to get rid of _boundarySides container altogether.  With distributed MeshTopology, it
+      // also contains the sides of ghost cells that do not actually lie on the boundary; they're just on the boundary of
+      // the region we know about...  The right way to know if a side is on the boundary is if it belongs to a cell we own
+      // *AND* that cell has no neighbor on that side.
       if (_boundarySides.find(sideEntityIndex) != _boundarySides.end())
       {
         if (_childEntities[sideDim].find(sideEntityIndex) != _childEntities[sideDim].end())
         {
-          cout << "Unhandled case: boundary side acquired neighbor after being refined.\n";
-          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled case: boundary side acquired neighbor after being refined");
+          // this can happen in context of migrated geometry
+          // then we also should erase all descendants of sideEntityIndex from _boundarySides
+          set<IndexType> childSideEntityIndices = descendants(sideDim, sideEntityIndex);
+          for (IndexType childSideEntityIndex : childSideEntityIndices)
+          {
+            _boundarySides.erase(childSideEntityIndex);
+          }
         }
         _boundarySides.erase(sideEntityIndex);
       }
@@ -554,7 +563,7 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const 
           getCell(childCellIndex)->setNeighbor(childSideIndex, secondNeighbor.first, secondNeighbor.second);
         }
       }
-      if (secondCell->isParent(thisPtr))   // I don't think we should ever get here
+      if (secondCell->isParent(thisPtr))
       {
         vector< pair< GlobalIndexType, unsigned> > secondCellDescendants = secondCell->getDescendantsForSide(secondNeighbor.first, thisPtr);
         for (vector< pair< GlobalIndexType, unsigned> >::iterator descIt = secondCellDescendants.begin(); descIt != secondCellDescendants.end(); descIt++)
