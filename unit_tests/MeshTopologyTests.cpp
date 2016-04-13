@@ -526,6 +526,38 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
     testPruneAddPrune(meshTopo, out, success);
   }
   
+  TEUCHOS_UNIT_TEST( MeshTopology, ActiveCellCount )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    int spaceDim = 1;
+    bool useConformingTraces = true;
+    int H1Order = 2;
+    int meshWidth = 2;
+    PoissonFormulation form(spaceDim,useConformingTraces,PoissonFormulation::ULTRAWEAK);
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0}, {meshWidth}, H1Order);
+    
+    MeshTopologyViewPtr meshTopo = mesh->getTopology();
+    int expectedActiveCellCount = meshWidth;
+    TEST_EQUALITY(meshTopo->activeCellCount(), expectedActiveCellCount);
+    
+    // do a few refinements:
+    // start with a non-uniform one, then refine uniformly from there
+    set<GlobalIndexType> cellsToRefine = {0};
+    mesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPatternLine());
+    expectedActiveCellCount += cellsToRefine.size();
+    TEST_EQUALITY(meshTopo->activeCellCount(), expectedActiveCellCount);
+    
+//    cellsToRefine = mesh->getActiveCellIDsGlobal();
+//    mesh->hRefine(cellsToRefine);
+//    expectedActiveCellCount += cellsToRefine.size();
+//    TEST_EQUALITY(meshTopo->activeCellCount(), expectedActiveCellCount);
+//    
+//    cellsToRefine = mesh->getActiveCellIDsGlobal();
+//    mesh->hRefine(cellsToRefine);
+//    expectedActiveCellCount += cellsToRefine.size();
+//    TEST_EQUALITY(meshTopo->activeCellCount(), expectedActiveCellCount);
+  }
+  
 TEUCHOS_UNIT_TEST( MeshTopology, InitialMeshEntitiesActiveCellCount)
 {
   // one easy way to create a quad mesh topology is to use MeshFactory
