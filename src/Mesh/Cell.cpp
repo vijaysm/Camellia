@@ -229,6 +229,8 @@ vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideI
   // if leafNodesOnly == false, returns a list in descending order: immediate children, then their children, and so on.
 
   // guarantee is that if a child and its parent are both in the list, the parent will come first
+  
+  // for distributed MeshTopology, list is only guaranteed to be complete for cells that are owned by the MeshTopology.
 
   TEUCHOS_TEST_FOR_EXCEPTION(!meshTopoViewForCellValidity->isValidCellIndex(_cellIndex), std::invalid_argument, "_cellIndex is not valid");
   
@@ -248,12 +250,12 @@ vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideI
     unsigned childOrdinal = (*entryIt).first;
     unsigned childSideOrdinal = (*entryIt).second;
     IndexType childCellIndex = _childIndices[childOrdinal];
-    if ( ( !meshTopoViewForCellValidity->isParent(childCellIndex)) || (! leafNodesOnly ) )
+    if ( (meshTopoViewForCellValidity->isValidCellIndex(childCellIndex) && !meshTopoViewForCellValidity->isParent(childCellIndex)) || (! leafNodesOnly ) )
     {
       // (            leaf node              ) || ...
       descendantsForSide.push_back( {_childIndices[childOrdinal], childSideOrdinal} );
     }
-    if ( _children[childOrdinal]->isParent(meshTopoViewForCellValidity) )
+    if ( (_children[childOrdinal] != Teuchos::null) && _children[childOrdinal]->isParent(meshTopoViewForCellValidity) )
     {
       vector< pair<GlobalIndexType,unsigned> > childDescendants = _children[childOrdinal]->getDescendantsForSide(childSideOrdinal,meshTopoViewForCellValidity,leafNodesOnly);
 //      descendantsForSide.insert(descendantsForSide.end(), childDescendants.begin(), childDescendants.end());
