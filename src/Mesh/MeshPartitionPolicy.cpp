@@ -100,25 +100,3 @@ Teuchos_CommPtr& MeshPartitionPolicy::TeuchosComm()
   }
   return _TeuchosComm;
 }
-
-//class OneRankPartitionPolicy : public MeshPartitionPolicy
-//{
-//  int _rankNumber;
-//public:
-//  OneRankPartitionPolicy(int rankNumber) : MeshPartitionPolicy(Teuchos::rcp(new Epetra_SerialComm()))
-//  {
-//    _rankNumber = rankNumber;
-//  }
-//  void partitionMesh(Mesh *mesh, PartitionIndexType numPartitions)
-//  {
-//    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
-//    vector< set<GlobalIndexType> > partitions(numPartitions);
-//    partitions[_rankNumber] = activeCellIDs;
-//    mesh->globalDofAssignment()->setPartitions(partitions);
-//  }
-//};
-//
-//MeshPartitionPolicyPtr MeshPartitionPolicy::oneRankPartitionPolicy(int rankNumber)
-//{
-//  return Teuchos::rcp( new OneRankPartitionPolicy(rankNumber) );
-//}
