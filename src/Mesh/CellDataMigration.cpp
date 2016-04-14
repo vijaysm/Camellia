@@ -479,6 +479,14 @@ void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, c
       }
     }
   }
+  
+  // finally, force parities for the cell and its neighbors to be recomputed:
+  mesh->globalDofAssignment()->assignParities(cellID);
+  set<GlobalIndexType> neighborIDs = meshTopo->getCell(cellID)->getActiveNeighborIndices(mesh->getTopology());
+  for (GlobalIndexType neighborID : neighborIDs)
+  {
+    mesh->globalDofAssignment()->assignParities(neighborID);
+  }
 }
 
 void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size)

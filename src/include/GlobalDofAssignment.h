@@ -62,8 +62,6 @@ protected:
   unsigned _numPartitions;
 
   vector< TSolutionPtr<double> > _registeredSolutions; // solutions that should be modified upon refinement (by subclasses--maximum rule has to worry about cell side upgrades, whereas minimum rule does not, so there's not a great way to do this in the abstract superclass.)
-
-  void assignParities( GlobalIndexType cellID );
   
   ElementTypePtr getElementTypeForKey(pair<CellTopologyKey,int> key);
 
@@ -95,6 +93,8 @@ public:
   // ! copies
   virtual GlobalDofAssignmentPtr deepCopy() = 0;
 
+  void assignParities( GlobalIndexType cellID );
+  
 //  virtual GlobalIndexType cellID(ElementTypePtr elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber);
   virtual vector<GlobalIndexType> cellIDsOfElementType(unsigned partitionNumber, ElementTypePtr elemTypePtr);
   const set< GlobalIndexType > &cellsInPartition(PartitionIndexType partitionNumber) const;

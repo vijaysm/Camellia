@@ -217,9 +217,14 @@ void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
   if (cell->isParent(_meshTopology))
   {
     vector<GlobalIndexType> childIndices = cell->getChildIndices(_meshTopology);
-    for (vector<GlobalIndexType>::iterator childIndexIt = childIndices.begin(); childIndexIt != childIndices.end(); childIndexIt++)
+    for (GlobalIndexType childCellIndex : childIndices)
     {
-      assignParities(*childIndexIt);
+      if (_meshTopology->isValidCellIndex(childCellIndex))
+      {
+        // if childCellIndex isn't a valid cell index, the cell for cellID must be a ghost cell, and we don't actually need parities
+        // to be correct on that side...
+        assignParities(childCellIndex);
+      }
     }
   }
 }
