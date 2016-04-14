@@ -2564,9 +2564,9 @@ pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(uns
         }
       }
 
-      if (_sidesForEntities[d].size() <= constrainingEntityIndex)
+      if (_sidesForEntities[d].size() <= constrainedEntityIndex)
       {
-        cout << "ERROR: entityIndex " << constrainingEntityIndex << " of dimension " << d << " is beyond bounds of _sidesForEntities" << endl;
+        cout << "ERROR: entityIndex " << constrainedEntityIndex << " of dimension " << d << " is beyond bounds of _sidesForEntities" << endl;
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "ERROR: constrainingEntityIndex is out of bounds of _sidesForEntities");
       }
       vector<IndexType> sideEntityIndices = _sidesForEntities[d][constrainedEntityIndex];
@@ -2600,7 +2600,11 @@ pair<IndexType,IndexType> MeshTopology::owningCellIndexForConstrainingEntity(uns
       // try the next refinement level down
       if (nextTierConstrainedEntities.size() == 0)
       {
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No active cell found containing entity constrained by constraining entity");
+        // in distributed mesh, we might not have access to the owning cell index for entities that don't belong to our cells
+        return {-1,-1};
+//        cout << "No active cell found containing entity constrained by constraining entity: " << CamelliaCellTools::entityTypeString(d) << " " << constrainingEntityIndex << endl;
+//        printAllEntities();
+//        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No active cell found containing entity constrained by constraining entity");
       }
       constrainedEntities = nextTierConstrainedEntities;
     }

@@ -1082,6 +1082,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson2DHangingNode1Irregular_Slow)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     int H1Order = 2;
     int irregularity = 1;
@@ -1092,6 +1093,8 @@ namespace
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson2DTrianglesHangingNode1Irregular_Slow)
   {
+    MPIWrapper::CommWorld()->Barrier();
+
     int spaceDim = 2;
     int H1Order = 2;
     bool useConformingTraces = true;

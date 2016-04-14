@@ -686,7 +686,9 @@ std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingE
       // try the next refinement level down
       if (nextTierConstrainedEntities.size() == 0)
       {
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No active cell found containing entity constrained by constraining entity");
+        // in distributed mesh, we might not have access to the owning cell index for entities that don't belong to our cells
+        return {-1, -1};
+//        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No active cell found containing entity constrained by constraining entity");
       }
       constrainedEntities = nextTierConstrainedEntities;
     }

@@ -150,6 +150,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( CellDataMigration, PackAndUnpackPureGeometry_2D )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     bool useConformingTraces = true;
     int H1Order = 2;
