@@ -63,6 +63,12 @@ namespace Camellia
     VarPtr v();
     VarPtr tau();
     
+    // ! returns the stabilization weight used in the SUPG formulation (will be null for non-SUPG formulations).
+    FunctionPtr SUPGStabilizationWeight();
+    
+    // ! sets the stabilization weight for SUPG formulations
+    void setSUPGStabilizationWeight(FunctionPtr stabilizationWeight);
+    
     // ! Returns the forcing function corresponding to the specified exact solution u
     FunctionPtr forcingFunction(FunctionPtr u_exact);
     
