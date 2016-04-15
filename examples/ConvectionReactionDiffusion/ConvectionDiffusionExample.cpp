@@ -262,6 +262,8 @@ int main(int argc, char *argv[])
   BCPtr bc = BC::bc();
   bc->addDirichlet(form.u_dirichlet(), INFLOW_TAG_ID, u_exact);
   bc->addDirichlet(form.u_dirichlet(), OUTFLOW_TAG_ID, u_exact); // u_exact should actually be zero on the whole boundary
+//  bc->addDirichlet(form.u_dirichlet(), INFLOW_TAG_ID, Function::zero());
+//  bc->addDirichlet(form.u_dirichlet(), OUTFLOW_TAG_ID, Function::zero()); // u_exact should actually be zero on the whole boundary
   
   SolutionPtr solution = Solution::solution(bf, mesh, bc, rhs, ip);
   
@@ -274,13 +276,26 @@ int main(int argc, char *argv[])
   FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(refStrategy.getRieszRep()) );
   refStrategy.getRieszRep()->computeRieszRep();
   
-  int refinementNumber = 0;
+  vector<FunctionPtr> functionsToExport = {u_exact, f, energyErrorFunction};
+  vector<string> functionsToExportNames = {"u_exact", "f", "energy_error"};
+  if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
+  {
+    // Plotting functions that depend on h values does not work yet (h functions assume that the points are
+    // quadrature weights, which isn't true for the plotter)--this will fail with an exception.
+    // Commented out for now.
+//    functionsToExport.push_back(form.SUPGStabilizationWeight());
+//    functionsToExportNames.push_back("tau");
+  }
   FunctionPtr meshIndicator = Function::meshSkeletonCharacteristic();
-  HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
-  functionExporter.exportFunction({u_exact, f, energyErrorFunction}, {"u_exact", "f", "energy_error"}, refinementNumber);
-  functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
+  vector<FunctionPtr> traceFunctionsToExport = {meshIndicator};
+  vector<string> traceFunctionsToExportNames = {"mesh"};
   
-  HDF5Exporter exporter(mesh, "ConvectionDiffusionExample", "/tmp");
+  int refinementNumber = 0;
+  HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
+  functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber);
+  functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber);
+  
+  HDF5Exporter exporter(mesh, "ConvectionDiffusionExample");
   exporter.exportSolution(solution, refinementNumber);
   
   while (refinementNumber < numRefinements)
@@ -326,8 +341,8 @@ int main(int argc, char *argv[])
     exporter.exportSolution(solution, refinementNumber);
     
     refStrategy.getRieszRep()->computeRieszRep();
-    functionExporter.exportFunction({u_exact, f, energyErrorFunction}, {"u_exact", "f", "energy_error"}, refinementNumber);
-    functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
+    functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber);
+    functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber);
   }
   
   double energyError = refStrategy.computeTotalEnergyError();
