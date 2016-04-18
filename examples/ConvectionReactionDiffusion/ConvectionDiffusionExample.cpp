@@ -280,11 +280,8 @@ int main(int argc, char *argv[])
   vector<string> functionsToExportNames = {"u_exact", "f", "energy_error"};
   if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
   {
-    // Plotting functions that depend on h values does not work yet (h functions assume that the points are
-    // quadrature weights, which isn't true for the plotter)--this will fail with an exception.
-    // Commented out for now.
-//    functionsToExport.push_back(form.SUPGStabilizationWeight());
-//    functionsToExportNames.push_back("tau");
+    functionsToExport.push_back(form.SUPGStabilizationWeight());
+    functionsToExportNames.push_back("tau");
   }
   FunctionPtr meshIndicator = Function::meshSkeletonCharacteristic();
   vector<FunctionPtr> traceFunctionsToExport = {meshIndicator};
