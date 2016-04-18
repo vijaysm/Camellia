@@ -865,18 +865,35 @@ const FieldContainer<double> & BasisCache::getPhysicalCubaturePoints()
 
 FieldContainer<double> BasisCache::getCellMeasures()
 {
-  if (!_weightedMeasureIsValid) recomputeMeasures();
-  int numCells = _weightedMeasure.dimension(0);
-  int numPoints = _weightedMeasure.dimension(1);
-  FieldContainer<double> cellMeasures(numCells);
-  for (int cellIndex=0; cellIndex<numCells; cellIndex++)
+  if (_cubWeights.size() != 0)
   {
-    for (int ptIndex=0; ptIndex<numPoints; ptIndex++)
+    if (!_weightedMeasureIsValid) recomputeMeasures();
+    int numCells = _weightedMeasure.dimension(0);
+    int numPoints = _weightedMeasure.dimension(1);
+    FieldContainer<double> cellMeasures(numCells);
+    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
     {
-      cellMeasures(cellIndex) += _weightedMeasure(cellIndex,ptIndex);
+      for (int ptIndex=0; ptIndex<numPoints; ptIndex++)
+      {
+        cellMeasures(cellIndex) += _weightedMeasure(cellIndex,ptIndex);
+      }
     }
+    return cellMeasures;
   }
-  return cellMeasures;
+  else if (_mesh != Teuchos::null)
+  {
+    int cellOrdinal = 0;
+    FieldContainer<double> cellMeasures(_cellIDs.size());
+    for (GlobalIndexType cellID : _cellIDs)
+    {
+      cellMeasures(cellOrdinal) = _mesh->getCellMeasure(cellID);
+    }
+    return cellMeasures;
+  }
+  else
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "BasisCache::getCellMeasures() requires either a Mesh to be provided or a BasisCache with cubature points as reference points");
+  }
 }
 
 const Intrepid::FieldContainer<double> & BasisCache::getCubatureWeights()

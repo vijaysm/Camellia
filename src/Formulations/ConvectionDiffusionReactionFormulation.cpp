@@ -143,7 +143,9 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
         }
       }
       FunctionPtr beta_norm = Function::sqrtFunction(beta_norm_squared);
-      FunctionPtr stabilizationWeight = Function::max(h * beta_norm - 2 * _epsilon, Function::zero()) / beta_norm_squared;
+      FunctionPtr Egger_Schoberl = Function::max(h * beta_norm - 2 * _epsilon, Function::zero() / beta_norm_squared);
+      // per Vijay, the stabilization weight should not be more than h / 2
+      FunctionPtr stabilizationWeight = Function::min(Egger_Schoberl, h / 2.0);
       _stabilizationWeight = ParameterFunction::parameterFunction(stabilizationWeight);
     }
       _bf = Teuchos::rcp( new BF(_vf) );
@@ -209,6 +211,16 @@ LinearTermPtr ConvectionDiffusionReactionFormulation::residual(SolutionPtr soln)
   return bfEval - soln->rhs()->linearTerm();
 }
 
+void ConvectionDiffusionReactionFormulation::setSUPGStabilizationWeight(FunctionPtr stabilizationWeight)
+{
+  if (_formulationChoice != SUPG)
+  {
+    cout << "setSUPGStabilizationWeight() requires that formulation was constructed with SUPG formulation choice.\n";
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "setSUPGStabilizationWeight() requires that formulation was constructed with SUPG formulation choice.");
+  }
+  _stabilizationWeight->setValue(stabilizationWeight);
+}
+
 VarPtr ConvectionDiffusionReactionFormulation::sigma()
 {
   return _vf->fieldVar(S_SIGMA);
@@ -217,6 +229,11 @@ VarPtr ConvectionDiffusionReactionFormulation::sigma()
 VarPtr ConvectionDiffusionReactionFormulation::sigma_n()
 {
   return _vf->fluxVar(S_SIGMA_N);
+}
+
+FunctionPtr ConvectionDiffusionReactionFormulation::SUPGStabilizationWeight()
+{
+  return _stabilizationWeight;
 }
 
 VarPtr ConvectionDiffusionReactionFormulation::u()

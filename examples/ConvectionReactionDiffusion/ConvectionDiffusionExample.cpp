@@ -262,6 +262,8 @@ int main(int argc, char *argv[])
   BCPtr bc = BC::bc();
   bc->addDirichlet(form.u_dirichlet(), INFLOW_TAG_ID, u_exact);
   bc->addDirichlet(form.u_dirichlet(), OUTFLOW_TAG_ID, u_exact); // u_exact should actually be zero on the whole boundary
+//  bc->addDirichlet(form.u_dirichlet(), INFLOW_TAG_ID, Function::zero());
+//  bc->addDirichlet(form.u_dirichlet(), OUTFLOW_TAG_ID, Function::zero()); // u_exact should actually be zero on the whole boundary
   
   SolutionPtr solution = Solution::solution(bf, mesh, bc, rhs, ip);
   
@@ -274,14 +276,29 @@ int main(int argc, char *argv[])
   FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(refStrategy.getRieszRep()) );
   refStrategy.getRieszRep()->computeRieszRep();
   
-  int refinementNumber = 0;
+  vector<FunctionPtr> functionsToExport = {u_exact, f, energyErrorFunction};
+  vector<string> functionsToExportNames = {"u_exact", "f", "energy_error"};
+  if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
+  {
+    functionsToExport.push_back(form.SUPGStabilizationWeight());
+    functionsToExportNames.push_back("tau");
+  }
   FunctionPtr meshIndicator = Function::meshSkeletonCharacteristic();
-  HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
-  functionExporter.exportFunction({u_exact, f, energyErrorFunction}, {"u_exact", "f", "energy_error"}, refinementNumber);
-  functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
+  vector<FunctionPtr> traceFunctionsToExport = {meshIndicator};
+  vector<string> traceFunctionsToExportNames = {"mesh"};
   
-  HDF5Exporter exporter(mesh, "ConvectionDiffusionExample", "/tmp");
-  exporter.exportSolution(solution, refinementNumber);
+  int refinementNumber = 0;
+  
+  // for some reason, ParaView introduces visual artifacts when doing plot over line on traces when
+  // the outputted resolution (HDF5Exporter's "num1DPoints" argument) is too low.  (10 is too low.)
+  int numLinearPointsPlotting = max(polyOrder,15);
+
+  HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
+  functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
+  functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
+  
+  HDF5Exporter exporter(mesh, "ConvectionDiffusionExample");
+  exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
   
   while (refinementNumber < numRefinements)
   {
@@ -304,11 +321,6 @@ int main(int argc, char *argv[])
       gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
       gmgSolver->setUseConjugateGradient(false); // won't be SPD
     }
-    else
-    {
-//      // just let's try something
-//      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
-    }
     
     gmgSolver->setAztecOutput(25);
     
@@ -323,11 +335,11 @@ int main(int argc, char *argv[])
     solution->solve(gmgSolver);
     refinementNumber++;
     
-    exporter.exportSolution(solution, refinementNumber);
+    exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
     
     refStrategy.getRieszRep()->computeRieszRep();
-    functionExporter.exportFunction({u_exact, f, energyErrorFunction}, {"u_exact", "f", "energy_error"}, refinementNumber);
-    functionExporter.exportFunction({meshIndicator}, "mesh", refinementNumber);
+    functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
+    functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
   }
   
   double energyError = refStrategy.computeTotalEnergyError();

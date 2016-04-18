@@ -1290,6 +1290,151 @@ namespace
     TEST_EQUALITY(numVertices, globalDofCount);
   }
   
+  TEUCHOS_UNIT_TEST( GDAMinimumRule, DofCount_UltraweakConformingTriangles )
+  {
+    // a couple tests to ensure that the dof counts are correct in linear, triangular meshes
+    int spaceDim = 2;
+    bool useConformingTraces = true;
+    bool useTriangles = true;
+    PoissonFormulation form(spaceDim, useConformingTraces, PoissonFormulation::ULTRAWEAK);
+  
+    /*
+     Ultraweak conforming Poisson formulation has the following variables:
+     phi - scalar field
+     psi - vector field
+     phi_hat - H^1 conforming trace
+     psi_n_hat - L^2 conforming flux
+     
+     The global degree of freedom count we expect for a uniform triangular linear H^1 mesh is as follows:
+     phi - 1 dof/triangle (constant basis)
+     psi - 2 dofs/triangle (constant basis)
+     phi_hat - 1 dof/vertex (linear basis)
+     psi_n_hat - 1 dof/edge (constant basis)
+     
+     */
+    
+    auto dofCount = [](int numTriangles, int numEdges, int numVertices) {
+      return 3 * numTriangles + numVertices + numEdges;
+    };
+    
+    vector<double> dimensions = {1.0,1.0};
+    vector<int> elementCounts = {1,1};
+    
+    int H1Order = 1, delta_k = 0;
+    MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
+                                                elementCounts[0], elementCounts[1], useTriangles);
+    
+    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    int vertexDim = 0;
+    int edgeDim = 1;
+    int numVertices = meshTopo->getEntityCount(vertexDim);
+    int numElements = meshTopo->activeCellCount();
+    int numEdges = meshTopo->getEntityCount(edgeDim);
+    
+    int globalDofCount = mesh->numGlobalDofs();
+    int expectedGlobalDofCount = dofCount(numElements,numEdges,numVertices);
+    TEST_EQUALITY(expectedGlobalDofCount, globalDofCount);
+    
+    elementCounts = {16,16};
+    mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
+                                        elementCounts[0], elementCounts[1], useTriangles);
+    meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+
+    numVertices = meshTopo->getEntityCount(vertexDim);
+    numElements = meshTopo->activeCellCount();
+    numEdges = meshTopo->getEntityCount(edgeDim);
+    
+    globalDofCount = mesh->numGlobalDofs();
+    expectedGlobalDofCount = dofCount(numElements,numEdges,numVertices);
+    TEST_EQUALITY(expectedGlobalDofCount, globalDofCount);
+  }
+
+  TEUCHOS_UNIT_TEST( GDAMinimumRule, InterpretGlobalBasisCoefficientsUltraweakConforming_Triangles )
+  {
+    int spaceDim = 2;
+    bool useConformingTraces = true;
+    bool useTriangles = true;
+    PoissonFormulation form(spaceDim, useConformingTraces, PoissonFormulation::ULTRAWEAK);
+    
+    vector<double> dimensions = {1.0,1.0};
+    vector<int> elementCounts = {4,4};
+    
+    int H1Order = 1, delta_k = 0;
+    MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
+                                                elementCounts[0], elementCounts[1], useTriangles);
+    
+    double prescribedValue = 1.0;
+    SolutionPtr soln = Solution::solution(form.bf(), mesh);
+    BCPtr bc = BC::bc();
+    VarPtr phi_hat = form.phi_hat();
+    bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
+    soln->initializeLHSVector();
+    
+    Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndices;
+    Intrepid::FieldContainer<double> bcGlobalValues;
+    
+    PartitionIndexType rank = mesh->Comm()->MyPID();
+    set<GlobalIndexType> myGlobalIndicesSet = mesh->globalDofAssignment()->globalDofIndicesForPartition(rank);
+    
+    mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*bc, myGlobalIndicesSet, mesh->globalDofAssignment().get());
+    
+    // we prescribe 1 at at all the bc indices, and 0 everywhere else.
+    // then we check the values on the elements.
+    // for now, we are interested in cell 0, side 2 in particular, because of a bug.
+    
+    auto lhsVector = soln->getLHSVector();
+    
+    for (int i=0; i<bcGlobalIndices.size(); i++)
+    {
+      GlobalIndexType globalIndex = bcGlobalIndices[i];
+      (*lhsVector)[0][globalIndex] = bcGlobalValues[i];
+    }
+    
+    soln->importSolution();
+    // for each of my cells, find vertices on the mesh boundary.
+    set<GlobalIndexType> myCellIDs = mesh->cellIDsInPartition();
+    int numPoints = 4;
+    FieldContainer<double> refLinePoints(numPoints,1);
+    refLinePoints(0,0) = -1.0;
+    refLinePoints(1,0) = -0.5;
+    refLinePoints(2,0) =  0.5;
+    refLinePoints(3,0) =  1.0;
+    
+    double tol = 1e-14;
+    FunctionPtr phi_soln = Function::solution(phi_hat, soln);
+    FieldContainer<double> phiValues(1,numPoints);
+    for (GlobalIndexType cellID : myCellIDs)
+    {
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+      int sideCount = basisCache->cellTopology()->getSideCount();
+      for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
+      {
+        BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+        sideCache->setRefCellPoints(refLinePoints);
+        phi_soln->values(phiValues, sideCache);
+        
+        // are there some physical points that lie on the boundary?
+        // we expect to match prescribedValue at these
+        const FieldContainer<double>* physicalPoints = &sideCache->getPhysicalCubaturePoints();
+        for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
+        {
+          double x = (*physicalPoints)(0,pointOrdinal,0);
+          double y = (*physicalPoints)(0,pointOrdinal,1);
+          if ((abs(x-0) < tol) || (abs(x-1) < tol) || (abs(y-0) < tol) || (abs(y-1) < tol))
+          {
+            double actualValue = phiValues(0,pointOrdinal);
+            out << "testing value for (" << x << "," << y << ") on cell " << cellID << ", side " << sideOrdinal << endl;
+            TEST_FLOATING_EQUALITY(actualValue, prescribedValue, tol);
+          }
+        }
+      }
+    }
+    HDF5Exporter exporter(mesh, "PoissonGlobalBCExample", "/tmp");
+    int num1DPoints = 20;
+    exporter.exportSolution(soln, 0, num1DPoints);
+//    success = false;
+  }
+  
   TEUCHOS_UNIT_TEST( GDAMinimumRule, InterpretLocalBasisCoefficientsHangingNode_Triangles )
   {
     /*
