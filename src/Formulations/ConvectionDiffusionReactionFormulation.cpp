@@ -144,8 +144,8 @@ ConvectionDiffusionReactionFormulation::ConvectionDiffusionReactionFormulation(F
       }
       FunctionPtr beta_norm = Function::sqrtFunction(beta_norm_squared);
       FunctionPtr Egger_Schoberl = Function::max(h * beta_norm - 2 * _epsilon, Function::zero() / beta_norm_squared);
-      // per Vijay, should also take a max with h/2:
-      FunctionPtr stabilizationWeight = Function::max(Egger_Schoberl, h / 2.0);
+      // per Vijay, the stabilization weight should not be more than h / 2
+      FunctionPtr stabilizationWeight = Function::min(Egger_Schoberl, h / 2.0);
       _stabilizationWeight = ParameterFunction::parameterFunction(stabilizationWeight);
     }
       _bf = Teuchos::rcp( new BF(_vf) );
