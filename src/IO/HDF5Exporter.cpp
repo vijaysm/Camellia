@@ -130,8 +130,8 @@ void HDF5Exporter::exportFunction(TFunctionPtr<double> function, string function
 
 void HDF5Exporter::exportFunction(vector<TFunctionPtr<double>> functions, vector<string> functionNames, double timeVal, unsigned int defaultNum1DPts, map<int, int> cellIDToNum1DPts, set<GlobalIndexType> cellIndices)
 {
-  int commRank = Teuchos::GlobalMPISession::getRank();
-  int numProcs = Teuchos::GlobalMPISession::getNProc();
+  int commRank = _mesh->Comm()->MyPID();
+  int numProcs = _mesh->Comm()->NumProc();
 
   bool exportingBoundaryValues = functions[0]->boundaryValueOnly();
 
@@ -606,13 +606,9 @@ void HDF5Exporter::exportFunction(vector<TFunctionPtr<double>> functions, vector
     GlobalIndexType cellIndex = *cellIt;
     CellPtr cell = _mesh->getTopology()->getCell(cellIndex);
 
-    Intrepid::FieldContainer<double> physicalCellNodes = _mesh->getTopology()->physicalCellNodesForCell(cellIndex);
-
     CellTopoPtr cellTopoPtr = cell->topology();
     int num1DPts = cellIDToNum1DPts[cell->cellIndex()];
 
-    if (physicalCellNodes.rank() == 2)
-      physicalCellNodes.resize(1,physicalCellNodes.dimension(0), physicalCellNodes.dimension(1));
     bool createSideCache = functions[0]->boundaryValueOnly();
 
     BasisCachePtr volumeBasisCache = BasisCache::basisCacheForCell(_mesh, cellIndex);
@@ -643,6 +639,39 @@ void HDF5Exporter::exportFunction(vector<TFunctionPtr<double>> functions, vector
         else
           TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled function rank");
         functions[i]->values(computedValues[i], basisCache);
+//        {
+//          // DEBUGGING
+//          if ( functionNames[i] == "uhat")
+//          {
+//            bool havePrinted = false;
+//            // check for physical points are on the x axis; we want to print those values when they differ from 1
+//            for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
+//            {
+//              double x = (*physicalPoints)(0,pointOrdinal,0);
+//              double y = (*physicalPoints)(0,pointOrdinal,1);
+//              if (y==0)
+//              {
+//                double value = computedValues[i](0,pointOrdinal);
+////                double expectedValue = 0.0;
+////                if (abs(value-expectedValue) > 1e-14)
+////                {
+////                  if (!havePrinted)
+////                  {
+////                    cout << "Cell ID " << cellIndex << ", side " << sideOrdinal;
+////                    cout << ", values that differ from " << expectedValue << " on the x axis:" << endl;
+////                    havePrinted = true;
+////                  }
+//                  cout << "x=" << x << ", value=" << value << endl;
+////                }
+//              }
+//            }
+//            if (havePrinted)
+//            {
+//              // repeat the call, so we can enter in the debugger:
+//              functions[i]->values(computedValues[i], basisCache);
+//            }
+//          }
+//        }
       }
 
       unsigned baseCellTopoKey = topo->getKey().first;
