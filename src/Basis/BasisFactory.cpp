@@ -48,6 +48,7 @@
 #include "Intrepid_HCURL_TET_In_FEM.hpp"
 
 #include "Basis_HVOL_QUAD_C0_FEM.hpp"
+#include "Basis_HVOL_TRI_C0_FEM.hpp"
 
 #include "VectorizedBasis.h"
 
@@ -349,10 +350,22 @@ BasisPtr BasisFactory::getBasis( int polyOrder, unsigned cellTopoKey, Camellia::
                             );
         break;
       case Camellia::FUNCTION_SPACE_HVOL:
-        TEUCHOS_TEST_FOR_EXCEPTION(polyOrder <= 1, std::invalid_argument, "Constant basis not supported by Intrepid::Basis_HGRAD_TRI_Cn_FEM");
-        basis = Teuchos::rcp( new IntrepidBasisWrapper<>( Teuchos::rcp( new Intrepid::Basis_HGRAD_TRI_Cn_FEM<double, Intrepid::FieldContainer<double> >(polyOrder-1,POINTTYPE_WARPBLEND)),
-                              spaceDim, scalarRank, fs)
-                            );
+          if (polyOrder == 1)
+          {
+            basis = Teuchos::rcp( new IntrepidBasisWrapper<>( Teuchos::rcp( new Intrepid::Basis_HVOL_TRI_C0_FEM<double, Intrepid::FieldContainer<double> >()),
+                                                             spaceDim, scalarRank, fs)
+                                 );
+          }
+          else if (polyOrder >= 1)
+          {
+            basis = Teuchos::rcp( new IntrepidBasisWrapper<>( Teuchos::rcp( new Intrepid::Basis_HGRAD_TRI_Cn_FEM<double, Intrepid::FieldContainer<double> >(polyOrder-1,POINTTYPE_WARPBLEND)),
+                                                             spaceDim, scalarRank, fs)
+                                 );
+          }
+          else
+          {
+            TEUCHOS_TEST_FOR_EXCEPTION(polyOrder < 1, std::invalid_argument, "Invalid H^1 order");
+          }
         break;
       default:
         TEUCHOS_TEST_FOR_EXCEPTION( ( (fs != Camellia::FUNCTION_SPACE_HGRAD) &&
