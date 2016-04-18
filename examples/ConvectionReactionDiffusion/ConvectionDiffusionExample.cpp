@@ -291,12 +291,17 @@ int main(int argc, char *argv[])
   vector<string> traceFunctionsToExportNames = {"mesh"};
   
   int refinementNumber = 0;
+  
+  // for some reason, ParaView introduces visual artifacts when doing plot over line on traces when
+  // the outputted resolution (HDF5Exporter's "num1DPoints" argument) is too low.  (10 is too low.)
+  int numLinearPointsPlotting = max(polyOrder,15);
+
   HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
-  functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber);
-  functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber);
+  functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
+  functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
   
   HDF5Exporter exporter(mesh, "ConvectionDiffusionExample");
-  exporter.exportSolution(solution, refinementNumber);
+  exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
   
   while (refinementNumber < numRefinements)
   {
@@ -319,11 +324,6 @@ int main(int argc, char *argv[])
       gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
       gmgSolver->setUseConjugateGradient(false); // won't be SPD
     }
-    else
-    {
-//      // just let's try something
-//      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
-    }
     
     gmgSolver->setAztecOutput(25);
     
@@ -338,11 +338,11 @@ int main(int argc, char *argv[])
     solution->solve(gmgSolver);
     refinementNumber++;
     
-    exporter.exportSolution(solution, refinementNumber);
+    exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
     
     refStrategy.getRieszRep()->computeRieszRep();
-    functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber);
-    functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber);
+    functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
+    functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
   }
   
   double energyError = refStrategy.computeTotalEnergyError();
