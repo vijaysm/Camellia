@@ -1632,12 +1632,9 @@ void Mesh::writeMeshPartitionsToFile(const string & fileName)
 
 double Mesh::getCellMeasure(GlobalIndexType cellID)
 {
-  FieldContainer<double> physicalCellNodes = physicalCellNodesForCell(cellID);
-  ElementPtr elem = getElement(cellID);
-  Teuchos::RCP< ElementType > elemType = elem->elementType();
-  CellTopoPtr cellTopo = elemType->cellTopoPtr;
-  BasisCache basisCache(physicalCellNodes, cellTopo, 1);
-  return basisCache.getCellMeasures()(0);
+  MeshPtr thisPtr = Teuchos::rcp(this, false);
+  BasisCachePtr basisCache = BasisCache::basisCacheForCell(thisPtr, cellID);
+  return basisCache->getCellMeasures()(0);
 }
 
 double Mesh::getCellXSize(GlobalIndexType cellID)
