@@ -332,20 +332,6 @@ GlobalIndexType Mesh::activeCellOffset()
   return _gda->activeCellOffset();
 }
 
-//vector< ElementPtr > Mesh::activeElements()
-//{
-//  set< IndexType > activeCellIndices = _meshTopology->getActiveCellIndicesGlobal();
-//
-//  vector< ElementPtr > activeElements;
-//
-//  for (set< IndexType >::iterator cellIt = activeCellIndices.begin(); cellIt != activeCellIndices.end(); cellIt++)
-//  {
-//    activeElements.push_back(getElement(*cellIt));
-//  }
-//
-//  return activeElements;
-//}
-
 // TODO: replace this with a method that takes a CellID as first argument and returns a CellID (or -1).
 ElementPtr Mesh::ancestralNeighborForSide(ElementPtr elem, int sideIndex, int &elemSideIndexInNeighbor)
 {
