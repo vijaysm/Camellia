@@ -9,15 +9,13 @@
 #ifndef __Camellia_debug__GDAMinimumRule__
 #define __Camellia_debug__GDAMinimumRule__
 
-#include "TypeDefs.h"
-
 #include <iostream>
 
-#include "GlobalDofAssignment.h"
-
-#include "LocalDofMapper.h"
-
 #include "BasisReconciliation.h"
+#include "GlobalDofAssignment.h"
+#include "LocalDofMapper.h"
+#include "SubCellDofIndexInfo.h"
+#include "TypeDefs.h"
 
 namespace Camellia
 {
@@ -212,10 +210,6 @@ class GDAMinimumRule : public GlobalDofAssignment
   GlobalIndexType _partitionFluxDofCount;
   GlobalIndexType _partitionTraceDofCount;
 
-  typedef map<int, vector<GlobalIndexType> > VarIDToDofIndices; // key: varID
-  typedef map<unsigned, VarIDToDofIndices> SubCellOrdinalToMap; // key: subcell ordinal
-  typedef vector< SubCellOrdinalToMap > SubCellDofIndexInfo; // index to vector: subcell dimension
-
   bool _allowCascadingConstraints = false;
   
   map< GlobalIndexType, CellConstraints > _constraintsCache;
@@ -236,8 +230,11 @@ class GDAMinimumRule : public GlobalDofAssignment
   typedef pair< IndexType, unsigned > CellPair;
   CellPair cellContainingEntityWithLeastH1Order(int d, IndexType entityIndex);
   
-  void distributeSubcellOwnership(const map<GlobalIndexType, SubcellList> &mySubcellOwnership, const set<GlobalIndexType> &remoteCellIDs,
-                                  map<GlobalIndexType, SubcellList> &remoteSubcellOwnership);
+//  void distributeSubcellOwnership(const map<GlobalIndexType, SubcellList> &mySubcellOwnership, const set<GlobalIndexType> &remoteCellIDs,
+//                                  map<GlobalIndexType, SubcellList> &remoteSubcellOwnership);
+  void distributeGlobalDofOwnership(const map<GlobalIndexType, SubCellDofIndexInfo> &myOwnedGlobalDofs,
+                                    const set<GlobalIndexType> &remoteCellIDs,
+                                    map<GlobalIndexType, SubCellDofIndexInfo> &remotelyOwnedGlobalDofs);
   
   AnnotatedEntity* getConstrainingEntityInfo(GlobalIndexType cellID, CellConstraints &cellConstraints, VarPtr var, int d, int scord);
   void getConstrainingEntityInfo(GlobalIndexType cellID, CellConstraints &cellConstraints, VarPtr var, int d, int scord,
