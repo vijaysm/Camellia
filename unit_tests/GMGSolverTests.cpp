@@ -772,19 +772,20 @@ namespace
     vector<int> elementCounts(spaceDim,coarseElementCount);
     BFPtr bf = form.bf();
     MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_fine, delta_k);
+    set<GlobalIndexType> originalGlobalActiveCellIndices = fineMesh->getActiveCellIDsGlobal();
     fineMesh->hRefine(vector<GlobalIndexType>({0}));
     
     MeshTopologyViewPtr fineMeshTopo = fineMesh->getTopology();
     MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView(fineMeshTopo->getLocallyKnownActiveCellIndices());
-    MeshTopologyViewPtr coarsestMeshTopo = fineMeshTopo->getView({0});
+    MeshTopologyViewPtr coarsestMeshTopo = fineMeshTopo->getView(originalGlobalActiveCellIndices);
 
     MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo,
-                                                                                                               fineMeshTopo);
+                                                                                                               fineMesh);
     
     MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k,
                                                 map<int,int>(), map<int,int>(), inducedPartitionPolicy) );
 
-    inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarsestMeshTopo, coarseMeshTopo);
+    inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarsestMeshTopo, coarseMesh);
 
     MeshPtr coarsestMesh = Teuchos::rcp( new Mesh(coarsestMeshTopo, bf, H1Order_coarsest, delta_k,
                                                   map<int,int>(), map<int,int>(), inducedPartitionPolicy) );

@@ -80,7 +80,10 @@ void InducedMeshPartitionPolicy::didHUnrefine(MeshTopologyPtr meshToRefine, cons
 
 void InducedMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType numPartitions)
 {
-  TEUCHOS_TEST_FOR_EXCEPTION(mesh != _thisMesh.get(), std::invalid_argument, "InducedMeshPartitionPolicy may only be used to partition the mesh passed as thisMesh to the constructor");
+  if (_thisMesh != Teuchos::null)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(mesh != _thisMesh.get(), std::invalid_argument, "InducedMeshPartitionPolicy may only be used to partition the mesh passed as thisMesh to the constructor");
+  }
   
   int otherPartitionCount = _otherMesh->globalDofAssignment()->getPartitionCount();
   if (numPartitions < otherPartitionCount)
