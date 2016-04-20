@@ -357,6 +357,16 @@ ElementTypePtr GlobalDofAssignment::elementType(GlobalIndexType cellID)
   return getElementTypeForKey(key);
 }
 
+const map<GlobalIndexType,int>& GlobalDofAssignment::getCellPRefinements() const
+{
+  return _cellPRefinements;
+}
+
+void GlobalDofAssignment::setCellPRefinements(const map<GlobalIndexType,int>& pRefinements)
+{
+  _cellPRefinements = pRefinements;
+}
+
 void GlobalDofAssignment::repartitionAndMigrate()
 {
   _partitionPolicy->partitionMesh(_mesh.get(),_numPartitions);

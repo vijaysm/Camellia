@@ -4279,8 +4279,10 @@ vector<int> TSolution<Scalar>::getZeroMeanConstraints()
   vector< int > trialIDs;
   if (_bf != Teuchos::null)
     trialIDs = _bf->trialIDs();
-  else
+  else if (_mesh->bilinearForm() != Teuchos::null)
     trialIDs = _mesh->bilinearForm()->trialIDs();
+  else
+    trialIDs = _mesh->varFactory()->trialIDs();
   vector< int > zeroMeanConstraints;
   if (_bc.get()==NULL) return zeroMeanConstraints; //empty
   for (vector< int >::iterator trialIt = trialIDs.begin(); trialIt != trialIDs.end(); trialIt++)

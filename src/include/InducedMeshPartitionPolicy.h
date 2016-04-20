@@ -26,6 +26,9 @@ namespace Camellia
     InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr otherMesh);
     InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr otherMesh, const map<GlobalIndexType, GlobalIndexType> & cellIDMap);
     
+    // ! Suitable for setting up a partition policy passed in during Mesh construction.
+    InducedMeshPartitionPolicy(MeshPtr otherMesh, const map<GlobalIndexType, GlobalIndexType> & cellIDMap);
+    
     void didHRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern);
     void didHUnrefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs);
     

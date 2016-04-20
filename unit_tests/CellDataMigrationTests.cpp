@@ -103,6 +103,8 @@ namespace
      6. Compare the return value with CellDataMigration::getCellHaloGeometry().
      */
     
+    MPIWrapper::CommWorld()->Barrier();
+    
     const set<GlobalIndexType>* myCellIndices = &mesh->cellIDsInPartition();
     
     for (GlobalIndexType cellID : *myCellIndices)

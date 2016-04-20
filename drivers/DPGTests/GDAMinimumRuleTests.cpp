@@ -1049,7 +1049,7 @@ SolutionPtr GDAMinimumRuleTests::poissonExactSolution3DHangingNodes(int irregula
   }
   int horizontalCellsInitialMesh = 1, verticalCellsInitialMesh = 2, depthCellsInitialMesh = 1;
 
-  bool useH1Traces = true; // "true" is the more thorough test
+  bool useH1Traces = (irregularity < 2); // "true" is the more thorough test, but only supported for 1-irregular
 
   SolutionPtr soln = poissonExactSolution3D(horizontalCellsInitialMesh, verticalCellsInitialMesh, depthCellsInitialMesh, H1Order, phi_exact, useH1Traces);
 
@@ -1069,7 +1069,6 @@ SolutionPtr GDAMinimumRuleTests::poissonExactSolution3DHangingNodes(int irregula
   vector<CellPtr> children = mesh->getTopology()->getCell(1)->children();
 
   GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(mesh->globalDofAssignment().get());
-  minRule->setAllowCascadingConstraints(true); // required for 2-irregular meshes
   
   // childrenForSides outer vector: indexed by parent's sides; inner vector: (child index in children, index of child's side shared with parent)
   vector< vector< pair< unsigned, unsigned > > > childrenForSides = mesh->getTopology()->getCell(1)->refinementPattern()->childrenForSides();

@@ -408,9 +408,12 @@ namespace
     double xLeft = 0.0, xRight = 1.0;
     int coarseElementCount = 1;
 
-    MeshPtr mesh = MeshFactory::intervalMesh(bf, xLeft, xRight, coarseElementCount, H1Order, delta_k);
-    // for debugging, do a refinement first:
-    //  mesh->hRefine(mesh->getActiveCellIDsGlobal());
+    MeshPtr fineMesh = MeshFactory::intervalMesh(bf, xLeft, xRight, coarseElementCount, H1Order, delta_k);
+    auto originalCells = fineMesh->getActiveCellIDsGlobal();
+    fineMesh->hRefine(originalCells);
+    
+    MeshTopologyViewPtr meshTopoCoarse = fineMesh->getTopology()->getView(originalCells);
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopoCoarse, fineMesh->bilinearForm(), H1Order, delta_k) );
     
     SolutionPtr coarseSoln = Solution::solution(mesh);
     
@@ -462,11 +465,6 @@ namespace
       }
       out << *coarseSoln->getLHSVector();
     }
-    
-    MeshPtr fineMesh = mesh->deepCopy();
-    
-    fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
-    //  fineMesh->hRefine(fineMesh->getActiveCellIDsGlobal());
     
     SolutionPtr fineSoln = Solution::solution(fineMesh);
     fineSoln->setBC(bc);
@@ -570,41 +568,9 @@ namespace
     vector<double> dimensions(spaceDim,1.0);
     vector<int> elementCounts(spaceDim,coarseElementCount);
     vector<double> x0(spaceDim,0.0);
-    MeshPtr mesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0, trialOrderEnhancements);
+    MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0, trialOrderEnhancements);
+    auto originalCells = fineMesh->getActiveCellIDsGlobal();
     
-    SolutionPtr coarseSoln = Solution::solution(mesh);
-    BCPtr bc = BC::bc();
-    coarseSoln->setBC(bc);
-    coarseSoln->setUseCondensedSolve(useStaticCondensation);
-    
-    VarPtr q = form.q();
-    RHSPtr rhs = RHS::rhs();
-    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
-    rhs->addTerm(f * q);
-    coarseSoln->setRHS(rhs);
-    IPPtr ip = bf->graphNorm();
-    coarseSoln->setIP(ip);
-    coarseSoln->setUseCondensedSolve(useStaticCondensation);
-    
-    map<int, FunctionPtr> exactSolnMap;
-    exactSolnMap[phi->ID()] = phi_exact;
-    exactSolnMap[psi->ID()] = psi_exact;
-    
-    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
-    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
-    
-    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
-    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
-    
-    coarseSoln->projectOntoMesh(exactSolnMap);
-    
-    double energyError = coarseSoln->energyErrorTotal();
-    
-    // sanity check: our exact solution should give us 0 energy error
-    double tol = 1e-12;
-    TEST_COMPARE(energyError, <, tol);
-    
-    MeshPtr fineMesh = mesh->deepCopy();
     GlobalIndexType lastRefinedCellID = -1;
     for (int i=0; i<levels; i++)
     {
@@ -637,6 +603,41 @@ namespace
       else
         fineMesh->pRefine(cellsToRefine);
     }
+    
+    MeshTopologyViewPtr meshTopoCoarse = fineMesh->getTopology()->getView(originalCells);
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopoCoarse, fineMesh->bilinearForm(), H1Order, delta_k) );
+    
+    SolutionPtr coarseSoln = Solution::solution(mesh);
+    BCPtr bc = BC::bc();
+    coarseSoln->setBC(bc);
+    coarseSoln->setUseCondensedSolve(useStaticCondensation);
+    
+    VarPtr q = form.q();
+    RHSPtr rhs = RHS::rhs();
+    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
+    rhs->addTerm(f * q);
+    coarseSoln->setRHS(rhs);
+    IPPtr ip = bf->graphNorm();
+    coarseSoln->setIP(ip);
+    coarseSoln->setUseCondensedSolve(useStaticCondensation);
+    
+    map<int, FunctionPtr> exactSolnMap;
+    exactSolnMap[phi->ID()] = phi_exact;
+    exactSolnMap[psi->ID()] = psi_exact;
+    
+    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
+    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
+    
+    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
+    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
+    
+    coarseSoln->projectOntoMesh(exactSolnMap);
+    
+    double energyError = coarseSoln->energyErrorTotal();
+    
+    // sanity check: our exact solution should give us 0 energy error
+    double tol = 1e-12;
+    TEST_COMPARE(energyError, <, tol);
     
     SolutionPtr exactSoln = Solution::solution(fineMesh);
     exactSoln->setIP(ip);
@@ -714,157 +715,157 @@ namespace
       //    printLabeledDofCoefficients(form.bf()->varFactory(), trialOrder, coefficients);
     }
   }
-
-  void testQuadFineCoarseSwap(bool simple, bool useStaticCondensation, Teuchos::FancyOStream &out, bool &success)
-  {
-    int spaceDim = 2;
-    PoissonFormulation formConforming(spaceDim, true);
-    PoissonFormulation formNonconforming(spaceDim, false);
-    BFPtr bfConforming = formConforming.bf();
-    BFPtr bfNonconforming = formNonconforming.bf();
-    VarPtr phi = formConforming.phi(), psi = formConforming.psi(), phi_hat = formConforming.phi_hat(), psi_n_hat = formConforming.psi_n_hat();
-    
-    int H1Order, delta_k = 1;
-    
-    FunctionPtr phi_exact, psi_exact;
-    if (simple)
-    {
-      H1Order = 1;
-      phi_exact = Function::constant(3.14159);
-      FunctionPtr zero = Function::zero();
-      psi_exact = Function::vectorize(zero, zero);
-    }
-    else
-    {
-      H1Order = 3;
-      phi_exact = Function::xn(2) + Function::yn(1);
-      psi_exact = phi_exact->grad();
-    }
-    
-    int coarseElementCount = 1;
-    vector<double> dimensions(2,1.0);
-    vector<int> elementCounts(2,coarseElementCount);
-    MeshPtr meshConforming = MeshFactory::rectilinearMesh(bfConforming, dimensions, elementCounts, H1Order, delta_k);
-    map<int,int> trialEnhancements;
-    trialEnhancements[phi_hat->ID()] = 1;
-    MeshPtr meshNonconforming = Teuchos::rcp( new Mesh(meshConforming->getTopology(), bfNonconforming, H1Order, delta_k, trialEnhancements) );
-    
-    SolutionPtr coarseSoln = Solution::solution(meshNonconforming);
-    BCPtr bc = BC::bc();
-    coarseSoln->setBC(bc);
-    coarseSoln->setUseCondensedSolve(useStaticCondensation);
-    
-    VarPtr q = formConforming.q();
-    RHSPtr rhs = RHS::rhs();
-    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
-    rhs->addTerm(f * q);
-    coarseSoln->setRHS(rhs);
-    IPPtr ip = bfConforming->graphNorm();
-    coarseSoln->setIP(ip);
-    coarseSoln->setUseCondensedSolve(useStaticCondensation);
-    
-    map<int, FunctionPtr> exactSolnMap;
-    exactSolnMap[phi->ID()] = phi_exact;
-    exactSolnMap[psi->ID()] = psi_exact;
-    
-    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
-    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
-    
-    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
-    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
-    
-    coarseSoln->projectOntoMesh(exactSolnMap);
-    
-    double energyError = coarseSoln->energyErrorTotal();
-    
-    // sanity check: our exact solution should give us 0 energy error
-    double tol = 1e-12;
-    TEST_COMPARE(energyError, <, tol);
-    
-    MeshPtr fineMesh = meshConforming;
-    MeshPtr coarseMesh = meshNonconforming;
-    
-    SolutionPtr fineSoln = Solution::solution(fineMesh);
-    fineSoln->setBC(bc);
-    fineSoln->setIP(ip);
-    fineSoln->setRHS(rhs);
-    fineSoln->setUseCondensedSolve(useStaticCondensation);
-    
-    SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
-    GMGOperator gmgOperator(bc,meshNonconforming,ip,fineMesh,fineSoln->getDofInterpreter(),
-                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
-    gmgOperator.setFineCoarseRolesSwapped(true);
-    
-    Teuchos::RCP<Epetra_CrsMatrix> P = gmgOperator.constructProlongationOperator();
-    Teuchos::RCP<Epetra_FEVector> coarseSolutionVector = coarseSoln->getLHSVector();
-    
-    cout << "Outputting P to file.\n";
-    EpetraExt::RowMatrixToMatrixMarketFile("/tmp/P.dat",*P, NULL, NULL, false); // false: don't write header
-    
-    fineSoln->projectOntoMesh(exactSolnMap);
-    coarseSoln->initializeLHSVector();
-    coarseSoln->getLHSVector()->PutScalar(0); // set a 0 global solution
-    coarseSoln->importSolution();             // imports the 0 solution onto each cell
-    coarseSoln->clearComputedResiduals();
-    
-    P->Multiply(true, *fineSoln->getLHSVector(), *coarseSolutionVector); // true: transpose
-    
-    coarseSoln->importSolution();
-    
-    energyError = coarseSoln->energyErrorTotal();
-    TEST_COMPARE(energyError, <, tol);
-    
-    bool warnAboutOffRank = false;
-//    VarFactoryPtr vf = bf->varFactory();
-//        set<GlobalIndexType> cellIDs = coarseSoln->mesh()->cellIDsInPartition();
-    //    for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++) {
-    //      cout << "\n\n******************** Dofs for cell " << *cellIDIt << " (fineSoln before subtracting exact) ********************\n";
-    //      FieldContainer<double> coefficients = fineSoln->allCoefficientsForCellID(*cellIDIt, warnAboutOffRank);
-    //      DofOrderingPtr trialOrder = fineMesh->getElementType(*cellIDIt)->trialOrderPtr;
-    //      printLabeledDofCoefficients(vf, trialOrder, coefficients);
-    //    }
-    
-    set<GlobalIndexType> myCellIDs = fineSoln->mesh()->cellIDsInPartition();
-    
-    for (GlobalIndexType cellID : myCellIDs) {
-      FieldContainer<double> coefficients = coarseSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
-      out << "\n\n******************** Dofs for cell " << cellID << " (coarseSoln) ********************\n\n";
-      DofOrderingPtr trialOrder = coarseMesh->getElementType(cellID)->trialOrderPtr;
-      printLabeledDofCoefficients(out, formConforming.bf()->varFactory(), trialOrder, coefficients);
-    }
-    
-    SolutionPtr exactSoln = Solution::solution(coarseMesh);
-    exactSoln->setIP(ip);
-    exactSoln->setRHS(rhs);
-    
-    // again, a sanity check, now on the exact fine solution:
-    exactSoln->projectOntoMesh(exactSolnMap);
-    energyError = exactSoln->energyErrorTotal();
-    TEST_COMPARE(energyError, <, tol);
-    
-    for (GlobalIndexType cellID : myCellIDs) {
-      FieldContainer<double> coefficients = exactSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
-      out << "\n\n******************** Dofs for cell " << cellID << " (exactSoln) ********************\n\n";
-      DofOrderingPtr trialOrder = coarseMesh->getElementType(cellID)->trialOrderPtr;
-      printLabeledDofCoefficients(out, formConforming.bf()->varFactory(), trialOrder, coefficients);
-    }
-    
-    coarseSoln->addSolution(exactSoln, -1.0); // should recover zero solution this way
-    
-    // import global solution data onto each rank:
-    set<GlobalIndexType> cellIDs = coarseMesh->getActiveCellIDsGlobal();
-    coarseSoln->importSolutionForOffRankCells(cellIDs);
-    
-    for (GlobalIndexType cellID : cellIDs) {
-      FieldContainer<double> coefficients = coarseSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
-      FieldContainer<double> expectedCoefficients(coefficients.size()); // zero coefficients
-      
-      TEST_COMPARE_FLOATING_ARRAYS_CAMELLIA_ABSTOLTOO(coefficients, expectedCoefficients, tol, tol);
-      //    cout << "\n\n******************** Dofs for cell " << cellID << " (fineSoln after subtracting exact) ********************\n\n";
-      //    DofOrderingPtr trialOrder = fineMesh->getElementType(cellID)->trialOrderPtr;
-      //    printLabeledDofCoefficients(form.bf()->varFactory(), trialOrder, coefficients);
-    }
-  }
+//
+//  void testQuadFineCoarseSwap(bool simple, bool useStaticCondensation, Teuchos::FancyOStream &out, bool &success)
+//  {
+//    int spaceDim = 2;
+//    PoissonFormulation formConforming(spaceDim, true);
+//    PoissonFormulation formNonconforming(spaceDim, false);
+//    BFPtr bfConforming = formConforming.bf();
+//    BFPtr bfNonconforming = formNonconforming.bf();
+//    VarPtr phi = formConforming.phi(), psi = formConforming.psi(), phi_hat = formConforming.phi_hat(), psi_n_hat = formConforming.psi_n_hat();
+//    
+//    int H1Order, delta_k = 1;
+//    
+//    FunctionPtr phi_exact, psi_exact;
+//    if (simple)
+//    {
+//      H1Order = 1;
+//      phi_exact = Function::constant(3.14159);
+//      FunctionPtr zero = Function::zero();
+//      psi_exact = Function::vectorize(zero, zero);
+//    }
+//    else
+//    {
+//      H1Order = 3;
+//      phi_exact = Function::xn(2) + Function::yn(1);
+//      psi_exact = phi_exact->grad();
+//    }
+//    
+//    int coarseElementCount = 1;
+//    vector<double> dimensions(2,1.0);
+//    vector<int> elementCounts(2,coarseElementCount);
+//    MeshPtr meshConforming = MeshFactory::rectilinearMesh(bfConforming, dimensions, elementCounts, H1Order, delta_k);
+//    map<int,int> trialEnhancements;
+//    trialEnhancements[phi_hat->ID()] = 1;
+//    MeshPtr meshNonconforming = Teuchos::rcp( new Mesh(meshConforming->getTopology(), bfNonconforming, H1Order, delta_k, trialEnhancements) );
+//    
+//    SolutionPtr coarseSoln = Solution::solution(meshNonconforming);
+//    BCPtr bc = BC::bc();
+//    coarseSoln->setBC(bc);
+//    coarseSoln->setUseCondensedSolve(useStaticCondensation);
+//    
+//    VarPtr q = formConforming.q();
+//    RHSPtr rhs = RHS::rhs();
+//    FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy();
+//    rhs->addTerm(f * q);
+//    coarseSoln->setRHS(rhs);
+//    IPPtr ip = bfConforming->graphNorm();
+//    coarseSoln->setIP(ip);
+//    coarseSoln->setUseCondensedSolve(useStaticCondensation);
+//    
+//    map<int, FunctionPtr> exactSolnMap;
+//    exactSolnMap[phi->ID()] = phi_exact;
+//    exactSolnMap[psi->ID()] = psi_exact;
+//    
+//    FunctionPtr phi_hat_exact   =   phi_hat->termTraced()->evaluate(exactSolnMap);
+//    FunctionPtr psi_n_hat_exact = psi_n_hat->termTraced()->evaluate(exactSolnMap);
+//    
+//    exactSolnMap[phi_hat->ID()]   = phi_hat_exact;
+//    exactSolnMap[psi_n_hat->ID()] = psi_n_hat_exact;
+//    
+//    coarseSoln->projectOntoMesh(exactSolnMap);
+//    
+//    double energyError = coarseSoln->energyErrorTotal();
+//    
+//    // sanity check: our exact solution should give us 0 energy error
+//    double tol = 1e-12;
+//    TEST_COMPARE(energyError, <, tol);
+//    
+//    MeshPtr fineMesh = meshConforming;
+//    MeshPtr coarseMesh = meshNonconforming;
+//    
+//    SolutionPtr fineSoln = Solution::solution(fineMesh);
+//    fineSoln->setBC(bc);
+//    fineSoln->setIP(ip);
+//    fineSoln->setRHS(rhs);
+//    fineSoln->setUseCondensedSolve(useStaticCondensation);
+//    
+//    SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
+//    GMGOperator gmgOperator(bc,meshNonconforming,ip,fineMesh,fineSoln->getDofInterpreter(),
+//                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
+//    gmgOperator.setFineCoarseRolesSwapped(true);
+//    
+//    Teuchos::RCP<Epetra_CrsMatrix> P = gmgOperator.constructProlongationOperator();
+//    Teuchos::RCP<Epetra_FEVector> coarseSolutionVector = coarseSoln->getLHSVector();
+//    
+//    cout << "Outputting P to file.\n";
+//    EpetraExt::RowMatrixToMatrixMarketFile("/tmp/P.dat",*P, NULL, NULL, false); // false: don't write header
+//    
+//    fineSoln->projectOntoMesh(exactSolnMap);
+//    coarseSoln->initializeLHSVector();
+//    coarseSoln->getLHSVector()->PutScalar(0); // set a 0 global solution
+//    coarseSoln->importSolution();             // imports the 0 solution onto each cell
+//    coarseSoln->clearComputedResiduals();
+//    
+//    P->Multiply(true, *fineSoln->getLHSVector(), *coarseSolutionVector); // true: transpose
+//    
+//    coarseSoln->importSolution();
+//    
+//    energyError = coarseSoln->energyErrorTotal();
+//    TEST_COMPARE(energyError, <, tol);
+//    
+//    bool warnAboutOffRank = false;
+////    VarFactoryPtr vf = bf->varFactory();
+////        set<GlobalIndexType> cellIDs = coarseSoln->mesh()->cellIDsInPartition();
+//    //    for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++) {
+//    //      cout << "\n\n******************** Dofs for cell " << *cellIDIt << " (fineSoln before subtracting exact) ********************\n";
+//    //      FieldContainer<double> coefficients = fineSoln->allCoefficientsForCellID(*cellIDIt, warnAboutOffRank);
+//    //      DofOrderingPtr trialOrder = fineMesh->getElementType(*cellIDIt)->trialOrderPtr;
+//    //      printLabeledDofCoefficients(vf, trialOrder, coefficients);
+//    //    }
+//    
+//    set<GlobalIndexType> myCellIDs = fineSoln->mesh()->cellIDsInPartition();
+//    
+//    for (GlobalIndexType cellID : myCellIDs) {
+//      FieldContainer<double> coefficients = coarseSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
+//      out << "\n\n******************** Dofs for cell " << cellID << " (coarseSoln) ********************\n\n";
+//      DofOrderingPtr trialOrder = coarseMesh->getElementType(cellID)->trialOrderPtr;
+//      printLabeledDofCoefficients(out, formConforming.bf()->varFactory(), trialOrder, coefficients);
+//    }
+//    
+//    SolutionPtr exactSoln = Solution::solution(coarseMesh);
+//    exactSoln->setIP(ip);
+//    exactSoln->setRHS(rhs);
+//    
+//    // again, a sanity check, now on the exact fine solution:
+//    exactSoln->projectOntoMesh(exactSolnMap);
+//    energyError = exactSoln->energyErrorTotal();
+//    TEST_COMPARE(energyError, <, tol);
+//    
+//    for (GlobalIndexType cellID : myCellIDs) {
+//      FieldContainer<double> coefficients = exactSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
+//      out << "\n\n******************** Dofs for cell " << cellID << " (exactSoln) ********************\n\n";
+//      DofOrderingPtr trialOrder = coarseMesh->getElementType(cellID)->trialOrderPtr;
+//      printLabeledDofCoefficients(out, formConforming.bf()->varFactory(), trialOrder, coefficients);
+//    }
+//    
+//    coarseSoln->addSolution(exactSoln, -1.0); // should recover zero solution this way
+//    
+//    // import global solution data onto each rank:
+//    set<GlobalIndexType> cellIDs = coarseMesh->getActiveCellIDsGlobal();
+//    coarseSoln->importSolutionForOffRankCells(cellIDs);
+//    
+//    for (GlobalIndexType cellID : cellIDs) {
+//      FieldContainer<double> coefficients = coarseSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
+//      FieldContainer<double> expectedCoefficients(coefficients.size()); // zero coefficients
+//      
+//      TEST_COMPARE_FLOATING_ARRAYS_CAMELLIA_ABSTOLTOO(coefficients, expectedCoefficients, tol, tol);
+//      //    cout << "\n\n******************** Dofs for cell " << cellID << " (fineSoln after subtracting exact) ********************\n\n";
+//      //    DofOrderingPtr trialOrder = fineMesh->getElementType(cellID)->trialOrderPtr;
+//      //    printLabeledDofCoefficients(form.bf()->varFactory(), trialOrder, coefficients);
+//    }
+//  }
 
   
   // Commenting out the FineCoarseSwap test because we likely won't need this feature
@@ -878,6 +879,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GMGOperator, ProlongationOperatorLineStandardSolve )
   {
+    MPIWrapper::CommWorld()->Barrier();
     bool useStaticCondensation = false;
     testProlongationOperatorLine(useStaticCondensation, out, success);
   }

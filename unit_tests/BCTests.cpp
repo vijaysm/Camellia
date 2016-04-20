@@ -168,6 +168,7 @@ void testSpaceTimeTraceBCFunction(int spaceDim, Teuchos::FancyOStream &out, bool
 
   TEUCHOS_UNIT_TEST( BC, FieldBCsMinRule_1D)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 1;
     bool useFieldBCs = true;
     testTagCoefficientsMatchLegacy(spaceDim, useFieldBCs, out, success);

@@ -60,6 +60,14 @@ InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr
   _cellIDMap = cellIDMap; // copy
 }
 
+InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr otherMesh, const map<GlobalIndexType, GlobalIndexType> & cellIDMap)
+: MeshPartitionPolicy(otherMesh->Comm())
+{
+  _thisMesh = Teuchos::null;
+  _otherMesh = otherMesh;
+  _cellIDMap = cellIDMap; // copy
+}
+
 void InducedMeshPartitionPolicy::didHRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, RefinementPatternPtr refPattern)
 {
   // TODO: update _cellIDMap

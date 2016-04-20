@@ -461,7 +461,7 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
   bool meshIsNotRegular = true; // assume it's not regular and check elements
   bool meshChanged = false;
   
-  cout << "Entered enforceOneIrregularity() on rank " << rank << endl;
+//  cout << "Entered enforceOneIrregularity() on rank " << rank << endl;
   
   while (meshIsNotRegular)
   {
@@ -537,7 +537,7 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
     // eliminate duplicates and gather cellIDs to refine
     map<RefinementPatternKey, set<GlobalIndexType> > irregularCellsToRefineGlobal;
     set<RefinementPatternKey> refPatternsSet(allRefPatterns.begin(), allRefPatterns.end());
-    cout << "On rank " << rank << ", gathered " << refPatternsSet.size() << " distinct refPatterns.\n";
+//    cout << "On rank " << rank << ", gathered " << refPatternsSet.size() << " distinct refPatterns.\n";
     for (RefinementPatternKey refKey : refPatternsSet)
     {
       vector<GlobalIndexType> cellIDsToRefineLocal;
@@ -560,11 +560,11 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
         hRefine(entry.second, RefinementPattern::refinementPattern(refKey), false); // false: don't repartition and rebuild, yet.
       }
       meshChanged = true;
-      cout << "On rank " << rank << ", mesh appears NOT to be globally 1-irregular.\n";
+//      cout << "On rank " << rank << ", mesh appears NOT to be globally 1-irregular.\n";
     }
     else
     {
-      cout << "On rank " << rank << ", mesh appears to be globally 1-irregular.\n";
+//      cout << "On rank " << rank << ", mesh appears to be globally 1-irregular.\n";
       meshIsNotRegular = false;
     }
   }

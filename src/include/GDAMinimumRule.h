@@ -14,7 +14,7 @@
 #include "BasisReconciliation.h"
 #include "GlobalDofAssignment.h"
 #include "LocalDofMapper.h"
-#include "SubCellDofIndexInfo.h"
+#include "SubcellDofIndices.h"
 #include "TypeDefs.h"
 
 namespace Camellia
@@ -209,14 +209,12 @@ class GDAMinimumRule : public GlobalDofAssignment
   GlobalIndexType _partitionFieldDofCount;
   GlobalIndexType _partitionFluxDofCount;
   GlobalIndexType _partitionTraceDofCount;
-
-  bool _allowCascadingConstraints = false;
   
   map< GlobalIndexType, CellConstraints > _constraintsCache;
   map< GlobalIndexType, LocalDofMapperPtr > _dofMapperCache;
   map< GlobalIndexType, map<int, map<int, LocalDofMapperPtr> > > _dofMapperForVariableOnSideCache; // cellID --> side --> variable --> LocalDofMapper
-  map< GlobalIndexType, SubCellDofIndexInfo> _ownedGlobalDofIndicesCache; // (cellID --> SubCellDofIndexInfo)
-  map< GlobalIndexType, SubCellDofIndexInfo> _globalDofIndicesForCellCache; // (cellID --> SubCellDofIndexInfo) -- this has a lot of overlap in its data with the _ownedGlobalDofIndicesCache; could save some memory by only storing the difference
+  map< GlobalIndexType, SubcellDofIndices> _ownedGlobalDofIndicesCache; // (cellID --> SubcellDofIndices)
+  map< GlobalIndexType, SubcellDofIndices> _globalDofIndicesForCellCache; // (cellID --> SubcellDofIndices) -- this has a lot of overlap in its data with the _ownedGlobalDofIndicesCache; could save some memory by only storing the difference
   map< pair<GlobalIndexType,pair<int,unsigned>>, set<GlobalIndexType>> _fittableGlobalIndicesCache; // keys: (cellID,(varID,sideOrdinal))
   
   vector<unsigned> allBasisDofOrdinalsVector(int basisCardinality);
@@ -224,17 +222,17 @@ class GDAMinimumRule : public GlobalDofAssignment
   static string annotatedEntityToString(AnnotatedEntity &entity);
   
   typedef vector< SubBasisDofMapperPtr > BasisMap;
-  BasisMap getBasisMapDiscontinuousVolumeRestrictedToSide(GlobalIndexType cellID, SubCellDofIndexInfo& dofOwnershipInfo, VarPtr var, int sideOrdinal);
+  BasisMap getBasisMapDiscontinuousVolumeRestrictedToSide(GlobalIndexType cellID, SubcellDofIndices& dofOwnershipInfo, VarPtr var, int sideOrdinal);
   static BasisMap getRestrictedBasisMap(BasisMap &basisMap, const set<int> &basisDofOrdinalRestriction); // restricts to part of the basis
 
   typedef pair< IndexType, unsigned > CellPair;
   CellPair cellContainingEntityWithLeastH1Order(int d, IndexType entityIndex);
   
-//  void distributeSubcellOwnership(const map<GlobalIndexType, SubcellList> &mySubcellOwnership, const set<GlobalIndexType> &remoteCellIDs,
-//                                  map<GlobalIndexType, SubcellList> &remoteSubcellOwnership);
-  void distributeGlobalDofOwnership(const map<GlobalIndexType, SubCellDofIndexInfo> &myOwnedGlobalDofs,
-                                    const set<GlobalIndexType> &remoteCellIDs,
-                                    map<GlobalIndexType, SubCellDofIndexInfo> &remotelyOwnedGlobalDofs);
+  void distributeGlobalDofOwnership(const map<GlobalIndexType, SubcellDofIndices> &myOwnedGlobalDofs,
+                                    const set<GlobalIndexType> &remoteCellIDs);
+  
+  void distributeCellGlobalDofs(const map<GlobalIndexType, SubcellDofIndices> &myCellGlobalDofs,
+                                const set<GlobalIndexType> &remoteCellIDs);
   
   AnnotatedEntity* getConstrainingEntityInfo(GlobalIndexType cellID, CellConstraints &cellConstraints, VarPtr var, int d, int scord);
   void getConstrainingEntityInfo(GlobalIndexType cellID, CellConstraints &cellConstraints, VarPtr var, int d, int scord,
@@ -245,10 +243,9 @@ class GDAMinimumRule : public GlobalDofAssignment
   
   vector<GlobalIndexType> getGlobalDofOrdinalsForSubcell(GlobalIndexType cellID, VarPtr var, int d, int scord);
   
-  SubCellDofIndexInfo & getOwnedGlobalDofIndices(GlobalIndexType cellID, CellConstraints &cellConstraints);
+  SubcellDofIndices & getOwnedGlobalDofIndices(GlobalIndexType cellID);
 
-  set<GlobalIndexType> getFittableGlobalDofIndices(GlobalIndexType cellID, CellConstraints &constraints, int sideOrdinal,
-                                                   int varID = -1); // returns the global dof indices for basis functions which have support on the given side (i.e. their support intersected with the side has positive measure).  This is determined by taking the union of the global dof indices defined on all the constraining sides for the given side (the constraining sides are by definition unconstrained).  If varID of -1 is specified, returns dof indices corresponding to all variables; otherwise, returns dof indices only for the specified variable.
+  set<GlobalIndexType> getFittableGlobalDofIndices(GlobalIndexType cellID, int sideOrdinal, int varID = -1); // returns the global dof indices for basis functions which have support on the given side (i.e. their support intersected with the side has positive measure).  This is determined by taking the union of the global dof indices defined on all the constraining sides for the given side (the constraining sides are by definition unconstrained).  If varID of -1 is specified, returns dof indices corresponding to all variables; otherwise, returns dof indices only for the specified variable.
 
   vector<int> H1Order(GlobalIndexType cellID, unsigned sideOrdinal); // this is meant to track the cell's interior idea of what the H^1 order is along that side.  We're isotropic for now, but eventually we might want to allow anisotropy in p...
 
@@ -256,12 +253,12 @@ class GDAMinimumRule : public GlobalDofAssignment
 
 public:
   // these are public just for easier testing:
-  BasisMap getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo& dofOwnershipInfo, VarPtr var);
-  BasisMap getBasisMap(GlobalIndexType cellID, SubCellDofIndexInfo& dofOwnershipInfo, VarPtr var, int sideOrdinal);
+  BasisMap getBasisMap(GlobalIndexType cellID, SubcellDofIndices& dofOwnershipInfo, VarPtr var);
+  BasisMap getBasisMap(GlobalIndexType cellID, SubcellDofIndices& dofOwnershipInfo, VarPtr var, int sideOrdinal);
   
   CellConstraints getCellConstraints(GlobalIndexType cellID);
-  LocalDofMapperPtr getDofMapper(GlobalIndexType cellID, CellConstraints &constraints, int varIDToMap = -1, int sideOrdinalToMap = -1);
-  SubCellDofIndexInfo& getGlobalDofIndices(GlobalIndexType cellID, CellConstraints &cellConstraints);
+  LocalDofMapperPtr getDofMapper(GlobalIndexType cellID, int varIDToMap = -1, int sideOrdinalToMap = -1);
+  SubcellDofIndices& getGlobalDofIndices(GlobalIndexType cellID);
   set<GlobalIndexType> getGlobalDofIndicesForIntegralContribution(GlobalIndexType cellID, int sideOrdinal); // assuming an integral is being done over the whole mesh skeleton, returns either an empty set or the global dof indices associated with the given side, depending on whether the cell "owns" the side for the purpose of such contributions.
   // ! returns the permutation that goes from the indicated cell's view of the subcell to the constraining cell's view.
   unsigned getConstraintPermutation(GlobalIndexType cellID, unsigned subcdim, unsigned subcord);
@@ -273,15 +270,10 @@ public:
 
   GDAMinimumRule(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderingFactoryPtr dofOrderingFactory, MeshPartitionPolicyPtr partitionPolicy,
                  vector<int> initialH1OrderTrial, unsigned testOrderEnhancement);
-
-  // ! True if cascading constraints are allowed.
-  bool allowCascadingConstraints() const;
-  
-  // ! Default is false.  Cascading constraints work in 2D generally, and for *some* 3D meshes.  They are also somewhat more expensive.  For H^1-conforming meshes, when allowCascadingConstraints is false, meshes of at most 1-irregularity are supported.  See Mesh::enforceOneIrregularity().  For meshes in which only face (side) continuity enforced, arbitrary irregularity is supported.
-  void setAllowCascadingConstraints(bool value);
   
   // ! Default is false.  Checking constraint consistency is useful for debugging purposes, though.
   void setCheckConstraintConsistency(bool value);
+  void setCellPRefinements(const map<GlobalIndexType,int>& pRefinements);
   
   GlobalDofAssignmentPtr deepCopy();
 
@@ -330,6 +322,11 @@ public:
   void printConstraintInfo(GlobalIndexType cellID);
   void printGlobalDofInfo();
   void rebuildLookups();
+  
+  static void distributeSubcellDofIndices(Epetra_CommPtr Comm,
+                                          const map<GlobalIndexType, SubcellDofIndices> &rankLocalCellDofIndices,
+                                          const map<GlobalIndexType, PartitionIndexType> &remoteCellOwners,
+                                          map<GlobalIndexType, SubcellDofIndices> &remoteCellDofIndices);
 };
 }
 

@@ -229,7 +229,7 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
 }
 #endif
 
-MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters)
+MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr Comm)
 {
   bool useMinRule = parameters.get<bool>("useMinRule",true);
   TBFPtr<double> bf = parameters.get< TBFPtr<double> >("bf");
@@ -252,7 +252,8 @@ MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters)
   if (useMinRule)
   {
     MeshTopologyPtr meshTopology = quadMeshTopology(width,height,horizontalElements,verticalElements,divideIntoTriangles,x0,y0,*periodicBCs);
-    return Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, delta_k, *trialOrderEnhancements, *testOrderEnhancements) );
+    return Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, delta_k, *trialOrderEnhancements, *testOrderEnhancements,
+                                  Teuchos::null, Comm) );
   }
   else
   {
@@ -335,7 +336,7 @@ MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters)
       }
     }
 
-    return Teuchos::rcp( new Mesh(vertices, allElementVertices, bf, H1Order, delta_k, useConformingTraces, *trialOrderEnhancements, *testOrderEnhancements, *periodicBCs) );
+    return Teuchos::rcp( new Mesh(vertices, allElementVertices, bf, H1Order, delta_k, useConformingTraces, *trialOrderEnhancements, *testOrderEnhancements, *periodicBCs, Comm) );
   }
 }
 
@@ -373,7 +374,8 @@ public:
   }
 };*/
 
-MeshPtr MeshFactory::quadMesh(TBFPtr<double> bf, int H1Order, FieldContainer<double> &quadNodes, int pToAddTest)
+MeshPtr MeshFactory::quadMesh(TBFPtr<double> bf, int H1Order, FieldContainer<double> &quadNodes, int pToAddTest,
+                              Epetra_CommPtr Comm)
 {
   if (quadNodes.size() != 8)
   {
@@ -396,13 +398,17 @@ MeshPtr MeshFactory::quadMesh(TBFPtr<double> bf, int H1Order, FieldContainer<dou
   cell0.push_back(3);
   elementVertices.push_back(cell0);
 
-  MeshPtr mesh = Teuchos::rcp( new Mesh(vertices, elementVertices, bf, H1Order, pToAddTest) );
+  map<int,int> emptyMap;
+  vector<PeriodicBCPtr> emptyPeriodicBCs;
+  MeshPtr mesh = Teuchos::rcp( new Mesh(vertices, elementVertices, bf, H1Order, pToAddTest, true, emptyMap, emptyMap,
+                                        emptyPeriodicBCs, Comm) );
   return mesh;
 }
 
 MeshPtr MeshFactory::quadMesh(TBFPtr<double> bf, int H1Order, int pToAddTest,
                               double width, double height, int horizontalElements, int verticalElements, bool divideIntoTriangles,
-                              double x0, double y0, vector<PeriodicBCPtr> periodicBCs)
+                              double x0, double y0, vector<PeriodicBCPtr> periodicBCs,
+                              Epetra_CommPtr Comm)
 {
 
   Teuchos::ParameterList pl;
@@ -420,12 +426,13 @@ MeshPtr MeshFactory::quadMesh(TBFPtr<double> bf, int H1Order, int pToAddTest,
   pl.set("y0",y0);
   pl.set("periodicBCs", &periodicBCs);
 
-  return quadMesh(pl);
+  return quadMesh(pl, Comm);
 }
 
 MeshPtr MeshFactory::quadMeshMinRule(TBFPtr<double> bf, int H1Order, int pToAddTest,
                                      double width, double height, int horizontalElements, int verticalElements,
-                                     bool divideIntoTriangles, double x0, double y0, vector<PeriodicBCPtr> periodicBCs)
+                                     bool divideIntoTriangles, double x0, double y0, vector<PeriodicBCPtr> periodicBCs,
+                                     Epetra_CommPtr Comm)
 {
   Teuchos::ParameterList pl;
 
@@ -442,7 +449,7 @@ MeshPtr MeshFactory::quadMeshMinRule(TBFPtr<double> bf, int H1Order, int pToAddT
   pl.set("y0",y0);
   pl.set("periodicBCs", &periodicBCs);
 
-  return quadMesh(pl);
+  return quadMesh(pl, Comm);
 }
 
 MeshTopologyPtr MeshFactory::quadMeshTopology(double width, double height, int horizontalElements, int verticalElements, bool divideIntoTriangles,
@@ -576,8 +583,9 @@ MeshTopologyPtr MeshFactory::intervalMeshTopology(double xLeft, double xRight, i
   return meshTopology;
 }
 
-MeshPtr MeshFactory::rectilinearMesh(TBFPtr<double> bf, vector<double> dimensions, vector<int> elementCounts, int H1Order, int pToAddTest, vector<double> x0,
-                                     map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements)
+MeshPtr MeshFactory::rectilinearMesh(TBFPtr<double> bf, vector<double> dimensions, vector<int> elementCounts, int H1Order,
+                                     int pToAddTest, vector<double> x0, map<int,int> trialOrderEnhancements,
+                                     map<int,int> testOrderEnhancements, Epetra_CommPtr Comm)
 {
   int spaceDim = dimensions.size();
   if (pToAddTest==-1)
@@ -587,7 +595,8 @@ MeshPtr MeshFactory::rectilinearMesh(TBFPtr<double> bf, vector<double> dimension
 
   MeshTopologyPtr meshTopology = rectilinearMeshTopology(dimensions, elementCounts, x0);
 
-  return Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, pToAddTest, trialOrderEnhancements, testOrderEnhancements) );
+  return Teuchos::rcp( new Mesh(meshTopology, bf, H1Order, pToAddTest, trialOrderEnhancements, testOrderEnhancements,
+                                Teuchos::null, Comm) );
 }
 
 MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, vector<int> elementCounts, vector<double> x0)
@@ -968,9 +977,7 @@ MeshPtr MeshFactory::buildQuadMeshHybrid(const FieldContainer<double> &quadBound
 
   double elemWidth = (southEast_x - southWest_x) / horizontalElements;
   double elemHeight = (northWest_y - southWest_y) / verticalElements;
-
-  int cellID = 0;
-
+  
   // set up vertices:
   // vertexIndices is for easy vertex lookup by (x,y) index for our Cartesian grid:
   vector< vector<int> > vertexIndices(horizontalElements+1, vector<int>(verticalElements+1));
@@ -1287,7 +1294,8 @@ MeshPtr MeshFactory::shiftedHemkerMesh(double xLeft, double xRight, double meshH
 
 // TODO: test this!
 MeshPtr MeshFactory::spaceTimeMesh(MeshTopologyPtr spatialMeshTopology, double t0, double t1,
-                                   TBFPtr<double> bf, int spatialH1Order, int temporalH1Order, int pToAdd)
+                                   TBFPtr<double> bf, int spatialH1Order, int temporalH1Order, int pToAdd,
+                                   Epetra_CommPtr Comm)
 {
   MeshTopologyPtr meshTopology = spaceTimeMeshTopology(spatialMeshTopology, t0, t1); // for refined spatial topologies, this can be more than 1-irregular--we enforce 1-irregularity below.
 
@@ -1295,7 +1303,9 @@ MeshPtr MeshFactory::spaceTimeMesh(MeshTopologyPtr spatialMeshTopology, double t
   H1Order[0] = spatialH1Order;
   H1Order[1] = temporalH1Order;
 
-  MeshPtr mesh = Teuchos::rcp( new Mesh (meshTopology, bf, H1Order, pToAdd) );
+  map<int,int> emptyMap;
+  MeshPartitionPolicyPtr nullPartitionPolicy = Teuchos::null;
+  MeshPtr mesh = Teuchos::rcp( new Mesh (meshTopology, bf, H1Order, pToAdd, emptyMap, emptyMap, nullPartitionPolicy, Comm) );
   mesh->enforceOneIrregularity();
   
   return mesh;

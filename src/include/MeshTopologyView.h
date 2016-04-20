@@ -76,6 +76,7 @@ namespace Camellia {
     virtual IndexType getActiveCellCount(unsigned d, IndexType entityIndex);
     virtual const std::set<IndexType> &getLocallyKnownActiveCellIndices();
     virtual const std::set<IndexType> &getMyActiveCellIndices() const;
+    virtual std::set<IndexType> getActiveCellIndicesForAncestorsOfMyCellsInBaseMeshTopology() const;
     virtual std::vector< std::pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex); // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
     
     virtual MeshTopology* baseMeshTopology();

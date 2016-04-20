@@ -97,8 +97,16 @@ std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldC
 void MeshTopologyView::buildLookups()
 {
   set<IndexType> visitedIndices;
+  set<IndexType> invalidActiveCells;
   for (IndexType cellID : _activeCells)
   {
+    if (!_meshTopo->isValidCellIndex(cellID))
+    {
+      // this can happen for distributed MeshTopology
+      // simply ignore invalid cells, and remove them from the _activeCells container
+      invalidActiveCells.insert(cellID);
+      continue;
+    }
     CellPtr cell = _meshTopo->getCell(cellID);
     while ((cell->getParent() != Teuchos::null) && (visitedIndices.find(cellID) == visitedIndices.end()))
     {
@@ -110,6 +118,10 @@ void MeshTopologyView::buildLookups()
     {
       _rootCells.insert(cellID);
     }
+  }
+  for (IndexType invalidCellID : invalidActiveCells)
+  {
+    _activeCells.erase(invalidCellID);
   }
   _allKnownCells.insert(_rootCells.begin(),_rootCells.end());
   _allKnownCells.insert(visitedIndices.begin(),visitedIndices.end());
@@ -210,6 +222,38 @@ vector< pair<IndexType,unsigned> > MeshTopologyView::getActiveCellIndices(unsign
   }
   vector<pair<IndexType,unsigned>> activeCellIndicesVector(activeCellIndicesSet.begin(),activeCellIndicesSet.end());
   return activeCellIndicesVector;
+}
+
+std::set<IndexType> MeshTopologyView::getActiveCellIndicesForAncestorsOfMyCellsInBaseMeshTopology() const
+{
+  if (_meshTopo->Comm() == Teuchos::null)
+  {
+    // not distributed, so we don't know which ones belong to us.  Best we can do is take all active cells.
+    return _activeCells;
+  }
+  const set<IndexType>* baseMyCellIndices = &_meshTopo->getMyActiveCellIndices();
+  set<IndexType> ancestralActiveCellIndices;
+  for (IndexType myBaseCellIndex : *baseMyCellIndices)
+  {
+    CellPtr cell = _meshTopo->getCell(myBaseCellIndex);
+    bool foundAncestor = false;
+    while (cell != Teuchos::null)
+    {
+      if (_activeCells.find(cell->cellIndex()) != _activeCells.end())
+      {
+        ancestralActiveCellIndices.insert(cell->cellIndex());
+        foundAncestor = true;
+        break;
+      }
+      cell = cell->getParent();
+    }
+    if (!foundAncestor)
+    {
+      cout << "No active ancestor found for cellIndex " << myBaseCellIndex << " in MeshTopologyView.\n";
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No active ancestor found");
+    }
+  }
+  return ancestralActiveCellIndices;
 }
 
 vector<IndexType> MeshTopologyView::getActiveCellsForSide(IndexType sideEntityIndex)

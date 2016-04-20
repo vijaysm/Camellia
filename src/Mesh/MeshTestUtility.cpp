@@ -111,11 +111,9 @@ bool MeshTestUtility::checkLocalGlobalConsistency(MeshPtr mesh, double tol)
 {
   bool success = true;
 
-  set<GlobalIndexType> cellIDs = mesh->getActiveCellIDsGlobal();
+  set<GlobalIndexType> cellIDs = mesh->cellIDsInPartition();
 
   GlobalDofAssignmentPtr gda = mesh->globalDofAssignment();
-
-  // TODO: make this only check the locally-owned cells (right now does the whole mesh on every rank)
 
   int numGlobalDofs = gda->globalDofCount();
   FieldContainer<double> globalCoefficients(numGlobalDofs);
@@ -736,8 +734,8 @@ bool MeshTestUtility::neighborBasesAgreeOnSides(Teuchos::RCP<Mesh> mesh, Epetra_
   MeshTopologyViewPtr meshTopo = mesh->getTopology();
   int spaceDim = meshTopo->getDimension();
 
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
-  for (GlobalIndexType cellID : activeCellIDs)
+  set<GlobalIndexType> myCellIDs = mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : myCellIDs)
   {
     CellPtr cell = meshTopo->getCell(cellID);
 
@@ -824,8 +822,18 @@ bool MeshTestUtility::neighborBasesAgreeOnSides(Teuchos::RCP<Mesh> mesh, Epetra_
           continue;
         }
       }
+      
+      GlobalIndexType neighborCellID = neighborInfo.first;
+      if (myCellIDs.find(neighborCellID) == myCellIDs.end() )
+      {
+        // non-local neighbor; it's probably OK to skip testing this one -- we
+        // more or less cover this case when we run the same test in serial.
+        // (It'd be kind of a pain to do this the right way, asking neighbor's owner to
+        //  compute...)
+        continue;
+      }
 
-      ElementTypePtr coarseElementType = mesh->getElementType(neighborInfo.first);
+      ElementTypePtr coarseElementType = mesh->getElementType(neighborCellID);
       DofOrderingPtr coarseElemTrialOrder = coarseElementType->trialOrderPtr;
 
       FieldContainer<double> coarseSolutionCoefficients(coarseElemTrialOrder->totalDofs());

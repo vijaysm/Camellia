@@ -125,8 +125,6 @@ const string CompressibleNavierStokesFormulation::S_S2 = "S2";
 const string CompressibleNavierStokesFormulation::S_S3 = "S3";
 const string CompressibleNavierStokesFormulation::S_tau = "tau";
 
-static const int INITIAD_CONDITION_TAG = 1;
-
 CompressibleNavierStokesFormulation CompressibleNavierStokesFormulation::steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
                                                                          MeshTopologyPtr meshTopo, int polyOrder, int delta_k)
 {

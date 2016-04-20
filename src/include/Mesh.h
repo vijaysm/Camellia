@@ -87,8 +87,6 @@ class Mesh : public RefinementObserver, public DofInterpreter
 
   Teuchos::RCP<GlobalDofAssignment> _gda;
 
-  //  Teuchos::RCP<GDAMaximumRule2D> _maximumRule2D;
-
   int _pToAddToTest;
   bool _enforceMBFluxContinuity; // default to false (the historical value)
   bool _usePatchBasis; // use MultiBasis if this is false.
@@ -108,33 +106,6 @@ class Mesh : public RefinementObserver, public DofInterpreter
        int pToAddToTest, bool useConformingTraces, bool usePatchBasis, bool enforceMBFluxContinuity);
 
   void initializePartitionPolicyIfNull(MeshPartitionPolicyPtr &partitionPolicy, Epetra_CommPtr Comm);
-  
-  //set< pair<int,int> > _edges;
-  //  map< pair<GlobalIndexType,GlobalIndexType>, vector< pair<GlobalIndexType, GlobalIndexType> > > _edgeToCellIDs; //keys are (vertexIndex1, vertexIndex2)
-  //values are (cellID, sideIndex)
-  //( will need to do something else in 3D )
-  // keep track of upgrades to the sides of cells since the last rebuild:
-  // (used to remap solution coefficients)
-  //  map< GlobalIndexType, pair< ElementTypePtr, ElementTypePtr > > _cellSideUpgrades; // cellID --> (oldType, newType)
-
-  //  map< pair<GlobalIndexType,IndexType>, pair<GlobalIndexType,IndexType> > _dofPairingIndex; // key/values are (cellID,localDofIndex)
-  // note that the FieldContainer for cellSideParities has dimensions (numCellsForType,numSidesForType),
-  // and that the values are 1.0 or -1.0.  These are weights to account for the fact that fluxes are defined in
-  // terms of an outward normal, and thus one cell's idea about the flux is the negative of its neighbor's.
-  // We decide parity by cellID: the neighbor with the lower cellID gets +1, the higher gets -1.
-
-  //  // call buildTypeLookups to rebuild the elementType data structures:
-  //  vector< map< ElementType*, vector<GlobalIndexType> > > _cellIDsForElementType;
-  //  map< ElementType*, map<GlobalIndexType, GlobalIndexType> > _globalCellIndexToCellID;
-  //  vector< vector< ElementTypePtr > > _elementTypesForPartition;
-  //  vector< ElementTypePtr > _elementTypes;
-  //  map<GlobalIndexType, PartitionIndexType> _partitionForCellID;
-  //  map<GlobalIndexType, PartitionIndexType> _partitionForGlobalDofIndex;
-  //  map<GlobalIndexType, PartitionIndexType> _partitionLocalIndexForGlobalDofIndex;
-  //  vector< map< ElementType*, Intrepid::FieldContainer<double> > > _partitionedPhysicalCellNodesForElementType;
-  //  vector< map< ElementType*, Intrepid::FieldContainer<double> > > _partitionedCellSideParitiesForElementType;
-  //  map< ElementType*, Intrepid::FieldContainer<double> > _physicalCellNodesForElementType; // for uniform mesh, just a single entry..
-  //  vector< set<GlobalIndexType> > _partitionedGlobalDofIndices;
 
   vector< Teuchos::RCP<RefinementObserver> > _registeredObservers; // meshes that should be modified upon refinement (must differ from this only in bilinearForm; must have identical geometry & cellIDs)
 

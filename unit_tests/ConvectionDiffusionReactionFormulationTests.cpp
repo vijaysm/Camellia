@@ -120,8 +120,10 @@ namespace
     int H1Order = 1, delta_k = 0;
     MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                                 elementCounts[0], elementCounts[1], useTriangles);
-    
-    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+
+    // create a serial MeshTopology for accurate counting of global vertices
+    MeshTopologyPtr meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                                             elementCounts[0], elementCounts[1], useTriangles);
     int vertexDim = 0;
     int numVertices = meshTopo->getEntityCount(vertexDim);
     
@@ -131,7 +133,9 @@ namespace
     elementCounts = {16,16};
     mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                         elementCounts[0], elementCounts[1], useTriangles);
-    meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                             elementCounts[0], elementCounts[1], useTriangles);
+
     numVertices = meshTopo->getEntityCount(vertexDim);
     
     globalDofCount = mesh->numGlobalDofs();

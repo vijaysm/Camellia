@@ -1,25 +1,32 @@
 //
-//  SubcellDofIndexInfo.h
+//  SubcellDofIndices.h
 //  Camellia
 //
 //  Created by Nate Roberts on 4/18/16.
 //
 //
 
-#ifndef Camellia_SubcellDofIndexInfo_h
-#define Camellia_SubcellDofIndexInfo_h
+#ifndef Camellia_SubcellDofIndices_h
+#define Camellia_SubcellDofIndices_h
+
+#include <map>
+#include <set>
+#include <vector>
+
+#include "Var.h"
+#include "TypeDefs.h"
 
 namespace Camellia {
-  struct SubCellDofIndexInfo
+  struct SubcellDofIndices
   {
-    typedef map<int, vector<GlobalIndexType> > VarIDToDofIndices; // key: varID
-    typedef map<unsigned, VarIDToDofIndices> SubCellOrdinalToMap; // key: subcell ordinal
-    vector<SubCellOrdinalToMap> dofIndexInfo; // index to vector: subcell dimension
+    typedef std::map<int, std::vector<GlobalIndexType> > VarIDToDofIndices; // key: varID
+    typedef std::map<unsigned, VarIDToDofIndices> SubCellOrdinalToMap; // key: subcell ordinal
+    std::vector<SubCellOrdinalToMap> subcellDofIndices; // index to vector: subcell dimension
     
-    set<GlobalIndexType> allDofIndices()
+    std::set<GlobalIndexType> allDofIndices()
     {
-      set<GlobalIndexType> dofIndices;
-      for (auto dimMapIt = dofIndexInfo.begin(); dimMapIt != dofIndexInfo.end(); dimMapIt++)
+      std::set<GlobalIndexType> dofIndices;
+      for (auto dimMapIt = subcellDofIndices.begin(); dimMapIt != subcellDofIndices.end(); dimMapIt++)
       {
         for (auto scordMapIt = dimMapIt->begin(); scordMapIt != dimMapIt->end(); scordMapIt++)
         {
@@ -32,16 +39,16 @@ namespace Camellia {
       return dofIndices;
     }
     
-    set<GlobalIndexType> dofIndicesForVariable(VarPtr var)
+    std::set<GlobalIndexType> dofIndicesForVariable(VarPtr var)
     {
-      set<GlobalIndexType> dofIndices;
-      for (auto dimMapIt = dofIndexInfo.begin(); dimMapIt != dofIndexInfo.end(); dimMapIt++)
+      std::set<GlobalIndexType> dofIndices;
+      for (auto dimMapIt = subcellDofIndices.begin(); dimMapIt != subcellDofIndices.end(); dimMapIt++)
       {
         for (auto scordMapIt = dimMapIt->begin(); scordMapIt != dimMapIt->end(); scordMapIt++)
         {
           if (scordMapIt->second.find(var->ID()) != scordMapIt->second.end())
           {
-            vector<GlobalIndexType>* scordDofIndicesForVariable = &scordMapIt->second.find(var->ID())->second;
+            std::vector<GlobalIndexType>* scordDofIndicesForVariable = &scordMapIt->second.find(var->ID())->second;
             dofIndices.insert(scordDofIndicesForVariable->begin(), scordDofIndicesForVariable->end());
           }
         }
@@ -52,13 +59,13 @@ namespace Camellia {
     int dataSize() const
     {
       int size = 0;
-      int numDimensions = dofIndexInfo.size();
+      int numDimensions = subcellDofIndices.size();
       size += sizeof(numDimensions);
       for (int d=0; d<numDimensions; d++)
       {
-        int numSubcellEntries = dofIndexInfo[d].size();
+        int numSubcellEntries = subcellDofIndices[d].size();
         size += sizeof(numSubcellEntries);
-        for (auto subcellEntry : dofIndexInfo[d])
+        for (auto subcellEntry : subcellDofIndices[d])
         {
           int subcord = subcellEntry.first;
           size += sizeof(subcord);
@@ -80,11 +87,11 @@ namespace Camellia {
     
     void read(const char* &dataLocation, int size)
     {
-      dofIndexInfo.clear();
+      subcellDofIndices.clear();
       int numDimensions;
       memcpy(&numDimensions, dataLocation, sizeof(numDimensions));
       dataLocation += sizeof(numDimensions);
-      dofIndexInfo.resize(numDimensions);
+      subcellDofIndices.resize(numDimensions);
       for (int d=0; d<numDimensions; d++)
       {
         int numSubcellEntries;
@@ -106,27 +113,27 @@ namespace Camellia {
             int numGlobalDofIndices;
             memcpy(&numGlobalDofIndices, dataLocation, sizeof(numGlobalDofIndices));
             dataLocation += sizeof(numGlobalDofIndices);
-            vector<GlobalIndexType> globalDofIndices(numGlobalDofIndices);
+            std::vector<GlobalIndexType> globalDofIndices(numGlobalDofIndices);
             int vectorSize = numGlobalDofIndices*sizeof(GlobalIndexType);
             memcpy(&globalDofIndices[0], dataLocation, vectorSize);
             dataLocation += vectorSize;
-            dofIndexInfo[d][subcord][varID] = globalDofIndices;
+            subcellDofIndices[d][subcord][varID] = globalDofIndices;
           }
         }
       }
     }
     
-    void write(char* &dataLocation, int bufferSize)
+    void write(char* &dataLocation, int bufferSize) const
     {
-      int numDimensions = dofIndexInfo.size();
+      int numDimensions = subcellDofIndices.size();
       memcpy(dataLocation, &numDimensions, sizeof(numDimensions));
       dataLocation += sizeof(numDimensions);
       for (int d=0; d<numDimensions; d++)
       {
-        int numSubcellEntries = dofIndexInfo[d].size();
+        int numSubcellEntries = subcellDofIndices[d].size();
         memcpy(dataLocation, &numSubcellEntries, sizeof(numSubcellEntries));
         dataLocation += sizeof(numSubcellEntries);
-        for (auto subcellEntry : dofIndexInfo[d])
+        for (auto subcellEntry : subcellDofIndices[d])
         {
           int subcord = subcellEntry.first;
           memcpy(dataLocation, &subcord, sizeof(subcord));

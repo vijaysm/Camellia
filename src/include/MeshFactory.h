@@ -67,21 +67,24 @@ public:
 
   static MeshTopologyPtr intervalMeshTopology(double xLeft, double xRight, int numElements); // 1D equispaced
 
-  static MeshPtr quadMesh(Teuchos::ParameterList &parameters);
+  static MeshPtr quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr Comm = Teuchos::null);
 
   static MeshPtr quadMesh(TBFPtr<double> bf, int H1Order, int pToAddTest=2,
                           double width=1.0, double height=1.0,
                           int horizontalElements=1, int verticalElements=1,
                           bool divideIntoTriangles=false,
-                          double x0=0.0, double y0=0.0, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
+                          double x0=0.0, double y0=0.0, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>(),
+                          Epetra_CommPtr Comm = Teuchos::null);
 
   static MeshPtr quadMeshMinRule(TBFPtr<double> bf, int H1Order, int pToAddTest=2,
                                  double width=1.0, double height=1.0,
                                  int horizontalElements=1, int verticalElements=1,
                                  bool divideIntoTriangles=false,
-                                 double x0=0.0, double y0=0.0, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
+                                 double x0=0.0, double y0=0.0, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>(),
+                                 Epetra_CommPtr Comm = Teuchos::null);
 
-  static MeshPtr quadMesh(TBFPtr<double> bf, int H1Order, Intrepid::FieldContainer<double> &quadNodes, int pToAddTest=2);
+  static MeshPtr quadMesh(TBFPtr<double> bf, int H1Order, Intrepid::FieldContainer<double> &quadNodes, int pToAddTest=2,
+                          Epetra_CommPtr Comm = Teuchos::null);
 
   static void quadMeshCellIDs(Intrepid::FieldContainer<int> &cellIDs, int horizontalElements, int verticalElements, bool useTriangles);
 
@@ -94,7 +97,8 @@ public:
   static MeshPtr rectilinearMesh(TBFPtr<double> bf, vector<double> dimensions, vector<int> elementCounts,
                                  int H1Order, int pToAddTest=-1, vector<double> x0 = vector<double>(),
                                  map<int,int> trialOrderEnhancements = map<int,int>(),
-                                 map<int,int> testOrderEnhancements = map<int,int>());
+                                 map<int,int> testOrderEnhancements = map<int,int>(),
+                                 Epetra_CommPtr Comm = Teuchos::null);
 
   static MeshTopologyPtr rectilinearMeshTopology(vector<double> dimensions, vector<int> elementCounts,
       vector<double> x0 = vector<double>());
@@ -104,7 +108,8 @@ public:
   static MeshPtr readTriangle(string filePath, TBFPtr<double> bilinearForm, int H1Order, int pToAdd);
 
   static MeshPtr spaceTimeMesh(MeshTopologyPtr spatialMeshTopology, double t0, double t1,
-                               TBFPtr<double> bf, int spatialH1Order, int temporalH1Order, int pToAdd);
+                               TBFPtr<double> bf, int spatialH1Order, int temporalH1Order, int pToAdd,
+                               Epetra_CommPtr Comm = Teuchos::null);
 
   static MeshTopologyPtr spaceTimeMeshTopology(MeshTopologyPtr spatialMeshTopology, double t0, double t1, int temporalDivisions=1);
 };

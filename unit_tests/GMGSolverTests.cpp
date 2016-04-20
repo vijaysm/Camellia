@@ -626,10 +626,17 @@ namespace
     vector<int> elementCounts(spaceDim,coarseElementCount);
     BFPtr bf = form.bf();
 
-    MeshPtr coarseMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_coarse, delta_k);
-    MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_fine, delta_k);
-
-    fineMesh->hRefine(set<GlobalIndexType>({0}));
+    MeshTopologyPtr fineMeshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts);
+    IndexType cellIndex = 0;
+    CellPtr cell = fineMeshTopo->getCell(cellIndex);
+    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cell->topology());
+    IndexType firstChildCellIndex = fineMeshTopo->cellCount();
+    fineMeshTopo->refineCell(cellIndex, refPattern, firstChildCellIndex);
+    
+    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView({cellIndex});
+    
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k) );
+    MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
 
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
@@ -659,9 +666,12 @@ namespace
     vector<int> elementCounts(spaceDim,coarseElementCount);
     BFPtr bf = form.bf();
 
-    MeshPtr coarseMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_coarse, delta_k);
-    MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_fine, delta_k);
-
+    MeshTopologyPtr fineMeshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts);
+    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo;
+    
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k) );
+    MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
+    
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
       rhs->addTerm(phi_exact->dx()->dx() * form.q());
@@ -691,11 +701,21 @@ namespace
     BFPtr bf = form.bf();
     
     bool divideIntoTriangles = true;
-    MeshPtr coarseMesh = MeshFactory::quadMeshMinRule(bf, H1Order_coarse, delta_k, dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
-                                                      divideIntoTriangles);
-    MeshPtr fineMesh = MeshFactory::quadMeshMinRule(bf, H1Order_fine, delta_k, dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
-                                                    divideIntoTriangles);
-    fineMesh->hRefine(set<GlobalIndexType>({0}));
+    
+    MeshTopologyPtr fineMeshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
+                                                                 divideIntoTriangles);
+    set<IndexType> originalCells = {0,1};
+    for (IndexType cellIndex : originalCells)
+    {
+      CellPtr cell = fineMeshTopo->getCell(cellIndex);
+      RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cell->topology());
+      IndexType firstChildCellIndex = fineMeshTopo->cellCount();
+      fineMeshTopo->refineCell(cellIndex, refPattern, firstChildCellIndex);
+    }
+    
+    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView(originalCells);
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k) );
+    MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
     
     RHSPtr rhs = RHS::rhs();
     rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
@@ -722,10 +742,12 @@ namespace
     BFPtr bf = form.bf();
     
     bool divideIntoTriangles = true;
-    MeshPtr coarseMesh = MeshFactory::quadMeshMinRule(bf, H1Order_coarse, delta_k, dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
-                                                      divideIntoTriangles);
-    MeshPtr fineMesh = MeshFactory::quadMeshMinRule(bf, H1Order_fine, delta_k, dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
-                                                    divideIntoTriangles);
+    
+    MeshTopologyPtr meshTopology = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
+                                                                 divideIntoTriangles);
+    
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order_coarse, delta_k) );
+    MeshPtr fineMesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order_fine, delta_k) );
     
     RHSPtr rhs = RHS::rhs();
       rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
@@ -749,12 +771,23 @@ namespace
     vector<double> dimensions(spaceDim,1.0);
     vector<int> elementCounts(spaceDim,coarseElementCount);
     BFPtr bf = form.bf();
-    MeshPtr coarsestMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_coarsest, delta_k);
-    MeshPtr coarseMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_coarse, delta_k);
     MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_fine, delta_k);
-
-    coarseMesh->hRefine(vector<GlobalIndexType>({0}));
     fineMesh->hRefine(vector<GlobalIndexType>({0}));
+    
+    MeshTopologyViewPtr fineMeshTopo = fineMesh->getTopology();
+    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView(fineMeshTopo->getLocallyKnownActiveCellIndices());
+    MeshTopologyViewPtr coarsestMeshTopo = fineMeshTopo->getView({0});
+
+    MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo,
+                                                                                                               fineMeshTopo);
+    
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k,
+                                                map<int,int>(), map<int,int>(), inducedPartitionPolicy) );
+
+    inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarsestMeshTopo, coarseMeshTopo);
+
+    MeshPtr coarsestMesh = Teuchos::rcp( new Mesh(coarsestMeshTopo, bf, H1Order_coarsest, delta_k,
+                                                  map<int,int>(), map<int,int>(), inducedPartitionPolicy) );
 
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)

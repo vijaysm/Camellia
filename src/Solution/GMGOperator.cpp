@@ -66,6 +66,12 @@ _finePartitionMap(finePartitionMap), _br(true)
     TEUCHOS_TEST_FOR_EXCEPTION(coarseIP == Teuchos::null, std::invalid_argument, "GMGOperator: coarseIP is required when useStaticCondensation = true");
   }
   
+  // new 4/20/16: require that coarseMesh and fineMesh share a common base MeshTopology (ensures that distributed geometry does not interfere with the prolongation operator determination)
+  
+  MeshTopology* coarseBaseTopo = coarseMesh->getTopology()->baseMeshTopology();
+  MeshTopology* fineBaseTopo = fineMesh->getTopology()->baseMeshTopology();
+  TEUCHOS_TEST_FOR_EXCEPTION(fineBaseTopo != coarseBaseTopo, std::invalid_argument, "fine and coarse mesh must have a common base MeshTopology");
+  
   _useStaticCondensation = useStaticCondensation;
   _fineDofInterpreter = fineDofInterpreter;
   _fineCoarseRolesSwapped = false; //default
@@ -507,8 +513,8 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
       }
       
       // for dof interpreter's sake, want to put 0's in slots for any seen-but-not-owned global coefficients
-      set<GlobalIndexType> myCellIDs = fineMesh->globalDofAssignment()->cellsInPartition(-1);
-      for (GlobalIndexType cellID : myCellIDs)
+      const set<GlobalIndexType>* myCellIDs = &fineMesh->globalDofAssignment()->cellsInPartition(-1);
+      for (GlobalIndexType cellID : *myCellIDs)
       {
         set<GlobalIndexType> globalDofsForCell = fineDofInterpreter->globalDofIndicesForCell(cellID);
         for (GlobalIndexType globalDofIndex : globalDofsForCell)

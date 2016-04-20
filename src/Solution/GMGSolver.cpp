@@ -249,6 +249,13 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   MeshPtr curvilinearFineMesh = Teuchos::null;
   if (fineMesh->getTransformationFunction() != Teuchos::null)
   {
+    /*
+     There is an issue here: GMGOperator now insists that baseMeshTopology() for fine and coarse meshes
+     points to the same object.  Two possibilities:
+     1) Let the straight-edged variant be a view.  I.e. MeshTopologyView now has the possibility of overriding the edge-to-curve map.
+     2) Do something more drastic.
+     */
+    // TODO: work something out here.
     curvilinearFineMesh = fineMesh;
     fineMesh = curvilinearFineMesh->deepCopy();
     map<pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr> edgeToCurveMap;
@@ -312,21 +319,38 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   // repeat the last one:
   meshesCoarseToFine.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
   
+  // TODO: do something to avoid this global construction
+  set<GlobalIndexType> fineCellIndicesGlobal = fineMesh->getActiveCellIDsGlobal();
+  
+  set<GlobalIndexType> locallyKnownFineCellIndices = fineMeshTopo->getLocallyKnownActiveCellIndices();
+  MeshTopologyViewPtr fineMeshTopoView = fineMeshTopo->getView(locallyKnownFineCellIndices);
   if (! jumpToCoarsePolyOrder)
   {
     // NOTE: this option is not very well-supported for space-time meshes, because of our lack of anisotropic p-refinement
     //       support; essentially, for this to work, you need to have the same temporal poly order as spatial.
-    MeshPtr meshToPRefine = Teuchos::rcp(new Mesh(fineMesh->getTopology()->deepCopy(), bf, H1Order_coarse, delta_k, trialOrderEnhancements));
     
     bool someCellWasRefined = true;
-    
-    set<GlobalIndexType> fineCellIndices = fineMeshTopo->getLocallyKnownActiveCellIndices();
 
+    map<GlobalIndexType,int> pRefinements; // relative to H1OrderCoarse
+    
     while (someCellWasRefined)
     {
+      MeshPtr meshToPRefine;
+      BFPtr bf = fineMesh->bilinearForm();
+      if (bf != Teuchos::null)
+      {
+        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, bf, H1Order_coarse, delta_k, trialOrderEnhancements) );
+      }
+      else
+      {
+        VarFactoryPtr vf = fineMesh->varFactory();
+        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, vf, H1Order_coarse, delta_k, trialOrderEnhancements) );
+      }
+      
       someCellWasRefined = false;
       
-      for (GlobalIndexType cellIndex : fineCellIndices)
+      int minPRefinement = INT_MAX;
+      for (GlobalIndexType cellIndex : fineCellIndicesGlobal)
       {
         ElementTypePtr coarseElemType = meshToPRefine->getElementType(cellIndex);
         int kForCoarseCell = coarseElemType->trialOrderPtr->maxBasisDegreeForVolume();
@@ -346,19 +370,27 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
         
         if (kForCoarseCell + kToAdd < kForFineCell) // if kForCoarseCell + kToAdd == kForFineCell, then the fine mesh will do the job
         {
-          meshToPRefine->pRefine(set<GlobalIndexType>{cellIndex},kToAdd,false); // false: don't repartition and rebuild yet
+          pRefinements[cellIndex] += kToAdd;
+          minPRefinement = min(minPRefinement,pRefinements[cellIndex]);
           someCellWasRefined = true;
+        }
+        else
+        {
+          if (pRefinements.find(cellIndex) != pRefinements.end())
+            minPRefinement = 0;
+          else
+            minPRefinement = min(minPRefinement,pRefinements[cellIndex]);
         }
       }
       
       if (someCellWasRefined)
       {
+        meshToPRefine->globalDofAssignment()->setCellPRefinements(pRefinements);
         MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(meshToPRefine,fineMesh);
         meshToPRefine->setPartitionPolicy(inducedPartitionPolicy);
         
         meshToPRefine->repartitionAndRebuild();
         meshesCoarseToFine.push_back(meshToPRefine);
-        meshToPRefine = meshToPRefine->deepCopy(); // a bit wasteful, in that we really could share the MeshTopology object
       }
     }
   }

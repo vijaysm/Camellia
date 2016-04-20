@@ -125,6 +125,9 @@ public:
   bool getPartitions(Intrepid::FieldContainer<GlobalIndexType> &partitions);
   PartitionIndexType getPartitionCount();
 
+  const map<GlobalIndexType,int>& getCellPRefinements() const;
+  virtual void setCellPRefinements(const map<GlobalIndexType,int>& pRefinements);
+  
   int getPRefinementDegree(GlobalIndexType cellID);
   int getTestOrderEnrichment();
 

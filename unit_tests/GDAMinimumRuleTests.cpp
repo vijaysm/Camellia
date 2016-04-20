@@ -15,6 +15,7 @@
 #include "Epetra_SerialComm.h"
 #include "Epetra_SerialDistributor.h"
 
+#include "BasisFactory.h"
 #include "CamelliaCellTools.h"
 #include "CamelliaTestingHelpers.h"
 #include "CubatureFactory.h"
@@ -22,6 +23,7 @@
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
 #include "MeshTestUtility.h"
+#include "MPIWrapper.h"
 #include "PenaltyConstraints.h"
 #include "PoissonFormulation.h"
 #include "RHS.h"
@@ -463,7 +465,7 @@ namespace
       return;
     }
     
-    auto activeCellIDs = mesh->cellIDsInPartition();
+    auto myCellIDs = mesh->cellIDsInPartition();
     MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
 
 //    { // DEBUGGING
@@ -482,20 +484,20 @@ namespace
     
     int sideDim = meshTopo->getDimension() - 1;
     Camellia::CubatureFactory cubFactory;
-    for (auto cellID : activeCellIDs)
+    for (auto cellID : myCellIDs)
     {
       BasisCachePtr cellBasisCache = BasisCache::basisCacheForCell(mesh, cellID);
       CellPtr cell = meshTopo->getCell(cellID);
-      CellConstraints cellConstraints = gda->getCellConstraints(cellID);
-      auto dofOwnershipInfo = gda->getGlobalDofIndices(cellID, cellConstraints);
+      auto dofOwnershipInfo = gda->getGlobalDofIndices(cellID);
       CellTopoPtr cellTopo = cell->topology();
+      CellConstraints cellConstraints = gda->getCellConstraints(cellID);
       
       DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
       
       BasisMap fineBasisMap;
       BasisPtr fineBasis;
       CellTopoPtr domainTopo;
-      int domainDim, domainOrdinalInCell;
+      int domainOrdinalInCell;
       
       bool isVolumeVar = (var->varType() == FIELD);
       
@@ -653,8 +655,16 @@ namespace
             // strip cell dimension:
             constrainingBasisValuesAllPoints.resize(constrainingBasis->getCardinality(), numPoints);
             
-            CellConstraints coarseCellConstraints = gda->getCellConstraints(constrainingEntityInfo.cellID);
-            auto coarseGlobalDofInfo = gda->getGlobalDofIndices(constrainingEntityInfo.cellID, cellConstraints);
+            if (myCellIDs.find(constrainingEntityInfo.cellID) == myCellIDs.end())
+            {
+              // then we can't reliably call getBasisMap().
+              // we rely on the same test on fewer processors (when the two cells end up in the same partition) to test this.
+              // (Note that we *could* communicate the BasisMaps for the cell halo; that would do the trick.)
+              
+              continue;
+            }
+            
+            auto coarseGlobalDofInfo = gda->getGlobalDofIndices(constrainingEntityInfo.cellID);
             BasisMap coarseBasisMap;
             if (isVolumeVar)
             {
@@ -664,6 +674,8 @@ namespace
             {
               coarseBasisMap = gda->getBasisMap(constrainingEntityInfo.cellID, coarseGlobalDofInfo, var, constrainingSideOrdinal);
             }
+            
+            CellConstraints coarseCellConstraints = gda->getCellConstraints(constrainingEntityInfo.cellID);
             
             for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
             {
@@ -950,45 +962,60 @@ namespace
     
     //  cout << "about to refine to make Poisson 3D hanging node mesh.\n";
     
-    set<GlobalIndexType> cellIDs;
-    cellIDs.insert(1);
+    GlobalIndexTypeToCast cellToRefine = 1;
+    set<GlobalIndexType> cellIDs = {(GlobalIndexType)cellToRefine};
     mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternHexahedron());
     
     if (irregularity==1) return soln;
     
     // now, repeat the above, but with a 2-irregular mesh.
-    vector<CellPtr> children = mesh->getTopology()->getCell(1)->children();
-    
-    // childrenForSides outer vector: indexed by parent's sides; inner vector: (child index in children, index of child's side shared with parent)
-    vector< vector< pair< unsigned, unsigned > > > childrenForSides = mesh->getTopology()->getCell(1)->refinementPattern()->childrenForSides();
-    for (int sideOrdinal=0; sideOrdinal<childrenForSides.size(); sideOrdinal++)
+    auto myCellIDs = &mesh->cellIDsInPartition();
+    int localCellIDToRefine = INT_MAX;
+    if (mesh->getTopology()->isValidCellIndex(cellToRefine))
     {
-      vector< pair< unsigned, unsigned > > childrenForSide = childrenForSides[sideOrdinal];
-      bool didRefine = false;
-      for (int i=0; i<childrenForSide.size(); i++)
+      CellPtr parentCell = mesh->getTopology()->getCell(cellToRefine);
+      vector<IndexType> children = parentCell->getChildIndices(mesh->getTopology());
+      
+      // childrenForSides outer vector: indexed by parent's sides; inner vector: (child index in children, index of child's side shared with parent)
+      vector< vector< pair< unsigned, unsigned > > > childrenForSides = parentCell->refinementPattern()->childrenForSides();
+      
+      for (int sideOrdinal=0; sideOrdinal<childrenForSides.size(); sideOrdinal++)
       {
-        unsigned childOrdinal = childrenForSide[i].first;
-        CellPtr child = children[childOrdinal];
-        unsigned childSideOrdinal = childrenForSide[i].second;
-        pair<GlobalIndexType,unsigned> neighborInfo = child->getNeighborInfo(childSideOrdinal, mesh->getTopology());
-        GlobalIndexType neighborCellID = neighborInfo.first;
-        if (neighborCellID != -1)   // not boundary
+        vector< pair< unsigned, unsigned > > childrenForSide = childrenForSides[sideOrdinal];
+        bool foundCellToRefine = false;
+        for (int i=0; i<childrenForSide.size(); i++)
         {
-          CellPtr neighbor = mesh->getTopology()->getCell(neighborCellID);
-          pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(neighborInfo.second, mesh->getTopology());
-          bool neighborIsPeer = neighborNeighborInfo.first == child->cellIndex();
-          if (!neighborIsPeer)   // then by refining this cell, we induce a 2-irregular mesh
+          unsigned childOrdinal = childrenForSide[i].first;
+          IndexType childID = children[childOrdinal];
+          unsigned childSideOrdinal = childrenForSide[i].second;
+          if (myCellIDs->find(childID) != myCellIDs->end())
           {
-            set<GlobalIndexType> cellIDs;
-            cellIDs.insert(child->cellIndex());
-            mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternHexahedron());
-            didRefine = true;
-            break;
+            CellPtr child = mesh->getTopology()->getCell(childID);
+            pair<GlobalIndexType,unsigned> neighborInfo = child->getNeighborInfo(childSideOrdinal, mesh->getTopology());
+            GlobalIndexType neighborCellID = neighborInfo.first;
+            if (neighborCellID != -1)   // not boundary
+            {
+              CellPtr neighbor = mesh->getTopology()->getCell(neighborCellID);
+              pair<GlobalIndexType,unsigned> neighborNeighborInfo = neighbor->getNeighborInfo(neighborInfo.second, mesh->getTopology());
+              bool neighborIsPeer = neighborNeighborInfo.first == child->cellIndex();
+              if (!neighborIsPeer)   // then by refining this cell, we induce a 2-irregular mesh
+              {
+                localCellIDToRefine = child->cellIndex();
+                foundCellToRefine = true;
+                break;
+              }
+            }
           }
         }
+        if (foundCellToRefine) break;
       }
-      if (didRefine) break;
     }
+    int commonCellIDToRefine;
+    mesh->Comm()->MinAll(&localCellIDToRefine, &commonCellIDToRefine, 1);
+    TEUCHOS_TEST_FOR_EXCEPTION(commonCellIDToRefine == INT_MAX, std::invalid_argument, "did not find a cell to refine");
+    
+    cellIDs = {(GlobalIndexType)commonCellIDToRefine};
+    mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternHexahedron());
     
     //if (irregularity==2)
     return soln;
@@ -1016,40 +1043,65 @@ namespace
   MeshPtr poissonIrregularMesh(int spaceDim, int irregularity, int H1Order, bool useConformingTraces)
   {
     int elementWidth = 2;
+    if ((irregularity >= 2) && useConformingTraces)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Can only use conforming traces when irregularity <= 1");
+    }
     MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
     
     int meshIrregularity = 0;
-    vector<GlobalIndexType> cellsToRefine = {1};
-    CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
-    unsigned sharedSideOrdinal = -1;
-    for (int sideOrdinal=0; sideOrdinal<cellToRefine->getSideCount(); sideOrdinal++)
+    GlobalIndexType cellToRefine = 1;
+    vector<GlobalIndexType> cellsToRefine = {cellToRefine};
+    
+    auto myCellIDs = &mesh->cellIDsInPartition();
+    
+    int localSharedSideOrdinal = 0;
+    bool ownRefinedCell = false;
+    if (myCellIDs->find(cellToRefine) != myCellIDs->end())
     {
-      if (cellToRefine->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+      ownRefinedCell = true;
+      CellPtr cell = mesh->getTopology()->getCell(cellToRefine);
+      localSharedSideOrdinal = -1;
+      for (int sideOrdinal=0; sideOrdinal<cell->getSideCount(); sideOrdinal++)
       {
-        sharedSideOrdinal = sideOrdinal;
-        break;
+        if (cell->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+        {
+          localSharedSideOrdinal = sideOrdinal;
+          break;
+        }
       }
+      TEUCHOS_TEST_FOR_EXCEPTION(localSharedSideOrdinal == -1, std::invalid_argument, "sharedSideOrdinal not found");
     }
+    // communicate side ordinal to all processors
+    int globalSharedSideOrdinal;
+    mesh->Comm()->SumAll(&localSharedSideOrdinal, &globalSharedSideOrdinal, 1);
     
     while (meshIrregularity < irregularity)
     {
 //      print("refining cells", cellsToRefine);
+      cellsToRefine = {cellToRefine};
       mesh->hRefine(cellsToRefine);
       meshIrregularity++;
       
       // setup for the next refinement, if any:
-      auto childEntry = cellToRefine->childrenForSide(sharedSideOrdinal)[0];
-      GlobalIndexType childWithNeighborCellID = childEntry.first;
-      sharedSideOrdinal = childEntry.second;
-      cellsToRefine = {childWithNeighborCellID};
-      cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
-    }
-    
-    if ((spaceDim < 3) && (irregularity > 1))
-    {
-      // then we should set GDAMinimumRule to allow cascading constraints
-      GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*> (mesh->globalDofAssignment().get());
-      minRule->setAllowCascadingConstraints(true);
+      GlobalIndexTypeToCast localCellID = 0;
+      localSharedSideOrdinal = 0;
+      globalSharedSideOrdinal = 0;
+      GlobalIndexTypeToCast commonCellID = 0;
+      if (ownRefinedCell)
+      {
+        CellPtr cell = mesh->getTopology()->getCell(cellToRefine);
+        auto childEntry = cell->childrenForSide(globalSharedSideOrdinal)[0];
+        GlobalIndexType childWithNeighborCellID = childEntry.first;
+        localSharedSideOrdinal = childEntry.second;
+        localCellID = childWithNeighborCellID;
+      }
+      mesh->Comm()->SumAll(&localSharedSideOrdinal, &globalSharedSideOrdinal, 1);
+      mesh->Comm()->SumAll(&localCellID, &commonCellID, 1);
+      
+      cellToRefine = commonCellID;
+      myCellIDs = &mesh->cellIDsInPartition();
+      ownRefinedCell = (myCellIDs->find(cellToRefine) != myCellIDs->end());
     }
     
     return mesh;
@@ -1168,8 +1220,8 @@ namespace
     int spaceDim = 2;
     int H1Order = 2;
     int irregularity = 2;
-    // in 2D, can support arbitrary-irregularity conforming meshes
-    bool useConformingTraces = true;
+
+    bool useConformingTraces = false; // no longer support cascading constraints
     MeshPtr mesh = poissonIrregularMesh(spaceDim, irregularity, H1Order, useConformingTraces);
     testCoarseBasisEqualsWeightedFineBasis(mesh, out, success);
     
@@ -1258,6 +1310,80 @@ namespace
     testContiguousGlobalDofNumberingComplexSpaceTimeMesh(useConformingTraces, out, success);
   }
   
+  TEUCHOS_UNIT_TEST( GDAMinimumRule, DistributeSubcellDofIndices )
+  {
+    // test the static method that does the distribution
+    Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+    int rank = Comm->MyPID();
+    int numProcs = Comm->NumProc();
+    
+    // set up a fake example in which all dof indices are local.
+    // one hexahedral element per MPI rank
+    CellTopoPtr hex = CellTopology::hexahedron();
+    int H1Order = 3;
+    BasisPtr basis = BasisFactory::basisFactory()->getBasis(H1Order, hex, Camellia::EFunctionSpace::FUNCTION_SPACE_HGRAD);
+    
+    auto setupSubcellDofIndices = [basis] (PartitionIndexType rank) -> SubcellDofIndices
+    {
+      int localDofCount = basis->getCardinality();
+      GlobalIndexType globalDofOffset = localDofCount * rank;
+      
+      CellTopoPtr cellTopo = basis->domainTopology();
+      int spaceDim = cellTopo->getDimension();
+
+      int varID = 3;
+      
+      SubcellDofIndices scDofIndices;
+      scDofIndices.subcellDofIndices.resize(spaceDim+1);
+      for (int d=0; d<=spaceDim; d++)
+      {
+        int numSubcells = cellTopo->getSubcellCount(d);
+        for (int scord=0; scord<numSubcells; scord++)
+        {
+          vector<int> localDofOrdinals = basis->dofOrdinalsForSubcell(d, scord);
+          vector<GlobalIndexType> globalDofIndices;
+          for (int localDofOrdinal : localDofOrdinals)
+          {
+            globalDofIndices.push_back(localDofOrdinal + globalDofOffset);
+          }
+          scDofIndices.subcellDofIndices[d][scord][varID] = globalDofIndices;
+        }
+      }
+      return scDofIndices;
+    };
+
+    SubcellDofIndices scDofIndices = setupSubcellDofIndices(rank);
+    
+    GlobalIndexType myCellID = (GlobalIndexType) rank;
+    map<GlobalIndexType,PartitionIndexType> myNeighbors;
+    GlobalIndexType neighbor1 = (rank + 1) % numProcs;
+    GlobalIndexType neighbor2 = (rank + 2) % numProcs;
+    
+    if (myCellID != neighbor1)
+    {
+      myNeighbors[neighbor1] = (PartitionIndexType) neighbor1;
+    }
+    if (myCellID != neighbor2)
+    {
+      myNeighbors[neighbor2] = (PartitionIndexType) neighbor2;
+    }
+    
+    map<GlobalIndexType,SubcellDofIndices> mySubcellDofIndices;
+    mySubcellDofIndices[myCellID] = scDofIndices;
+    
+    map<GlobalIndexType,SubcellDofIndices> neighborSubcellDofIndices;
+    GDAMinimumRule::distributeSubcellDofIndices(Comm, mySubcellDofIndices, myNeighbors, neighborSubcellDofIndices);
+    
+    for (auto entry : myNeighbors)
+    {
+      GlobalIndexType neighborCellID = entry.first;
+      SubcellDofIndices actualDofIndices = neighborSubcellDofIndices[neighborCellID];
+      PartitionIndexType neighborRank = entry.second;
+      SubcellDofIndices expectedDofIndices = setupSubcellDofIndices(neighborRank);
+      TEST_ASSERT(actualDofIndices.subcellDofIndices == expectedDofIndices.subcellDofIndices);
+    }
+  }
+
   TEUCHOS_UNIT_TEST( GDAMinimumRule, DofCount_ContinuousTriangles )
   {
     // a couple tests to ensure that the dof counts are correct in linear, triangular Bubnov-Galerkin meshes
@@ -1273,7 +1399,9 @@ namespace
     MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                                 elementCounts[0], elementCounts[1], useTriangles);
     
-    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    // to get accurate global entity counts, need to use a non-distributed MeshTopology
+    MeshTopologyPtr meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                                             elementCounts[0], elementCounts[1], useTriangles);
     int vertexDim = 0;
     int numVertices = meshTopo->getEntityCount(vertexDim);
     
@@ -1283,7 +1411,8 @@ namespace
     elementCounts = {16,16};
     mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                         elementCounts[0], elementCounts[1], useTriangles);
-    meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                             elementCounts[0], elementCounts[1], useTriangles);
     numVertices = meshTopo->getEntityCount(vertexDim);
     
     globalDofCount = mesh->numGlobalDofs();
@@ -1324,7 +1453,9 @@ namespace
     MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                                 elementCounts[0], elementCounts[1], useTriangles);
     
-    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    // to get accurate global entity counts, need to use a non-distributed MeshTopology
+    MeshTopologyPtr meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                                             elementCounts[0], elementCounts[1], useTriangles);
     int vertexDim = 0;
     int edgeDim = 1;
     int numVertices = meshTopo->getEntityCount(vertexDim);
@@ -1338,7 +1469,8 @@ namespace
     elementCounts = {16,16};
     mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                         elementCounts[0], elementCounts[1], useTriangles);
-    meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    meshTopo =  MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                              elementCounts[0], elementCounts[1], useTriangles);
 
     numVertices = meshTopo->getEntityCount(vertexDim);
     numElements = meshTopo->activeCellCount();
@@ -1351,6 +1483,7 @@ namespace
 
   TEUCHOS_UNIT_TEST( GDAMinimumRule, InterpretGlobalBasisCoefficientsUltraweakConforming_Triangles )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     bool useConformingTraces = true;
     bool useTriangles = true;
@@ -1363,6 +1496,20 @@ namespace
     MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                                 elementCounts[0], elementCounts[1], useTriangles);
     
+    PartitionIndexType rank = mesh->Comm()->MyPID();
+//    int numProcs = mesh->Comm()->NumProc();
+//
+//    GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(mesh->globalDofAssignment().get());
+//    for (int p=0; p<numProcs; p++)
+//    {
+//      if (rank == p)
+//      {
+//        cout << "rank " << p << " global dof info:\n";
+//        minRule->printGlobalDofInfo();
+//      }
+//      mesh->Comm()->Barrier();
+//    }
+    
     double prescribedValue = 1.0;
     SolutionPtr soln = Solution::solution(form.bf(), mesh);
     BCPtr bc = BC::bc();
@@ -1373,7 +1520,6 @@ namespace
     Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndices;
     Intrepid::FieldContainer<double> bcGlobalValues;
     
-    PartitionIndexType rank = mesh->Comm()->MyPID();
     set<GlobalIndexType> myGlobalIndicesSet = mesh->globalDofAssignment()->globalDofIndicesForPartition(rank);
     
     mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*bc, myGlobalIndicesSet, mesh->globalDofAssignment().get());
@@ -1386,8 +1532,9 @@ namespace
     
     for (int i=0; i<bcGlobalIndices.size(); i++)
     {
-      GlobalIndexType globalIndex = bcGlobalIndices[i];
-      (*lhsVector)[0][globalIndex] = bcGlobalValues[i];
+      GlobalIndexTypeToCast globalIndex = bcGlobalIndices[i];
+      int LID = lhsVector->Map().LID(globalIndex);
+      (*lhsVector)[0][LID] = bcGlobalValues[i];
     }
     
     soln->importSolution();
@@ -1550,7 +1697,7 @@ namespace
     int spaceDim = 2;
     int irregularity = 2;
     int H1Order = 2;
-    bool useConformingTraces = true;
+    bool useConformingTraces = false;
     MeshPtr mesh = poissonIrregularMesh(spaceDim, irregularity, H1Order, useConformingTraces);
     
     GlobalIndexType activeElementCount_initial = mesh->numActiveElements();
@@ -1626,12 +1773,10 @@ namespace
       minRule->printGlobalDofInfo();
       
       minRule->printConstraintInfo(0);
-      CellConstraints cellConstraints = minRule->getCellConstraints(0);
-      minRule->getDofMapper(0, cellConstraints)->printMappingReport();
+      minRule->getDofMapper(0)->printMappingReport();
       
       minRule->printConstraintInfo(1);
-      cellConstraints = minRule->getCellConstraints(1);
-      minRule->getDofMapper(1, cellConstraints)->printMappingReport();
+      minRule->getDofMapper(1)->printMappingReport();
 
       string outputSuperDir = "/tmp";
       string outputDir = "PoissonSoln";
@@ -1658,6 +1803,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, SolvePoisson2DContinuousGalerkinHangingNode_Slow )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     testSolvePoissonContinuousGalerkinHangingNode(spaceDim, out, success);
   }

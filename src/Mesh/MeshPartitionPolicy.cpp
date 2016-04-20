@@ -65,6 +65,47 @@ MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicy(MeshPtr thisM
   return InducedMeshPartitionPolicy::inducedMeshPartitionPolicy(thisMesh, otherMesh, cellIDMap);
 }
 
+MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(MeshTopologyViewPtr inducedMeshTopo, MeshPtr inducingRefinedMesh)
+{
+  // generate using the inducing mesh
+  vector<GlobalIndexTypeToCast> myEntries;
+  
+  auto myCellIDs = &inducingRefinedMesh->cellIDsInPartition();
+  for (GlobalIndexType myCellID : *myCellIDs)
+  {
+    IndexType ancestralCellIndex = myCellID;
+    bool isFirstChild = true;
+    while (isFirstChild && !inducedMeshTopo->isValidCellIndex(ancestralCellIndex))
+    {
+      CellPtr myCell = inducingRefinedMesh->getTopology()->getCell(ancestralCellIndex);
+      CellPtr parent = myCell->getParent();
+      TEUCHOS_TEST_FOR_EXCEPTION(parent == Teuchos::null, std::invalid_argument, "ancestor not found in inducedMeshTopo");
+      int childOrdinal = parent->findChildOrdinal(myCell->cellIndex());
+      isFirstChild = (childOrdinal == 0);
+      ancestralCellIndex = parent->cellIndex();
+    }
+    if (isFirstChild)
+    {
+      myEntries.push_back(ancestralCellIndex);
+      myEntries.push_back(myCellID);
+    }
+  }
+  // all-gather the entries
+  vector<GlobalIndexTypeToCast> allEntries;
+  vector<int> offsets;
+  MPIWrapper::allGatherCompact(*inducingRefinedMesh->Comm(), allEntries, myEntries, offsets);
+  
+  map<GlobalIndexType,GlobalIndexType> cellIDMap;
+  for (int i=0; i<allEntries.size()/2; i++)
+  {
+    GlobalIndexType ancestralCellIndex = allEntries[2*i+0];
+    GlobalIndexType inducingMeshCellID = allEntries[2*i+1];
+    cellIDMap[ancestralCellIndex] = inducingMeshCellID;
+  }
+  
+  return Teuchos::rcp( new InducedMeshPartitionPolicy(inducingRefinedMesh, cellIDMap) );
+}
+
 MeshPartitionPolicyPtr MeshPartitionPolicy::standardPartitionPolicy(Epetra_CommPtr Comm)
 {
   MeshPartitionPolicyPtr partitionPolicy = Teuchos::rcp( new ZoltanMeshPartitionPolicy(Comm) );
