@@ -1383,8 +1383,9 @@ namespace
     
     for (int i=0; i<bcGlobalIndices.size(); i++)
     {
-      GlobalIndexType globalIndex = bcGlobalIndices[i];
-      (*lhsVector)[0][globalIndex] = bcGlobalValues[i];
+      GlobalIndexTypeToCast globalIndex = bcGlobalIndices[i];
+      int LID = lhsVector->Map().LID(globalIndex);
+      (*lhsVector)[0][LID] = bcGlobalValues[i];
     }
     
     soln->importSolution();
