@@ -306,6 +306,8 @@ public:
   void interpretLocalData(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localData,
                           Intrepid::FieldContainer<double> &globalData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);
 
+  bool isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const;
+  
   bool meshUsesMaximumRule();
   bool meshUsesMinimumRule();
 
