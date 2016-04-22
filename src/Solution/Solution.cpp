@@ -2981,7 +2981,6 @@ void determineQuadEdgeWeights(double weights[], int edgeVertexNumber, int numDiv
 template <typename Scalar>
 void TSolution<Scalar>::writeStatsToFile(const string &filePath, int precision)
 {
-  // writes out rows of the format: "cellID patchID x y solnValue"
   ofstream fout(filePath.c_str());
   fout << setprecision(precision);
   fout << "stat.\tmean\tmin\tmax\ttotal\n";

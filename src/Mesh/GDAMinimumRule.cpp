@@ -601,6 +601,11 @@ void GDAMinimumRule::interpretLocalBasisCoefficients(GlobalIndexType cellID, int
   }
 }
 
+bool GDAMinimumRule::isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const
+{
+  return (_partitionDofOffset <= globalDofIndex) && (globalDofIndex < _partitionDofOffset + _partitionDofCount);
+}
+
 IndexType GDAMinimumRule::localDofCount()
 {
   // TODO: implement this

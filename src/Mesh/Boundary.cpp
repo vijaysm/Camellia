@@ -631,8 +631,8 @@ void Boundary::bcsToImpose( map<  GlobalIndexType, Scalar > &globalDofIndicesAnd
             // nonzero entry: store the fact, and impose the constraint
             nonzeroEntryOrdinal = fieldOrdinal;
             
-            set<GlobalIndexType> rankLocalDofIndices = dofInterpreter->globalDofIndicesForPartition(rank);
-            if (rankLocalDofIndices.find(globalDofIndices[fieldOrdinal]) != rankLocalDofIndices.end())
+            bool isRankLocal = dofInterpreter->isLocallyOwnedGlobalDofIndex(globalDofIndices[fieldOrdinal]);
+            if (isRankLocal)
             {
               globalDofIndicesAndValues[globalDofIndices[fieldOrdinal]] = bc.valueForSinglePointBC(trialID) * globalCoefficients[fieldOrdinal];;
             }

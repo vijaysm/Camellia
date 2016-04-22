@@ -54,6 +54,7 @@ public:
   DofInterpreter(MeshPtr mesh) : _mesh(mesh) {}
   virtual GlobalIndexType globalDofCount() = 0;
   virtual set<GlobalIndexType> globalDofIndicesForPartition(PartitionIndexType rank) = 0;
+  virtual bool isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const = 0;
 
   virtual void interpretLocalData(GlobalIndexType cellID, const Intrepid::FieldContainer<double> &localData,
                                   Intrepid::FieldContainer<double> &globalData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices) = 0;

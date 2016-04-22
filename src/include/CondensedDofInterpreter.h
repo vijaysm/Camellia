@@ -67,8 +67,9 @@ private:
   void getSubvectors(set<int> fieldIndices, set<int> fluxIndices, const Intrepid::FieldContainer<Scalar> &b, Epetra_SerialDenseVector &b_field, Epetra_SerialDenseVector &b_flux);
 
   void initializeGlobalDofIndices();
-  map<GlobalIndexType, GlobalIndexType> interpretedFluxMapForPartition(PartitionIndexType partition,
-                                                                       const set<GlobalIndexType> &cellsForFluxInterpretation);
+
+  // ! For fluxes owned by the local partition.
+  map<GlobalIndexType, GlobalIndexType> interpretedFluxMapLocal(const set<GlobalIndexType> &cellsForFluxInterpretation);
 
   void getLocalData(GlobalIndexType cellID, Intrepid::FieldContainer<Scalar> &stiffness, Intrepid::FieldContainer<Scalar> &load,
                     Intrepid::FieldContainer<GlobalIndexType> &interpretedDofIndices);
@@ -103,6 +104,10 @@ public:
   GlobalIndexType globalDofCount();
   set<GlobalIndexType> globalDofIndicesForPartition(PartitionIndexType rank);
 
+  void importInterpretedMapForNeighborGlobalIndices(const map<PartitionIndexType,set<GlobalIndexType>> &partitionToMeshGlobalIndices);
+  
+  void importInterpretedMapForOffRankCells(const set<GlobalIndexType> &offRankCells);
+  
   void interpretLocalData(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &localData,
                           Intrepid::FieldContainer<Scalar> &globalData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);
 
@@ -119,6 +124,8 @@ public:
 
   void interpretGlobalCoefficients(GlobalIndexType cellID, Intrepid::FieldContainer<Scalar> &localDofs, const Epetra_MultiVector &globalDofs);
 
+  bool isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const;
+  
   set<GlobalIndexType> globalDofIndicesForCell(GlobalIndexType cellID);
   set<GlobalIndexType> globalDofIndicesForVarOnSubcell(int varID, GlobalIndexType cellID, unsigned dim, unsigned subcellOrdinal);
 

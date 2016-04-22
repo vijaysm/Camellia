@@ -1105,6 +1105,11 @@ int Mesh::irregularity()
   return globalIrregularity;
 }
 
+bool Mesh::isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const
+{
+  return _gda->isLocallyOwnedGlobalDofIndex(globalDofIndex);
+}
+
 GlobalIndexType Mesh::numActiveElements()
 {
   return _meshTopology->getActiveCellIndices().size();
