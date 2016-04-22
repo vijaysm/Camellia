@@ -943,9 +943,13 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
       for (IndexType cellIndex : activeCellIDs)
       {
         CellTopoPtr cellTopo = meshTopo->getCell(cellIndex)->topology();
-        meshTopo->refineCell(cellIndex, RefinementPattern::regularRefinementPattern(cellTopo));
+        IndexType nextCellID = meshTopo->cellCount();
+        meshTopo->refineCell(cellIndex, RefinementPattern::regularRefinementPattern(cellTopo), nextCellID);
         if (hOnly && (meshWidthCells * 2 < numCells))
-          coarseMeshTopo->refineCell(cellIndex, RefinementPattern::regularRefinementPattern(cellTopo)); // coarseMesh gets 1 less h-refinement
+        {
+          IndexType nextCellID = coarseMeshTopo->cellCount();
+          coarseMeshTopo->refineCell(cellIndex, RefinementPattern::regularRefinementPattern(cellTopo), nextCellID); // coarseMesh gets 1 less h-refinement
+        }
       }
       meshWidthCells *= 2;
     }
