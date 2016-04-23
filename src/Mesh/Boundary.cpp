@@ -80,17 +80,6 @@ void Boundary::buildLookupTables()
       _boundaryElements.insert(make_pair(cellID, boundarySides[i]));
     }
   }
-
-//  _imposeSingletonBCsOnThisRank = (_mesh->globalDofAssignment()->cellsInPartition(rank).size() > 0);  // want this to be true for the first rank that has some active cells
-//  for (int i=0; i<rank; i++)
-//  {
-//    int activeCellCount = _mesh->globalDofAssignment()->cellsInPartition(i).size();
-//    if (activeCellCount > 0)
-//    {
-//      _imposeSingletonBCsOnThisRank = false;
-//      break;
-//    }
-//  }
 }
 
 template <typename Scalar>

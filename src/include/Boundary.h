@@ -56,7 +56,6 @@ class Boundary
   std::set<std::pair<GlobalIndexType,unsigned>> _boundaryElements; // first arg is cellID, second arg is sideOrdinal
 
   MeshPtr _mesh;
-//  bool _imposeSingletonBCsOnThisRank; // this only governs singleton BCs which don't specify a vertex number.  Otherwise, the rule is that a singleton BC is imposed on the rank that owns the active cell of least ID that contains the vertex.
 public:
   Boundary();
   void setMesh(MeshPtr mesh);
