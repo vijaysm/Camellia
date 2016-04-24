@@ -694,7 +694,7 @@ bool GMGTests::testGMGSolverTwoGrid()
 
       double l2_diff = (exactPhiSoln-actualPhiSoln)->l2norm(mesh);
 
-      double tol = iter_tol * 10;
+      double tol = iter_tol * 100;
       if (l2_diff > tol)
       {
         success = false;
