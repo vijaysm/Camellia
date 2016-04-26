@@ -253,7 +253,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     }
   }
   
-  bool useLightWeightViews = false; // flag added to allow checking whether any pure MeshTopologyViews are at issue in issues that might arise...
+  bool useLightWeightViews = true; // flag added to allow checking whether any pure MeshTopologyViews are at issue in issues that might arise...
   
   meshesCoarseToFine.clear();
   
