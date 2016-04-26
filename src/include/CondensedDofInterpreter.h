@@ -9,6 +9,7 @@
 #ifndef Camellia_debug_CondensedDofInterpreter_h
 #define Camellia_debug_CondensedDofInterpreter_h
 
+#include "BC.h"
 #include "DofInterpreter.h"
 #include "Intrepid_FieldContainer.hpp"
 #include "Epetra_Vector.h"
@@ -39,8 +40,11 @@ private:
   MeshPtr _mesh; // for element type lookup, and for determination of which dofs are trace dofs
   TIPPtr<Scalar> _ip;
   TRHSPtr<Scalar> _rhs;
+  TBCPtr<Scalar> _bc;
   LagrangeConstraints* _lagrangeConstraints;
-  set<int> _uncondensibleVarIDs;
+  std::set<int> _uncondensibleVarIDs;
+  // ! Container stores any local indices for the cell corresponding to variables that would otherwise be condensed, but have some local exception.  (This is used for singleton BCs right now.)
+  std::map<GlobalIndexType,vector<int>> _cellLocalUncondensibleDofIndices;
   
   GlobalIndexType _meshLastKnownGlobalDofCount;
   std::set<GlobalIndexType> _offRankCellsToInclude;
@@ -79,7 +83,9 @@ private:
                     Epetra_SerialDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FluxField, Epetra_SerialDenseVector &b_field,
                     Intrepid::FieldContainer<GlobalIndexType> &interpretedDofIndices, set<int> &fieldIndices, set<int> &fluxIndices);
 public:
-  CondensedDofInterpreter(MeshPtr mesh, TIPPtr<Scalar> ip, TRHSPtr<Scalar> rhs, LagrangeConstraints* lagrangeConstraints, const set<int> &fieldIDsToExclude, bool storeLocalStiffnessMatrices, std::set<GlobalIndexType> offRankCellsToInclude);
+  CondensedDofInterpreter(MeshPtr mesh, TIPPtr<Scalar> ip, TRHSPtr<Scalar> rhs, TBCPtr<Scalar> bc,
+                          LagrangeConstraints* lagrangeConstraints, const set<int> &fieldIDsToExclude,
+                          bool storeLocalStiffnessMatrices, std::set<GlobalIndexType> offRankCellsToInclude);
 
   void addSolution(CondensedDofInterpreter* otherSolnDofInterpreter, Scalar weight);
   
