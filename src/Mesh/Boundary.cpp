@@ -366,6 +366,7 @@ void Boundary::singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &dofIndexTo
   {
     if (bc.singlePointBC(trialID))
     {
+      auto knownActiveCells = &_mesh->getTopology()->getLocallyKnownActiveCellIndices();
       vector<double> spatialVertex = bc.pointForSpatialPointBC(trialID);
       vector<IndexType> matchingVertices = _mesh->getTopology()->getVertexIndicesMatching(spatialVertex);
       
@@ -375,18 +376,15 @@ void Boundary::singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &dofIndexTo
         set< pair<IndexType, unsigned> > cellsForVertex = _mesh->getTopology()->getCellsContainingEntity(vertexDim, vertexIndex);
         for (pair<IndexType, unsigned> cellForVertex : cellsForVertex)
         {
-          if (_mesh->getTopology()->getActiveCellIndices().find(cellForVertex.first) != _mesh->getTopology()->getActiveCellIndices().end())
+          // active cell
+          IndexType matchingCellID = cellForVertex.first;
+          
+          if (rankLocalCells->find(matchingCellID) != rankLocalCells->end())   // we own this cell, so we're responsible for imposing the singleton BC
           {
-            // active cell
-            IndexType matchingCellID = cellForVertex.first;
-            
-            if (rankLocalCells->find(matchingCellID) != rankLocalCells->end())   // we own this cell, so we're responsible for imposing the singleton BC
-            {
-              CellPtr cell = _mesh->getTopology()->getCell(matchingCellID);
-              unsigned vertexOrdinal = cell->findSubcellOrdinal(vertexDim, vertexIndex);
-              TEUCHOS_TEST_FOR_EXCEPTION(vertexOrdinal == -1, std::invalid_argument, "Internal error: vertexOrdinal not found for cell to which it supposedly belongs");
-              singletonsForCell[matchingCellID].insert(make_pair(trialID, vertexOrdinal));
-            }
+            CellPtr cell = _mesh->getTopology()->getCell(matchingCellID);
+            unsigned vertexOrdinal = cell->findSubcellOrdinal(vertexDim, vertexIndex);
+            TEUCHOS_TEST_FOR_EXCEPTION(vertexOrdinal == -1, std::invalid_argument, "Internal error: vertexOrdinal not found for cell to which it supposedly belongs");
+            singletonsForCell[matchingCellID].insert(make_pair(trialID, vertexOrdinal));
           }
         }
       }
