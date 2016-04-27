@@ -160,23 +160,13 @@ void CondensedDofInterpreter<Scalar>::getLocalData(GlobalIndexType cellID, Teuch
   
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
   
-  set<int> trialIDs = trialOrder->getVarIDs();
-  for (set<int>::iterator trialIDIt = trialIDs.begin(); trialIDIt != trialIDs.end(); trialIDIt++)
+  vector<int> fluxIndicesVector = fluxIndexLookupLocalCell(cellID);
+  fluxIndices.insert(fluxIndicesVector.begin(),fluxIndicesVector.end());
+  for (int localDofOrdinal=0; localDofOrdinal<trialOrder->totalDofs(); localDofOrdinal++)
   {
-    int trialID = *trialIDIt;
-    const vector<int>* sides = &trialOrder->getSidesForVarID(trialID);
-    for (vector<int>::const_iterator sideIt = sides->begin(); sideIt != sides->end(); sideIt++)
+    if (fluxIndices.find(localDofOrdinal) == fluxIndices.end())
     {
-      int sideOrdinal = *sideIt;
-      vector<int> varIndices = trialOrder->getDofIndices(trialID, sideOrdinal);
-      if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder))
-      {
-        fieldIndices.insert(varIndices.begin(), varIndices.end());
-      }
-      else
-      {
-        fluxIndices.insert(varIndices.begin(),varIndices.end());
-      }
+      fieldIndices.insert(localDofOrdinal);
     }
   }
   
@@ -823,8 +813,6 @@ map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpret
             TEUCHOS_TEST_FOR_EXCEPTION(localDofIndex == -1, std::invalid_argument, "interpretedDofIndex not found in meshGlobalDofs");
             
             _cellLocalUncondensibleDofIndices[cellID].push_back(localDofIndex);
-            
-            cout << " hasSingletonBCImposed.\n";
           }
           bool dofIsCondensible = varIsCondensible && !hasSingletonBCImposed;
           bool isOwnedByThisPartition = _mesh->isLocallyOwnedGlobalDofIndex(interpretedDofIndex);
@@ -1002,13 +990,11 @@ void CondensedDofInterpreter<Scalar>::interpretLocalCoefficients(GlobalIndexType
 {
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
   FieldContainer<Scalar> basisCoefficients; // declared here so that we can sometimes avoid mallocs, if we get lucky in terms of the resize()
-  for (set<int>::iterator trialIDIt = trialOrder->getVarIDs().begin(); trialIDIt != trialOrder->getVarIDs().end(); trialIDIt++)
+  for (int trialID : trialOrder->getVarIDs())
   {
-    int trialID = *trialIDIt;
     const vector<int>* sides = &trialOrder->getSidesForVarID(trialID);
-    for (vector<int>::const_iterator sideIt = sides->begin(); sideIt != sides->end(); sideIt++)
+    for (int sideOrdinal : *sides)
     {
-      int sideOrdinal = *sideIt;
       if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder)) continue;
       int basisCardinality = trialOrder->getBasisCardinality(trialID, sideOrdinal);
       basisCoefficients.resize(basisCardinality);
