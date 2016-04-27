@@ -159,26 +159,20 @@ void CondensedDofInterpreter<Scalar>::getLocalData(GlobalIndexType cellID, Teuch
 //  cout << "rhs for cell " << cellID << ":\n" << rhs;
   
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
-  
   set<int> trialIDs = trialOrder->getVarIDs();
-  for (set<int>::iterator trialIDIt = trialIDs.begin(); trialIDIt != trialIDs.end(); trialIDIt++)
+  for (int trialID : trialIDs)
   {
-    int trialID = *trialIDIt;
     const vector<int>* sides = &trialOrder->getSidesForVarID(trialID);
-    for (vector<int>::const_iterator sideIt = sides->begin(); sideIt != sides->end(); sideIt++)
+    if (sides->size() == 1)
     {
-      int sideOrdinal = *sideIt;
-      vector<int> varIndices = trialOrder->getDofIndices(trialID, sideOrdinal);
-      if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder))
-      {
-        fieldIndices.insert(varIndices.begin(), varIndices.end());
-      }
-      else
-      {
-        fluxIndices.insert(varIndices.begin(),varIndices.end());
-      }
+      // field
+      vector<int> thisFieldIndices = fieldRowIndices(cellID, trialID);
+      fieldIndices.insert(thisFieldIndices.begin(),thisFieldIndices.end());
     }
   }
+  
+  vector<int> fluxIndicesVector = fluxIndexLookupLocalCell(cellID);
+  fluxIndices.insert(fluxIndicesVector.begin(),fluxIndicesVector.end());
   
   Epetra_SerialDenseMatrix fluxMat;
   Epetra_SerialDenseVector b_flux;
