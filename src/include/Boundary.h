@@ -56,7 +56,6 @@ class Boundary
   std::set<std::pair<GlobalIndexType,unsigned>> _boundaryElements; // first arg is cellID, second arg is sideOrdinal
 
   MeshPtr _mesh;
-  bool _imposeSingletonBCsOnThisRank; // this only governs singleton BCs which don't specify a vertex number.  Otherwise, the rule is that a singleton BC is imposed on the rank that owns the active cell of least ID that contains the vertex.
 public:
   Boundary();
   void setMesh(MeshPtr mesh);
@@ -67,6 +66,17 @@ public:
   template <typename Scalar>
   void bcsToImpose(Intrepid::FieldContainer<GlobalIndexType> &globalIndices, Intrepid::FieldContainer<Scalar> &globalValues, TBC<Scalar> &bc,
                    DofInterpreter* dofInterpreter);
+
+  //! Determine rank-local values to impose for the "point" boundary conditions (e.g., a point condition on a pressure variable)
+  /*!
+   \param globalDofIndicesAndValues - (Out) keys are the global degree-of-freedom indices, values are their coefficients (weights).
+   \param bc - (In) the BC object specifying the boundary conditions
+   \param dofInterpreter - (In) the DofInterpreter
+   */
+  template <typename Scalar>
+  void singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &globalDofIndicesAndValues, TBC<Scalar> &bc,
+                            DofInterpreter* dofInterpreter);
+  
   //! Determine values to impose on a single cell.
   /*!
    \param globalDofIndicesAndValues - (Out) keys are the global degree-of-freedom indices, values are their coefficients (weights).
@@ -77,7 +87,7 @@ public:
    */
   template <typename Scalar>
   void bcsToImpose(std::map<GlobalIndexType,Scalar> &globalDofIndicesAndValues, TBC<Scalar> &bc, GlobalIndexType cellID,
-                   std::set<std::pair<int, unsigned>> &singletons, DofInterpreter* dofInterpreter);
+                   DofInterpreter* dofInterpreter);
   void buildLookupTables();
 };
 }

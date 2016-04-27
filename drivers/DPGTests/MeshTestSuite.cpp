@@ -2358,8 +2358,8 @@ bool MeshTestSuite::testSolutionForSingleElementUpgradedSide()
   {
     success = false;
     cout << "FAILURE: When using upgraded side, failed to resolve linear polynomial... (error: " << error << ")" << endl;
-    cout << "Single-point BC Poisson error (upgraded side): " << error << endl;  }
-
+    cout << "Single-point BC Poisson error (upgraded side): " << error << endl;
+  }
   return success;
 }
 

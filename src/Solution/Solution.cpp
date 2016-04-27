@@ -1273,32 +1273,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
     }
   }
 
-  //  // compute max, min h
-  //  // TODO: get rid of the Global calls below (MPI-enable this code)
-  //  double maxCellMeasure = 0;
-  //  double minCellMeasure = 1e300;
-  //  vector< ElementTypePtr > elemTypes = _mesh->elementTypes(); // global element types
-  //  for (vector< ElementTypePtr >::iterator elemTypeIt = elemTypes.begin(); elemTypeIt != elemTypes.end(); elemTypeIt++) {
-  //    ElementTypePtr elemType = *elemTypeIt;
-  //    vector< ElementPtr > elems = _mesh->elementsOfTypeGlobal(elemType);
-  //    vector<GlobalIndexType> cellIDs;
-  //    for (int i=0; i<elems.size(); i++) {
-  //      cellIDs.push_back(elems[i]->cellID());
-  //    }
-  //    Intrepid::FieldContainer<double> physicalCellNodes = _mesh->physicalCellNodesGlobal(elemType);
-  //    BasisCachePtr basisCache = Teuchos::rcp( new BasisCache(elemType,_mesh) );
-  //    basisCache->setPhysicalCellNodes(physicalCellNodes,cellIDs,true); // true: create side caches
-  //    Intrepid::FieldContainer<double> cellMeasures = basisCache->getCellMeasures();
-  //
-  //    for (int i=0; i<elems.size(); i++) {
-  //      maxCellMeasure = max(maxCellMeasure,cellMeasures(i));
-  //      minCellMeasure = min(minCellMeasure,cellMeasures(i));
-  //    }
-  //  }
-  //  double min_h = sqrt(minCellMeasure);
-  //  double max_h = sqrt(maxCellMeasure);
-
-
   // TODO: change ZMC imposition to be a distributed computation, instead of doing it all on rank 0
   //       (It's both the code below and the integrateBasisFunctions() methods that will need revision.)
   vector<int> zeroMeanConstraints = getZeroMeanConstraints();
@@ -2987,7 +2961,6 @@ void determineQuadEdgeWeights(double weights[], int edgeVertexNumber, int numDiv
 template <typename Scalar>
 void TSolution<Scalar>::writeStatsToFile(const string &filePath, int precision)
 {
-  // writes out rows of the format: "cellID patchID x y solnValue"
   ofstream fout(filePath.c_str());
   fout << setprecision(precision);
   fout << "stat.\tmean\tmin\tmax\ttotal\n";
@@ -3245,10 +3218,10 @@ void TSolution<Scalar>::condensedSolve(TSolverPtr<Scalar> globalSolver, bool red
     trialIDs = _mesh->bilinearForm()->trialIDs();
 
   set< int > fieldsToExclude;
-  for (vector< int >::iterator trialIt = trialIDs.begin(); trialIt != trialIDs.end(); trialIt++)
+  for (int trialID : trialIDs)
   {
-    int trialID = *trialIt;
-    if (_bc->shouldImposeZeroMeanConstraint(trialID) || _bc->singlePointBC(trialID) )
+    // NVR: change 4-26-16; now *don't* exclude fields with a single point BC
+    if (_bc->shouldImposeZeroMeanConstraint(trialID))
     {
       fieldsToExclude.insert(trialID);
     }
@@ -3257,7 +3230,7 @@ void TSolution<Scalar>::condensedSolve(TSolverPtr<Scalar> globalSolver, bool red
   // override reduceMemoryFootprint for now (since CondensedDofInterpreter doesn't yet support a true value)
   reduceMemoryFootprint = false;
 
-  Teuchos::RCP<DofInterpreter> dofInterpreter = Teuchos::rcp(new CondensedDofInterpreter<Scalar>(_mesh, _ip, _rhs, _lagrangeConstraints.get(), fieldsToExclude, !reduceMemoryFootprint, offRankCellsToInclude) );
+  Teuchos::RCP<DofInterpreter> dofInterpreter = Teuchos::rcp(new CondensedDofInterpreter<Scalar>(_mesh, _ip, _rhs, _bc, _lagrangeConstraints.get(), fieldsToExclude, !reduceMemoryFootprint, offRankCellsToInclude) );
 
   Teuchos::RCP<DofInterpreter> oldDofInterpreter = _dofInterpreter;
 
@@ -4338,13 +4311,17 @@ void TSolution<Scalar>::setUseCondensedSolve(bool value, set<GlobalIndexType> of
         trialIDs = _mesh->bilinearForm()->trialIDs();
 
       set< int > fieldsToExclude;
-      for (vector< int >::iterator trialIt = trialIDs.begin(); trialIt != trialIDs.end(); trialIt++)
+      for (int trialID : trialIDs)
       {
-        int trialID = *trialIt;
-        if (_bc->shouldImposeZeroMeanConstraint(trialID) || _bc->singlePointBC(trialID) )
+        // NVR: change 4-26-16; now *don't* exclude fields with a single point BC
+        if (_bc->shouldImposeZeroMeanConstraint(trialID))
         {
           fieldsToExclude.insert(trialID);
         }
+//        if (_bc->shouldImposeZeroMeanConstraint(trialID) || _bc->singlePointBC(trialID) )
+//        {
+//          fieldsToExclude.insert(trialID);
+//        }
       }
 
       // override reduceMemoryFootprint for now (since CondensedDofInterpreter doesn't yet support a true value)
@@ -4352,7 +4329,7 @@ void TSolution<Scalar>::setUseCondensedSolve(bool value, set<GlobalIndexType> of
 
       _oldDofInterpreter = _dofInterpreter;
 
-      Teuchos::RCP<DofInterpreter> dofInterpreter = Teuchos::rcp(new CondensedDofInterpreter<Scalar>(_mesh, _ip, _rhs, _lagrangeConstraints.get(), fieldsToExclude, !reduceMemoryFootprint, offRankCellsToInclude) );
+      Teuchos::RCP<DofInterpreter> dofInterpreter = Teuchos::rcp(new CondensedDofInterpreter<Scalar>(_mesh, _ip, _rhs, _bc, _lagrangeConstraints.get(), fieldsToExclude, !reduceMemoryFootprint, offRankCellsToInclude) );
 
       setDofInterpreter(dofInterpreter);
     }

@@ -298,6 +298,8 @@ public:
   //!! Returns the global dof indices for the partition.
   set<GlobalIndexType> globalDofIndicesForPartition(PartitionIndexType partitionNumber);
 
+  bool isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const;
+  
   set<GlobalIndexType> ownedGlobalDofIndicesForCell(GlobalIndexType cellID);
 
   GlobalIndexType numPartitionOwnedGlobalFieldIndices();

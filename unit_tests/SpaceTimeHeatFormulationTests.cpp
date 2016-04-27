@@ -277,8 +277,7 @@ namespace
     DofInterpreter* dofInterpreter = form.solution()->getDofInterpreter().get();
     std::map<GlobalIndexType, double> globalDofIndicesAndValues;
     GlobalIndexType cellID = 0;
-    set<pair<int, unsigned>> singletons;
-    boundary.bcsToImpose<double>(globalDofIndicesAndValues, *bc, cellID, singletons, dofInterpreter);
+    boundary.bcsToImpose<double>(globalDofIndicesAndValues, *bc, cellID, dofInterpreter);
     
     // use our knowledge that we have a one-element mesh: every last dof for u_hat should be present, and have coefficient CONST_VALUE
     DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;

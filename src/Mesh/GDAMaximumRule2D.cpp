@@ -910,6 +910,12 @@ set<GlobalIndexType> GDAMaximumRule2D::globalDofIndicesForPartition(PartitionInd
   return _partitionedGlobalDofIndices[partitionNumber];
 }
 
+bool GDAMaximumRule2D::isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const
+{
+  int myRank = _mesh->Comm()->MyPID();
+  return _partitionedGlobalDofIndices[myRank].find(globalDofIndex) != _partitionedGlobalDofIndices[myRank].end();
+}
+
 GlobalIndexType GDAMaximumRule2D::numPartitionOwnedGlobalFieldIndices()
 {
   // there are MUCH more efficient ways to do this.  Since GDAMaximumRule2D is legacy code by now,

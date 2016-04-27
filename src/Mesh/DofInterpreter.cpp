@@ -18,10 +18,10 @@
 #ifdef HAVE_MPI
 #include "Epetra_MpiComm.h"
 #include "Epetra_MpiDistributor.h"
-#else
+#endif
 #include "Epetra_SerialComm.h"
 #include "Epetra_SerialDistributor.h"
-#endif
+
 #include "Teuchos_GlobalMPISession.hpp"
 
 using namespace Intrepid;
@@ -165,17 +165,8 @@ void DofInterpreter::interpretLocalData(GlobalIndexType cellID, const FieldConta
 
 std::set<GlobalIndexType> DofInterpreter::importGlobalIndicesForCells(const std::vector<GlobalIndexType> &cellIDs)
 {
-  // INITIAL, DRAFT implementation: aiming first for correctness.
-  // (that's to say, there may be a better way to do some of this)
-  int rank = Teuchos::GlobalMPISession::getRank();
-
   set<GlobalIndexType> dofIndicesSet;
-
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-#else
-  Epetra_SerialComm Comm;
-#endif
+  int rank = _mesh->Comm()->MyPID();
 
   vector<int> myRequestOwners;
   vector<GlobalIndexTypeToCast> myRequest;
@@ -197,10 +188,21 @@ std::set<GlobalIndexType> DofInterpreter::importGlobalIndicesForCells(const std:
 
   int myRequestCount = myRequest.size();
 
+  Teuchos::RCP<Epetra_Distributor> distributor;
 #ifdef HAVE_MPI
-  Epetra_MpiDistributor distributor(Comm);
+  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(_mesh->Comm().get());
+  if (mpiComm != NULL)
+    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm));
+  else
+  {
+    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
+    TEUCHOS_TEST_FOR_EXCEPTION(serialComm == NULL, std::invalid_argument, "Mesh::Comm() should be either an Epetra_SerialComm or an Epetra_MpiComm");
+    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
+  }
+    
 #else
-  Epetra_SerialDistributor distributor(Comm);
+  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
+  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
 #endif
 
   GlobalIndexTypeToCast* myRequestPtr = NULL;
@@ -214,7 +216,7 @@ std::set<GlobalIndexType> DofInterpreter::importGlobalIndicesForCells(const std:
   GlobalIndexTypeToCast* cellIDsToExport = NULL;  // we are responsible for deleting the allocated arrays
   int* exportRecipients = NULL;
 
-  distributor.CreateFromRecvs(myRequestCount, myRequestPtr, myRequestOwnersPtr, true, numCellsToExport, cellIDsToExport, exportRecipients);
+  distributor->CreateFromRecvs(myRequestCount, myRequestPtr, myRequestOwnersPtr, true, numCellsToExport, cellIDsToExport, exportRecipients);
 
   const std::set<GlobalIndexType>* myCells = &_mesh->globalDofAssignment()->cellsInPartition(-1);
 
@@ -248,7 +250,7 @@ std::set<GlobalIndexType> DofInterpreter::importGlobalIndicesForCells(const std:
     sizePtr = &sizes[0];
     indicesToExportPtr = (char *) &indicesToExport[0];
   }
-  distributor.Do(indicesToExportPtr, objSize, sizePtr, importLength, globalIndexData);
+  distributor->Do(indicesToExportPtr, objSize, sizePtr, importLength, globalIndexData);
   const char* copyFromLocation = globalIndexData;
   int numDofsImport = importLength / objSize;
   vector<GlobalIndexTypeToCast> globalIndicesVector(numDofsImport);

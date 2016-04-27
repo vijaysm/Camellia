@@ -9,6 +9,7 @@
 #ifndef Camellia_debug_CondensedDofInterpreter_h
 #define Camellia_debug_CondensedDofInterpreter_h
 
+#include "BC.h"
 #include "DofInterpreter.h"
 #include "Intrepid_FieldContainer.hpp"
 #include "Epetra_Vector.h"
@@ -39,8 +40,11 @@ private:
   MeshPtr _mesh; // for element type lookup, and for determination of which dofs are trace dofs
   TIPPtr<Scalar> _ip;
   TRHSPtr<Scalar> _rhs;
+  TBCPtr<Scalar> _bc;
   LagrangeConstraints* _lagrangeConstraints;
-  set<int> _uncondensibleVarIDs;
+  std::set<int> _uncondensibleVarIDs;
+  // ! Container stores any local indices for the cell corresponding to variables that would otherwise be condensed, but have some local exception.  (This is used for singleton BCs right now.)
+  std::map<GlobalIndexType,vector<int>> _cellLocalUncondensibleDofIndices;
   
   GlobalIndexType _meshLastKnownGlobalDofCount;
   std::set<GlobalIndexType> _offRankCellsToInclude;
@@ -67,8 +71,9 @@ private:
   void getSubvectors(set<int> fieldIndices, set<int> fluxIndices, const Intrepid::FieldContainer<Scalar> &b, Epetra_SerialDenseVector &b_field, Epetra_SerialDenseVector &b_flux);
 
   void initializeGlobalDofIndices();
-  map<GlobalIndexType, GlobalIndexType> interpretedFluxMapForPartition(PartitionIndexType partition,
-                                                                       const set<GlobalIndexType> &cellsForFluxInterpretation);
+
+  // ! For fluxes owned by the local partition.
+  map<GlobalIndexType, GlobalIndexType> interpretedFluxMapLocal(const set<GlobalIndexType> &cellsForFluxInterpretation);
 
   void getLocalData(GlobalIndexType cellID, Intrepid::FieldContainer<Scalar> &stiffness, Intrepid::FieldContainer<Scalar> &load,
                     Intrepid::FieldContainer<GlobalIndexType> &interpretedDofIndices);
@@ -78,7 +83,9 @@ private:
                     Epetra_SerialDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FluxField, Epetra_SerialDenseVector &b_field,
                     Intrepid::FieldContainer<GlobalIndexType> &interpretedDofIndices, set<int> &fieldIndices, set<int> &fluxIndices);
 public:
-  CondensedDofInterpreter(MeshPtr mesh, TIPPtr<Scalar> ip, TRHSPtr<Scalar> rhs, LagrangeConstraints* lagrangeConstraints, const set<int> &fieldIDsToExclude, bool storeLocalStiffnessMatrices, std::set<GlobalIndexType> offRankCellsToInclude);
+  CondensedDofInterpreter(MeshPtr mesh, TIPPtr<Scalar> ip, TRHSPtr<Scalar> rhs, TBCPtr<Scalar> bc,
+                          LagrangeConstraints* lagrangeConstraints, const set<int> &fieldIDsToExclude,
+                          bool storeLocalStiffnessMatrices, std::set<GlobalIndexType> offRankCellsToInclude);
 
   void addSolution(CondensedDofInterpreter* otherSolnDofInterpreter, Scalar weight);
   
@@ -103,6 +110,10 @@ public:
   GlobalIndexType globalDofCount();
   set<GlobalIndexType> globalDofIndicesForPartition(PartitionIndexType rank);
 
+  void importInterpretedMapForNeighborGlobalIndices(const map<PartitionIndexType,set<GlobalIndexType>> &partitionToMeshGlobalIndices);
+  
+  void importInterpretedMapForOffRankCells(const set<GlobalIndexType> &offRankCells);
+  
   void interpretLocalData(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &localData,
                           Intrepid::FieldContainer<Scalar> &globalData, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);
 
@@ -119,6 +130,8 @@ public:
 
   void interpretGlobalCoefficients(GlobalIndexType cellID, Intrepid::FieldContainer<Scalar> &localDofs, const Epetra_MultiVector &globalDofs);
 
+  bool isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const;
+  
   set<GlobalIndexType> globalDofIndicesForCell(GlobalIndexType cellID);
   set<GlobalIndexType> globalDofIndicesForVarOnSubcell(int varID, GlobalIndexType cellID, unsigned dim, unsigned subcellOrdinal);
 

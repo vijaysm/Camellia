@@ -16,7 +16,9 @@
 
 #include <Teuchos_GlobalMPISession.hpp>
 
+#include "Epetra_MpiDistributor.h"
 #include "Epetra_SerialComm.h"
+#include "Epetra_SerialDistributor.h"
 
 #include "CamelliaDebugUtility.h"
 #include "GDAMinimumRule.h"
@@ -30,13 +32,15 @@ using namespace Camellia;
 
 template <typename Scalar>
 CondensedDofInterpreter<Scalar>::CondensedDofInterpreter(MeshPtr mesh, TIPPtr<Scalar> ip, TRHSPtr<Scalar> rhs,
-                                                         LagrangeConstraints* lagrangeConstraints,
-                                                         const set<int> &fieldIDsToExclude, bool storeLocalStiffnessMatrices,
+                                                         TBCPtr<Scalar> bc, LagrangeConstraints* lagrangeConstraints,
+                                                         const set<int> &fieldIDsToExclude,
+                                                         bool storeLocalStiffnessMatrices,
                                                          set<GlobalIndexType> offRankCellsToInclude ) : DofInterpreter(mesh)
 {
   _mesh = mesh;
   _ip = ip;
   _rhs = rhs;
+  _bc = bc;
   _lagrangeConstraints = lagrangeConstraints;
   _storeLocalStiffnessMatrices = storeLocalStiffnessMatrices;
   _uncondensibleVarIDs.insert(fieldIDsToExclude.begin(),fieldIDsToExclude.end());
@@ -350,6 +354,28 @@ vector<int> CondensedDofInterpreter<Scalar>::fieldRowIndices(GlobalIndexType cel
     }
     _fieldRowIndices[key] = rowIndices;
   }
+  
+  /*
+   If the cell has a singleton BC imposed on it (for example), then one of the field row indices should be skipped (it instead enters the fluxRowIndices).
+   */
+  auto uncondensibleLocalDofsEntry = _cellLocalUncondensibleDofIndices.find(cellID);
+  if (uncondensibleLocalDofsEntry != _cellLocalUncondensibleDofIndices.end())
+  {
+    vector<int> fieldRowIndices = _fieldRowIndices[key];
+    const vector<int>* uncondensibleDofs = &uncondensibleLocalDofsEntry->second;
+    for (int localUncondensibleIndex : *uncondensibleDofs)
+    {
+      for (int i=fieldRowIndices.size()-1; i >= 0; i--)
+      {
+        if (fieldRowIndices[i] == localUncondensibleIndex)
+        {
+          fieldRowIndices.erase(fieldRowIndices.begin() + i);
+        }
+      }
+    }
+    return fieldRowIndices;
+  }
+  
   return _fieldRowIndices[key];
 }
 
@@ -360,7 +386,7 @@ std::vector<int> CondensedDofInterpreter<Scalar>::fluxIndexLookupLocalCell(Globa
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
   
   // the way we order field dof indices is according to their index order in the local uncondensed stiffness matrix
-  set<int> fluxIndices; // all field indices for the cell
+  set<int> fluxIndices; // all flux indices for the cell
   set<int> trialIDs = trialOrder->getVarIDs();
   for (int trialID : trialIDs)
   {
@@ -373,6 +399,19 @@ std::vector<int> CondensedDofInterpreter<Scalar>::fluxIndexLookupLocalCell(Globa
       {
         fluxIndices.insert(varIndices.begin(), varIndices.end());
       }
+    }
+  }
+  
+  /*
+   If the cell has a singleton BC imposed on it (for example), then one of the field row indices is treated as a fluxRowIndices).
+   */
+  auto uncondensibleLocalDofsEntry = _cellLocalUncondensibleDofIndices.find(cellID);
+  if (uncondensibleLocalDofsEntry != _cellLocalUncondensibleDofIndices.end())
+  {
+    const vector<int>* uncondensibleDofs = &uncondensibleLocalDofsEntry->second;
+    for (int localUncondensibleIndex : *uncondensibleDofs)
+    {
+      fluxIndices.insert(localUncondensibleIndex);
     }
   }
   
@@ -462,17 +501,16 @@ set<GlobalIndexType> CondensedDofInterpreter<Scalar>::globalDofIndicesForVarOnSu
   set<GlobalIndexType> interpretedDofIndicesForCell = _mesh->globalDofIndicesForVarOnSubcell(varID, cellID, dim, subcellOrdinal);
   set<GlobalIndexType> globalDofIndices;
   
-  for (set<GlobalIndexType>::iterator interpretedDofIndexIt = interpretedDofIndicesForCell.begin();
-       interpretedDofIndexIt != interpretedDofIndicesForCell.end(); interpretedDofIndexIt++)
+  for (GlobalIndexType interpretedDofIndex : interpretedDofIndicesForCell)
   {
-    GlobalIndexType interpretedDofIndex = *interpretedDofIndexIt;
-    if (_interpretedToGlobalDofIndexMap.find(interpretedDofIndex) == _interpretedToGlobalDofIndexMap.end())
+    auto foundEntry = _interpretedToGlobalDofIndexMap.find(interpretedDofIndex);
+    if (foundEntry == _interpretedToGlobalDofIndexMap.end())
     {
       // that's OK; we skip the fields...
     }
     else
     {
-      GlobalIndexType globalDofIndex = _interpretedToGlobalDofIndexMap[interpretedDofIndex];
+      GlobalIndexType globalDofIndex = foundEntry->second;
       globalDofIndices.insert(globalDofIndex);
     }
   }
@@ -494,74 +532,325 @@ bool CondensedDofInterpreter<Scalar>::varDofsAreCondensible(int varID, int sideO
 
   bool isDiscontinuous = functionSpaceIsDiscontinuous(fs);
 
-  return (isDiscontinuous) && (sideCount==1) && (_uncondensibleVarIDs.find(varID) == _uncondensibleVarIDs.end());
+  return isDiscontinuous && (sideCount==1) && (_uncondensibleVarIDs.find(varID) == _uncondensibleVarIDs.end());
 }
 
-// ! cellsForFluxInterpretation indicates on which cells we need to be able to interpret fluxes.
 template <typename Scalar>
-map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpretedFluxMapForPartition(PartitionIndexType partition,
-                                                                                                      const set<GlobalIndexType> &cellsForFluxInterpretation)
-{ // add the partitionDofOffset to get the globalDofIndices
+void CondensedDofInterpreter<Scalar>::importInterpretedMapForNeighborGlobalIndices(const map<PartitionIndexType,set<GlobalIndexType>> &partitionToMeshGlobalIndices)
+{
+  set<GlobalIndexType> dofIndicesSet;
+  int rank = _mesh->Comm()->MyPID();
+  
+  vector<int> myRequestOwners;
+  vector<GlobalIndexTypeToCast> myRequest;
+  for (auto entry : partitionToMeshGlobalIndices)
+  {
+    for (GlobalIndexType interpretedGlobalDofIndex : entry.second)
+    {
+      myRequest.push_back(interpretedGlobalDofIndex);
+      myRequestOwners.push_back(entry.first);
+    }
+  }
+  int myRequestCount = myRequest.size();
+  
+  Teuchos::RCP<Epetra_Distributor> distributor;
+#ifdef HAVE_MPI
+  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(_mesh->Comm().get());
+  if (mpiComm != NULL)
+    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm));
+  else
+  {
+    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
+    TEUCHOS_TEST_FOR_EXCEPTION(serialComm == NULL, std::invalid_argument, "Mesh::Comm() should be either an Epetra_SerialComm or an Epetra_MpiComm");
+    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
+  }
+#else
+  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
+  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
+#endif
+  
+  GlobalIndexTypeToCast* myRequestPtr = NULL;
+  int *myRequestOwnersPtr = NULL;
+  if (myRequest.size() > 0)
+  {
+    myRequestPtr = &myRequest[0];
+    myRequestOwnersPtr = &myRequestOwners[0];
+  }
+  int numEntriesToExport = 0;
+  GlobalIndexTypeToCast* dofEntriesToExport = NULL;  // we are responsible for deleting the allocated arrays
+  int* exportRecipients = NULL;
+  
+  distributor->CreateFromRecvs(myRequestCount, myRequestPtr, myRequestOwnersPtr, true, numEntriesToExport, dofEntriesToExport, exportRecipients);
+  
+//  const std::set<GlobalIndexType>* myCells = &_mesh->globalDofAssignment()->cellsInPartition(-1);
+  
+  vector<int> sizes(numEntriesToExport);
+  vector<GlobalIndexTypeToCast> indicesToExport;
+  for (int entryOrdinal=0; entryOrdinal<numEntriesToExport; entryOrdinal++)
+  {
+    GlobalIndexType interpretedDofIndex = dofEntriesToExport[entryOrdinal];
+    if (_interpretedToGlobalDofIndexMap.find(interpretedDofIndex) == _interpretedToGlobalDofIndexMap.end())
+    {
+      cout << "interpreted dof index " << interpretedDofIndex << " does not belong to rank " << rank << endl;
+      ostringstream myRankDescriptor;
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "requested interpretedDofIndex does not belong to this rank!");
+    }
+    
+    GlobalIndexType condensedGlobalIndex = _interpretedToGlobalDofIndexMap[interpretedDofIndex];
+    indicesToExport.push_back(interpretedDofIndex);
+    indicesToExport.push_back(condensedGlobalIndex);
+    sizes[entryOrdinal] = 2; // key, value
+  }
+  //  print("Export vector", indicesToExport);
+  
+  int objSize = sizeof(GlobalIndexTypeToCast) / sizeof(char);
+  
+  int importLength = 0;
+  char* globalIndexData = NULL;
+  int* sizePtr = NULL;
+  char* indicesToExportPtr = NULL;
+  if (numEntriesToExport > 0)
+  {
+    sizePtr = &sizes[0];
+    indicesToExportPtr = (char *) &indicesToExport[0];
+  }
+  distributor->Do(indicesToExportPtr, objSize, sizePtr, importLength, globalIndexData);
+  const char* copyFromLocation = globalIndexData;
+  int numDofsImport = importLength / objSize;
+  vector<GlobalIndexTypeToCast> globalIndicesMapVector(numDofsImport);
+  GlobalIndexTypeToCast* copyToLocation = &globalIndicesMapVector[0];
+  for (int dofOrdinal=0; dofOrdinal<numDofsImport; dofOrdinal++)
+  {
+    memcpy(copyToLocation, copyFromLocation, objSize);
+    copyFromLocation += objSize;
+    copyToLocation++; // copyToLocation has type GlobalIndexTypeToCast*, so this moves the pointer by objSize bytes
+  }
+  //  print("Import vector", globalIndicesMapVector);
+  for (int i=0; i<globalIndicesMapVector.size()/2; i++)
+  {
+    GlobalIndexType meshGlobalIndex      = globalIndicesMapVector[i*2+0];
+    GlobalIndexType condensedGlobalIndex = globalIndicesMapVector[i*2+1];
+    _interpretedToGlobalDofIndexMap[meshGlobalIndex] = condensedGlobalIndex;
+    _interpretedFluxDofIndices.insert(meshGlobalIndex);
+  }
+  
+  if( dofEntriesToExport != 0 ) delete [] dofEntriesToExport;
+  if( exportRecipients != 0 ) delete [] exportRecipients;
+  if (globalIndexData != 0 ) delete [] globalIndexData;
+}
 
+template <typename Scalar>
+void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const std::set<GlobalIndexType> &cellIDs)
+{
+  set<GlobalIndexType> dofIndicesSet;
+  int rank = _mesh->Comm()->MyPID();
+  
+  vector<int> myRequestOwners;
+  vector<GlobalIndexTypeToCast> myRequest;
+  for (GlobalIndexType cellID : cellIDs)
+  {
+    int partitionForCell = _mesh->globalDofAssignment()->partitionForCellID(cellID);
+    if (partitionForCell == rank)
+    {
+      set<GlobalIndexType> dofIndicesForCell = this->globalDofIndicesForCell(cellID);
+      dofIndicesSet.insert(dofIndicesForCell.begin(),dofIndicesForCell.end());
+    }
+    else
+    {
+      myRequest.push_back(cellID);
+      myRequestOwners.push_back(partitionForCell);
+    }
+  }
+  
+  int myRequestCount = myRequest.size();
+  
+  Teuchos::RCP<Epetra_Distributor> distributor;
+#ifdef HAVE_MPI
+  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(_mesh->Comm().get());
+  if (mpiComm != NULL)
+    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm));
+  else
+  {
+    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
+    TEUCHOS_TEST_FOR_EXCEPTION(serialComm == NULL, std::invalid_argument, "Mesh::Comm() should be either an Epetra_SerialComm or an Epetra_MpiComm");
+    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
+  }
+#else
+  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
+  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
+#endif
+  
+  GlobalIndexTypeToCast* myRequestPtr = NULL;
+  int *myRequestOwnersPtr = NULL;
+  if (myRequest.size() > 0)
+  {
+    myRequestPtr = &myRequest[0];
+    myRequestOwnersPtr = &myRequestOwners[0];
+  }
+  int numCellsToExport = 0;
+  GlobalIndexTypeToCast* cellIDsToExport = NULL;  // we are responsible for deleting the allocated arrays
+  int* exportRecipients = NULL;
+  
+  distributor->CreateFromRecvs(myRequestCount, myRequestPtr, myRequestOwnersPtr, true, numCellsToExport, cellIDsToExport, exportRecipients);
+  
+  const std::set<GlobalIndexType>* myCells = &_mesh->globalDofAssignment()->cellsInPartition(-1);
+  
+  vector<int> sizes(numCellsToExport);
+  vector<GlobalIndexTypeToCast> indicesToExport;
+  for (int cellOrdinal=0; cellOrdinal<numCellsToExport; cellOrdinal++)
+  {
+    GlobalIndexType cellID = cellIDsToExport[cellOrdinal];
+    if (myCells->find(cellID) == myCells->end())
+    {
+      cout << "cellID " << cellID << " does not belong to rank " << rank << endl;
+      ostringstream myRankDescriptor;
+      myRankDescriptor << "rank " << rank << ", cellID ownership";
+      Camellia::print(myRankDescriptor.str().c_str(), *myCells);
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "requested cellID does not belong to this rank!");
+    }
+    
+    set<GlobalIndexType> meshGlobalIndices = _mesh->globalDofIndicesForCell(cellID);
+    for (GlobalIndexType meshGlobalIndex : meshGlobalIndices)
+    {
+      GlobalIndexType condensedGlobalIndex = _interpretedToGlobalDofIndexMap[meshGlobalIndex];
+      indicesToExport.push_back(meshGlobalIndex);
+      indicesToExport.push_back(condensedGlobalIndex);
+    }
+    sizes[cellOrdinal] = meshGlobalIndices.size() * 2; // key, value
+  }
+//  print("Export vector", indicesToExport);
+  
+  int objSize = sizeof(GlobalIndexTypeToCast) / sizeof(char);
+  
+  int importLength = 0;
+  char* globalIndexData = NULL;
+  int* sizePtr = NULL;
+  char* indicesToExportPtr = NULL;
+  if (numCellsToExport > 0)
+  {
+    sizePtr = &sizes[0];
+    indicesToExportPtr = (char *) &indicesToExport[0];
+  }
+  distributor->Do(indicesToExportPtr, objSize, sizePtr, importLength, globalIndexData);
+  const char* copyFromLocation = globalIndexData;
+  int numDofsImport = importLength / objSize;
+  vector<GlobalIndexTypeToCast> globalIndicesMapVector(numDofsImport);
+  GlobalIndexTypeToCast* copyToLocation = &globalIndicesMapVector[0];
+  for (int dofOrdinal=0; dofOrdinal<numDofsImport; dofOrdinal++)
+  {
+    memcpy(copyToLocation, copyFromLocation, objSize);
+    copyFromLocation += objSize;
+    copyToLocation++; // copyToLocation has type GlobalIndexTypeToCast*, so this moves the pointer by objSize bytes
+  }
+//  print("Import vector", globalIndicesMapVector);
+  for (int i=0; i<globalIndicesMapVector.size()/2; i++)
+  {
+    GlobalIndexType meshGlobalIndex      = globalIndicesMapVector[i*2+0];
+    GlobalIndexType condensedGlobalIndex = globalIndicesMapVector[i*2+1];
+    _interpretedToGlobalDofIndexMap[meshGlobalIndex] = condensedGlobalIndex;
+    _interpretedFluxDofIndices.insert(meshGlobalIndex);
+  }
+  
+  if( cellIDsToExport != 0 ) delete [] cellIDsToExport;
+  if( exportRecipients != 0 ) delete [] exportRecipients;
+  if (globalIndexData != 0 ) delete [] globalIndexData;
+}
+
+template <typename Scalar>
+map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpretedFluxMapLocal(const set<GlobalIndexType> &cellsForFluxInterpretation)
+{
   map<GlobalIndexType, IndexType> interpretedFluxMap; // from the interpreted dofs (the global dof indices as seen by mesh) to the partition-local condensed IDs
-
-  set< GlobalIndexType > localCellIDs = _mesh->globalDofAssignment()->cellsInPartition(partition);
-
+  const set<GlobalIndexType>* localCellIDs = &_mesh->cellIDsInPartition();
   set<GlobalIndexType> interpretedFluxDofs;
-
-  set<GlobalIndexType> interpretedDofIndicesForPartition = _mesh->globalDofIndicesForPartition(partition);
-
-  vector<int> trialIDs = _mesh->bilinearForm()->trialIDs();
-  set< GlobalIndexType >::iterator cellIDIt;
-
+  const vector<int>* trialIDs = &_mesh->bilinearForm()->trialIDs();
   IndexType partitionLocalDofIndex = 0;
-
-  for (GlobalIndexType cellID : localCellIDs)
+  
+  /*
+   4-24-16
+   Today's change: we now know about BC objects, and can determine *which* global dofs the singletons
+   are imposed on.  This lets us impose point constraints for e.g. pressure in Stokes while still condensing
+   out all the other pressure field dofs.
+   
+   Going forward, we should get rid of the blunt instrument that is "varDofsAreCondensible", replacing
+   it with a determination of *which* dofs are on the interior of an element.  This will allow us to do
+   more standard static condensation, in which continuous fields can still be condensed out on the interior
+   of an element.
+   */
+  
+  map<GlobalIndexType,Scalar> singletonBCsOnMesh;
+  _mesh->boundary().singletonBCsToImpose(singletonBCsOnMesh, *_bc, _mesh.get());
+  
+  for (GlobalIndexType cellID : *localCellIDs)
   {
     bool storeFluxDofIndices = cellsForFluxInterpretation.find(cellID) != cellsForFluxInterpretation.end();
-
     DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
-
-    for (vector<int>::iterator idIt = trialIDs.begin(); idIt!=trialIDs.end(); idIt++)
+    for (int trialID : *trialIDs)
     {
-      int trialID = *idIt;
       const vector<int>* sidesForTrial = &trialOrder->getSidesForVarID(trialID);
-
       for (int sideOrdinal : *sidesForTrial)
       {
         BasisPtr basis = trialOrder->getBasis(trialID, sideOrdinal);
-
         set<GlobalIndexType> interpretedDofIndices = _mesh->getGlobalDofIndices(cellID, trialID, sideOrdinal);
-
-        bool isCondensible = varDofsAreCondensible(trialID, sideOrdinal, trialOrder);
-
+        bool varIsCondensible = varDofsAreCondensible(trialID, sideOrdinal, trialOrder);
         for (GlobalIndexType interpretedDofIndex : interpretedDofIndices)
         {
-          bool isOwnedByThisPartition = (interpretedDofIndicesForPartition.find(interpretedDofIndex) != interpretedDofIndicesForPartition.end());
-
-          if (!isCondensible)
+          bool hasSingletonBCImposed = singletonBCsOnMesh.find(interpretedDofIndex) != singletonBCsOnMesh.end();
+          if (hasSingletonBCImposed)
+          {
+            // find the local dof index corresponding to this
+            // first, confirm that this is a field variable
+            TEUCHOS_TEST_FOR_EXCEPTION(sidesForTrial->size() != 1, std::invalid_argument,"Singleton BC imposed on a trace variable; this violates assumptions in CondensedDofInterpreter");
+            
+            // now, get the global dof indices for the field variable:
+            vector<GlobalIndexType> meshGlobalDofs = _mesh->globalDofAssignment()->globalDofIndicesForFieldVariable(cellID, trialID);
+            // and the local dof indices for the same:
+            vector<int> localDofs = trialOrder->getDofIndices(trialID, sideOrdinal);
+            
+            // for now, we are only really supporting this usage for discontinuous fields
+            // (The following can throw an exception for continuous fields if the global basis is constrained.)
+            TEUCHOS_TEST_FOR_EXCEPTION(localDofs.size() != meshGlobalDofs.size(), std::invalid_argument, "global dofs size does not match local dofs size");
+            
+            // find the local dof index corresponding to the global dof:
+            int localDofIndex = -1;
+            for (int i=0; i<meshGlobalDofs.size(); i++)
+            {
+              if (meshGlobalDofs[i] == interpretedDofIndex)
+              {
+                localDofIndex = localDofs[i];
+                break;
+              }
+            }
+            TEUCHOS_TEST_FOR_EXCEPTION(localDofIndex == -1, std::invalid_argument, "interpretedDofIndex not found in meshGlobalDofs");
+            
+            _cellLocalUncondensibleDofIndices[cellID].push_back(localDofIndex);
+            
+            cout << " hasSingletonBCImposed.\n";
+          }
+          bool dofIsCondensible = varIsCondensible && !hasSingletonBCImposed;
+          bool isOwnedByThisPartition = _mesh->isLocallyOwnedGlobalDofIndex(interpretedDofIndex);
+          
+          if (!dofIsCondensible)
           {
             if (storeFluxDofIndices)
             {
               _interpretedFluxDofIndices.insert(interpretedDofIndex);
             }
           }
-
-          if (isOwnedByThisPartition && !isCondensible)
+          
+          if (isOwnedByThisPartition && !dofIsCondensible)
           {
             if (interpretedFluxDofs.find(interpretedDofIndex) == interpretedFluxDofs.end())
             {
               interpretedFluxMap[interpretedDofIndex] = partitionLocalDofIndex++;
               interpretedFluxDofs.insert(interpretedDofIndex);
-
-//              cout << interpretedDofIndex << " --> " << interpretedFluxMap[interpretedDofIndex] << endl;
+              //              cout << interpretedDofIndex << " --> " << interpretedFluxMap[interpretedDofIndex] << endl;
             }
           }
         }
       }
     }
   }
-
+  
   return interpretedFluxMap;
 }
 
@@ -574,21 +863,18 @@ void CondensedDofInterpreter<Scalar>::initializeGlobalDofIndices()
   PartitionIndexType rank = Teuchos::GlobalMPISession::getRank();
   set<GlobalIndexType> cellsForFluxStorage = _mesh->globalDofAssignment()->cellsInPartition(rank);
   cellsForFluxStorage.insert(_offRankCellsToInclude.begin(),_offRankCellsToInclude.end());
-  map<GlobalIndexType, IndexType> partitionLocalFluxMap = interpretedFluxMapForPartition(rank, cellsForFluxStorage);
-
-  int numRanks = Teuchos::GlobalMPISession::getNProc();
-  FieldContainer<GlobalIndexTypeToCast> fluxDofCountForRank(numRanks);
+  map<GlobalIndexType, IndexType> partitionLocalFluxMap = interpretedFluxMapLocal(cellsForFluxStorage);
 
   _myGlobalDofIndexCount = partitionLocalFluxMap.size();
+  int myCount = _myGlobalDofIndexCount;
+  int myOffset = 0;
+  _mesh->Comm()->ScanSum(&myCount, &myOffset, 1);
+  _myGlobalDofIndexOffset = myOffset - myCount;
+  
+  int numRanks = _mesh->Comm()->NumProc();
+  FieldContainer<GlobalIndexTypeToCast> fluxDofCountForRank(numRanks);
   fluxDofCountForRank(rank) = (GlobalIndexTypeToCast) _myGlobalDofIndexCount;
-
   MPIWrapper::entryWiseSum(*_mesh->Comm(), fluxDofCountForRank);
-
-  _myGlobalDofIndexOffset = 0;
-  for (int i=0; i<rank; i++)
-  {
-    _myGlobalDofIndexOffset += fluxDofCountForRank(i);
-  }
 
   // initialize _interpretedToGlobalDofIndexMap for the guys we own
   for (map<GlobalIndexType, IndexType>::iterator entryIt = partitionLocalFluxMap.begin(); entryIt != partitionLocalFluxMap.end(); entryIt++)
@@ -597,58 +883,22 @@ void CondensedDofInterpreter<Scalar>::initializeGlobalDofIndices()
 //    cout << "Rank " << rank << ": " << entryIt->first << " --> " << entryIt->second + _myGlobalDofIndexOffset << endl;
   }
 
-  map< PartitionIndexType, map<GlobalIndexType, GlobalIndexType> > partitionInterpretedFluxMap;
-
-  // now, ensure that _interpretedDofIndices includes all the off-rank cells we're interested in:
-  for (GlobalIndexType offRankCell : _offRankCellsToInclude)
-  {
-    PartitionIndexType owningPartition = _mesh->partitionForCellID(offRankCell);
-    if (partitionInterpretedFluxMap.find(owningPartition) == partitionInterpretedFluxMap.end())
-    {
-      partitionLocalFluxMap = interpretedFluxMapForPartition(owningPartition, cellsForFluxStorage);
-      GlobalIndexType owningPartitionDofOffset = 0;
-      for (int i=0; i<owningPartition; i++)
-      {
-        owningPartitionDofOffset += fluxDofCountForRank(i);
-      }
-      map<GlobalIndexType, GlobalIndexType> owningPartitionInterpretedToGlobalDofIndexMap;
-      for (map<GlobalIndexType, IndexType>::iterator entryIt = partitionLocalFluxMap.begin(); entryIt != partitionLocalFluxMap.end(); entryIt++)
-      {
-        owningPartitionInterpretedToGlobalDofIndexMap[entryIt->first] = entryIt->second + owningPartitionDofOffset;
-      }
-      partitionInterpretedFluxMap[owningPartition] = owningPartitionInterpretedToGlobalDofIndexMap;
-    }
-  }
-  
-  set<GlobalIndexType> noCells;
+  map<PartitionIndexType, set<GlobalIndexType> > partitionToMeshGlobalIndices; // key: who to ask; value: what to ask for
   // fill in the guys we don't own but do see
-  for (set<GlobalIndexType>::iterator interpretedFluxIt=_interpretedFluxDofIndices.begin(); interpretedFluxIt != _interpretedFluxDofIndices.end(); interpretedFluxIt++)
+  for (GlobalIndexType interpretedFlux : _interpretedFluxDofIndices)
   {
-    GlobalIndexType interpretedFlux = *interpretedFluxIt;
     if (_interpretedToGlobalDofIndexMap.find(interpretedFlux) == _interpretedToGlobalDofIndexMap.end())
     {
       // not a local guy, then
       PartitionIndexType owningPartition = _mesh->partitionForGlobalDofIndex(interpretedFlux);
-      if (partitionInterpretedFluxMap.find(owningPartition) == partitionInterpretedFluxMap.end())
-      {
-        partitionLocalFluxMap = interpretedFluxMapForPartition(owningPartition, noCells);
-        GlobalIndexType owningPartitionDofOffset = 0;
-        for (int i=0; i<owningPartition; i++)
-        {
-          owningPartitionDofOffset += fluxDofCountForRank(i);
-        }
-        map<GlobalIndexType, GlobalIndexType> owningPartitionInterpretedToGlobalDofIndexMap;
-        for (map<GlobalIndexType, IndexType>::iterator entryIt = partitionLocalFluxMap.begin(); entryIt != partitionLocalFluxMap.end(); entryIt++)
-        {
-          owningPartitionInterpretedToGlobalDofIndexMap[entryIt->first] = entryIt->second + owningPartitionDofOffset;
-        }
-        partitionInterpretedFluxMap[owningPartition] = owningPartitionInterpretedToGlobalDofIndexMap;
-      }
-      _interpretedToGlobalDofIndexMap[interpretedFlux] = partitionInterpretedFluxMap[owningPartition][interpretedFlux];
-//      cout << "Rank " << rank << ": " << interpretedFlux << " --> " << partitionInterpretedFluxMap[owningPartition][interpretedFlux] << endl;
+      partitionToMeshGlobalIndices[owningPartition].insert(interpretedFlux);
     }
   }
-
+  importInterpretedMapForNeighborGlobalIndices(partitionToMeshGlobalIndices);
+  
+  // communicate about any off-rank guys that might be of interest
+  importInterpretedMapForOffRankCells(_offRankCellsToInclude);
+  
 //  cout << "Rank " << rank << " partitionInterpretedFluxMap.size() = " << partitionInterpretedFluxMap.size() << endl;
 //  cout << "Rank " << rank << " _interpretedToGlobalDofIndexMap.size() = " << _interpretedToGlobalDofIndexMap.size() << endl;
 }
@@ -694,9 +944,9 @@ template <typename Scalar>
 void CondensedDofInterpreter<Scalar>::interpretLocalBasisCoefficients(GlobalIndexType cellID, int varID, int sideOrdinal, const FieldContainer<Scalar> &basisCoefficients,
     FieldContainer<Scalar> &globalCoefficients, FieldContainer<GlobalIndexType> &globalDofIndices)
 {
+  int rank = _mesh->Comm()->MyPID();
   // NOTE: cellID MUST belong to this partition, or have been included in "offRankCellsToInclude" constructor argument
-  int rank = Teuchos::GlobalMPISession::getRank();
-  if ((_offRankCellsToInclude.find(cellID) == _offRankCellsToInclude.end()) && (_mesh->partitionForCellID(cellID) != rank))
+  if ((_offRankCellsToInclude.find(cellID) == _offRankCellsToInclude.end()) && (_mesh->cellIDsInPartition().find(cellID)==_mesh->cellIDsInPartition().end()))
   {
     cout << "cellID " << cellID << " does not belong to partition " << rank;
     cout << ", and was not included in CondensedDofInterpreter constructor's offRankCellsToInclude argument.\n";
@@ -721,8 +971,15 @@ void CondensedDofInterpreter<Scalar>::interpretLocalBasisCoefficients(GlobalInde
       GlobalIndexType globalDofIndex = _interpretedToGlobalDofIndexMap[interpretedDofIndex];
       globalDofIndices[dofOrdinal] = globalDofIndex;
     }
+    else if (_cellLocalUncondensibleDofIndices.find(cellID) != _cellLocalUncondensibleDofIndices.end())
+    {
+      // then likely there's a singleton BC imposed, meaning that we have entries in
+      // _interpretedToGlobalDofIndexMap for some of the guys in interpretedDofIndices, but not all.
+      // If we don't have an entry in _cellLocalUncondensibleDofIndices, then we should throw an exception.
+    }
     else
     {
+      
       cout << "globalDofIndex not found for specified interpretedDofIndex " << interpretedDofIndex << " (may not be a flux?)\n";
       cout << "cellID " << cellID << ", varID " << varID << ", side " << sideOrdinal << endl;
       
@@ -793,7 +1050,7 @@ void CondensedDofInterpreter<Scalar>::interpretLocalData(GlobalIndexType cellID,
     FieldContainer<GlobalIndexType> &globalDofIndices)
 {
   // NOTE: cellID MUST belong to this partition, or have been included in "offRankCellsToInclude" constructor argument
-  int rank = Teuchos::GlobalMPISession::getRank();
+  int rank = _mesh->Comm()->MyPID();
   if ((_offRankCellsToInclude.find(cellID) == _offRankCellsToInclude.end()) && (_mesh->partitionForCellID(cellID) != rank))
   {
     cout << "cellID " << cellID << " does not belong to partition " << rank;
@@ -1064,6 +1321,12 @@ void CondensedDofInterpreter<Scalar>::interpretGlobalCoefficients(GlobalIndexTyp
 //  cout << "******* flux_dofs:\n" << flux_dofs;
 //  cout << "field_dofs:\n" << field_dofs;
 //  cout << "localCoefficients:\n" << localCoefficients;
+}
+
+template <typename Scalar>
+bool CondensedDofInterpreter<Scalar>::isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const
+{
+  return (globalDofIndex >= _myGlobalDofIndexOffset) && (globalDofIndex < _myGlobalDofIndexOffset + _myGlobalDofIndexCount);
 }
 
 template <typename Scalar>
