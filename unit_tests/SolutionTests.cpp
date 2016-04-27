@@ -91,8 +91,6 @@ namespace
   {
     double tol = 1e-11;
     
-    int rank = Teuchos::GlobalMPISession::getRank();;
-    
     int spaceDim = 2;
     bool conformingTraces = false; // false mostly because I want to do cavity flow with non-H^1 BCs
     double mu = 1.0;
@@ -143,7 +141,7 @@ namespace
     SolutionPtr condensedSolution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
     condensedSolution->setUseCondensedSolve(true);
     
-    solution->solve(false);
+    solution->solve();
     condensedSolution->solve(false);
     condensedSolution->setUseCondensedSolve(false); // not sure if this makes a difference, or why it should (just trying something)
     FunctionPtr u1_soln = Function::solution(u1,solution);
@@ -164,6 +162,10 @@ namespace
       cout << "L2 norm of difference is " << diff << "; tol is " << tol << endl;
       success=false;
     }
+    double p_mean_soln = p_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_soln), <, 1e-12);
+    double p_mean_condensed_soln = p_condensed_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_condensed_soln), <, 1e-12);
     
     int numCells = 2;
     if (!minRule)
@@ -174,7 +176,7 @@ namespace
     
     solution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
     condensedSolution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
-    solution->solve(false);
+    solution->solve();
     condensedSolution->condensedSolve();
     u1_soln = Function::solution(u1,solution);
     u1_condensed_soln = Function::solution(u1,condensedSolution);
@@ -207,6 +209,10 @@ namespace
       cout << "L2 norm of difference is " << diff << "; tol is " << tol << endl;
       success=false;
     }
+    p_mean_soln = p_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_soln), <, 1e-12);
+    p_mean_condensed_soln = p_condensed_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_condensed_soln), <, 1e-12);
   }
   
   void testImportOffRankCellSolution(int spaceDim, int meshWidth, Teuchos::FancyOStream &out, bool &success)
@@ -732,7 +738,8 @@ namespace
      This test copied over, more or less wholesale, from the legacy DPGTests::SolutionTests.
      It's not particularly granular; a refactoring to split into several tests might be useful.
      */
-    double tol = 1e-11;
+    double tol = 1e-10;
+    vector<double> pointForImposition = {0.0,0.0};
     
     int rank = Teuchos::GlobalMPISession::getRank();;
     
@@ -776,7 +783,7 @@ namespace
     bc->addDirichlet(u1hat, topBoundary, Function::constant(1.0));
     bc->addDirichlet(u1hat, wallBoundary, Function::zero());
     bc->addDirichlet(u2hat, wallBoundary, Function::zero());
-    bc->addSinglePointBC(p->ID(), 0.0, mesh);
+    bc->addSpatialPointBC(p->ID(), 0.0, pointForImposition);
     
     ////////////////////   REFINE & SOLVE   ///////////////////////
     SolutionPtr solution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
@@ -966,6 +973,39 @@ namespace
     }
     p_soln = Function::solution(p,solution);
     p_condensed_soln = Function::solution(p,condensedSolution);
+    
+    int vertexDim = 0;
+    IndexType pointForImpositionEntityIndex;
+    bool vertexFound = mesh->getTopology()->getVertexIndex(pointForImposition, pointForImpositionEntityIndex);
+    TEST_ASSERT(vertexFound);
+    
+    vector<pair<IndexType,unsigned>> cellsForVertex = mesh->getTopology()->getActiveCellIndices(vertexDim, pointForImpositionEntityIndex);
+    
+    const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+    for (pair<IndexType,unsigned> cellEntry : cellsForVertex)
+    {
+      GlobalIndexType cellID = cellEntry.first;
+      int vertexOrdinal = cellEntry.second;
+      if (myCellIDs->find(cellID) != myCellIDs->end())
+      {
+        CellPtr cell = mesh->getTopology()->getCell(cellID);
+        BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+        FieldContainer<double> refCellPoints(cell->topology()->getVertexCount(),cell->topology()->getDimension());
+        CamelliaCellTools::refCellNodesForTopology(refCellPoints, cell->topology());
+        FieldContainer<double> refPoint(1,cell->topology()->getDimension());
+        refPoint(0,0) = refCellPoints(vertexOrdinal,0);
+        refPoint(0,1) = refCellPoints(vertexOrdinal,1);
+        basisCache->setRefCellPoints(refPoint);
+        FieldContainer<double> solnValue(1,1,1);
+        FieldContainer<double> condensedSolnValue(1,1,1);
+        p_soln->values(solnValue, basisCache);
+        p_condensed_soln->values(condensedSolnValue, basisCache);
+        // both values should be exactly zero; we don't require quite that, just an extremely tight tolerance
+        TEST_COMPARE(abs(solnValue[0]), <, 1e-15);
+        TEST_COMPARE(abs(condensedSolnValue[0]), <, 1e-15);
+      }
+    }
+    
     diff = (p_soln-p_condensed_soln)->l2norm(mesh,H1Order);
     if (diff > tol)
     {
