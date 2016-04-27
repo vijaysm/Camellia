@@ -732,7 +732,8 @@ namespace
      This test copied over, more or less wholesale, from the legacy DPGTests::SolutionTests.
      It's not particularly granular; a refactoring to split into several tests might be useful.
      */
-    double tol = 1e-11;
+    double tol = 1e-10;
+    vector<double> pointForImposition = {0.0,0.0};
     
     int rank = Teuchos::GlobalMPISession::getRank();;
     
@@ -776,7 +777,7 @@ namespace
     bc->addDirichlet(u1hat, topBoundary, Function::constant(1.0));
     bc->addDirichlet(u1hat, wallBoundary, Function::zero());
     bc->addDirichlet(u2hat, wallBoundary, Function::zero());
-    bc->addSinglePointBC(p->ID(), 0.0, mesh);
+    bc->addSpatialPointBC(p->ID(), 0.0, pointForImposition);
     
     ////////////////////   REFINE & SOLVE   ///////////////////////
     SolutionPtr solution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
@@ -939,7 +940,6 @@ namespace
       success=false;
     }
     
-    
     // MIN RULE, multi-element refined mesh
     mesh->hRefine(cell0, RefinementPattern::regularRefinementPatternQuad());
     
@@ -966,6 +966,39 @@ namespace
     }
     p_soln = Function::solution(p,solution);
     p_condensed_soln = Function::solution(p,condensedSolution);
+    
+    int vertexDim = 0;
+    IndexType pointForImpositionEntityIndex;
+    bool vertexFound = mesh->getTopology()->getVertexIndex(pointForImposition, pointForImpositionEntityIndex);
+    TEST_ASSERT(vertexFound);
+    
+    vector<pair<IndexType,unsigned>> cellsForVertex = mesh->getTopology()->getActiveCellIndices(vertexDim, pointForImpositionEntityIndex);
+    
+    const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
+    for (pair<IndexType,unsigned> cellEntry : cellsForVertex)
+    {
+      GlobalIndexType cellID = cellEntry.first;
+      int vertexOrdinal = cellEntry.second;
+      if (myCellIDs->find(cellID) != myCellIDs->end())
+      {
+        CellPtr cell = mesh->getTopology()->getCell(cellID);
+        BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+        FieldContainer<double> refCellPoints(cell->topology()->getVertexCount(),cell->topology()->getDimension());
+        CamelliaCellTools::refCellNodesForTopology(refCellPoints, cell->topology());
+        FieldContainer<double> refPoint(1,cell->topology()->getDimension());
+        refPoint(0,0) = refCellPoints(vertexOrdinal,0);
+        refPoint(0,1) = refCellPoints(vertexOrdinal,1);
+        basisCache->setRefCellPoints(refPoint);
+        FieldContainer<double> solnValue(1,1,1);
+        FieldContainer<double> condensedSolnValue(1,1,1);
+        p_soln->values(solnValue, basisCache);
+        p_condensed_soln->values(condensedSolnValue, basisCache);
+        // both values should be exactly zero; we don't require quite that, just an extremely tight tolerance
+        TEST_COMPARE(abs(solnValue[0]), <, 1e-15);
+        TEST_COMPARE(abs(condensedSolnValue[0]), <, 1e-15);
+      }
+    }
+    
     diff = (p_soln-p_condensed_soln)->l2norm(mesh,H1Order);
     if (diff > tol)
     {
