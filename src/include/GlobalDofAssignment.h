@@ -73,8 +73,6 @@ protected:
   
   vector<int> getH1OrderForPRefinement(int deltaP);
   
-  void projectParentCoefficientsOntoUnsetChildren();
-  
   // for subclasses to let super know about changes to the p-refinement degree...
   void setPRefinementDegree(GlobalIndexType cellID, int deltaP);
 
@@ -177,6 +175,8 @@ public:
   virtual PartitionIndexType partitionForGlobalDofIndex( GlobalIndexType globalDofIndex ) = 0;
 
   MeshPartitionPolicyPtr getPartitionPolicy();
+  
+  void projectParentCoefficientsOntoUnsetChildren();
   
   virtual void rebuildLookups() = 0;
   
