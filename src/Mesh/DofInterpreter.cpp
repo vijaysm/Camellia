@@ -7,21 +7,13 @@
 //
 
 #include "DofInterpreter.h"
-#include "Mesh.h"
-
-#include "MPIWrapper.h"
-
-#include "GlobalDofAssignment.h"
 
 #include "CamelliaDebugUtility.h"
+#include "GlobalDofAssignment.h"
+#include "Mesh.h"
+#include "MPIWrapper.h"
 
-#ifdef HAVE_MPI
-#include "Epetra_MpiComm.h"
-#include "Epetra_MpiDistributor.h"
-#endif
-#include "Epetra_SerialComm.h"
-#include "Epetra_SerialDistributor.h"
-
+#include "Epetra_Distributor.h"
 #include "Teuchos_GlobalMPISession.hpp"
 
 using namespace Intrepid;
@@ -168,12 +160,13 @@ std::set<GlobalIndexType> DofInterpreter::importGlobalIndicesForCells(const std:
   set<GlobalIndexType> dofIndicesSet;
   int rank = _mesh->Comm()->MyPID();
 
-  vector<int> myRequestOwners;
-  vector<GlobalIndexTypeToCast> myRequest;
-  for (int cellOrdinal=0; cellOrdinal<cellIDs.size(); cellOrdinal++)
+  // myRequestOwners should be in nondecreasing order (it appears)
+  // this is accomplished by requestMap
+  map<int, vector<GlobalIndexTypeToCast>> requestMap;
+  
+  for (GlobalIndexType cellID : cellIDs)
   {
-    GlobalIndexType cellID = cellIDs[cellOrdinal];
-    int partitionForCell = _mesh->globalDofAssignment()->partitionForCellID(cellIDs[cellOrdinal]);
+    int partitionForCell = _mesh->globalDofAssignment()->partitionForCellID(cellID);
     if (partitionForCell == rank)
     {
       set<GlobalIndexType> dofIndicesForCell = this->globalDofIndicesForCell(cellID);
@@ -181,29 +174,25 @@ std::set<GlobalIndexType> DofInterpreter::importGlobalIndicesForCells(const std:
     }
     else
     {
-      myRequest.push_back(cellID);
-      myRequestOwners.push_back(partitionForCell);
+      requestMap[partitionForCell].push_back(cellID);
+    }
+  }
+  
+  vector<int> myRequestOwners;
+  vector<GlobalIndexTypeToCast> myRequest;
+  for (auto entry : requestMap)
+  {
+    int partition = entry.first;
+    for (auto cellIDInPartition : entry.second)
+    {
+      myRequest.push_back(cellIDInPartition);
+      myRequestOwners.push_back(partition);
     }
   }
 
   int myRequestCount = myRequest.size();
 
-  Teuchos::RCP<Epetra_Distributor> distributor;
-#ifdef HAVE_MPI
-  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(_mesh->Comm().get());
-  if (mpiComm != NULL)
-    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm));
-  else
-  {
-    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
-    TEUCHOS_TEST_FOR_EXCEPTION(serialComm == NULL, std::invalid_argument, "Mesh::Comm() should be either an Epetra_SerialComm or an Epetra_MpiComm");
-    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-  }
-    
-#else
-  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
-  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-#endif
+  Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*_mesh->Comm());
 
   GlobalIndexTypeToCast* myRequestPtr = NULL;
   int *myRequestOwnersPtr = NULL;
@@ -298,12 +287,7 @@ map<GlobalIndexType,set<GlobalIndexType>> DofInterpreter::importGlobalIndicesMap
    
    */
   
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-#else
-  Epetra_SerialComm Comm;
-#endif
-  
+  Epetra_CommPtr Comm = _mesh->Comm();
   map<GlobalIndexType,set<GlobalIndexType>> globalIndicesMap;
   
   int myCount, maxGlobalCount; // always 0 or 1: how many cells we're asking for, whether anyone is still asking for a cell
@@ -324,7 +308,7 @@ map<GlobalIndexType,set<GlobalIndexType>> DofInterpreter::importGlobalIndicesMap
       myCount = 0;
       myRequest = {};
     }
-    Comm.MaxAll(&myCount, &maxGlobalCount, 1);
+    Comm->MaxAll(&myCount, &maxGlobalCount, 1);
     
     if (maxGlobalCount > 0)
     {
