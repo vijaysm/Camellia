@@ -95,6 +95,8 @@ public:
                                Intrepid::FieldContainer<double> &myValues,
                                Intrepid::FieldContainer<int> &offsets);
   
+  static Teuchos::RCP<Epetra_Distributor> getDistributor(const Epetra_Comm &Comm);
+  
   static Epetra_CommPtr& CommSerial();
   static Epetra_CommPtr& CommWorld();
   

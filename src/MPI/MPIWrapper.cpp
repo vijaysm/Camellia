@@ -8,6 +8,7 @@
 
 #include "MPIWrapper.h"
 
+#include "Epetra_SerialDistributor.h"
 #include "Teuchos_GlobalMPISession.hpp"
 #include "Teuchos_Array.hpp"
 
@@ -223,6 +224,31 @@ void MPIWrapper::entryWiseSum(FieldContainer<ScalarType> &values)
 void MPIWrapper::entryWiseSum(FieldContainer<double> &values)   // sums values entry-wise across all processors
 {
   entryWiseSum<double>(values);
+}
+
+Teuchos::RCP<Epetra_Distributor> MPIWrapper::getDistributor(const Epetra_Comm &Comm)
+{
+  Teuchos::RCP<Epetra_Distributor> distributor;
+#ifdef HAVE_MPI
+  const Epetra_MpiComm* mpiComm = dynamic_cast<const Epetra_MpiComm*>(&Comm);
+  if (mpiComm != NULL)
+  {
+    distributor = Teuchos::rcp(new Epetra_MpiDistributor(*mpiComm));
+  }
+  else
+  {
+    const Epetra_SerialComm* serialComm = dynamic_cast<const Epetra_SerialComm*>(&Comm);
+    distributor = Teuchos::rcp(new Epetra_SerialDistributor(*serialComm));
+  }
+#else
+  const Epetra_SerialComm* serialComm = dynamic_cast<const Epetra_SerialComm*>(&Comm);
+  if (serialComm == NULL)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "_mesh->Comm() is not an instance of Epetra_SerialComm*, even though HAVE_MPI evaluated to false.")
+  }
+  distributor = Teuchos::rcp(new Epetra_SerialDistributor(*serialComm));
+#endif
+  return distributor;
 }
 
 // sum the contents of valuesToSum across all processors, and returns the result:
