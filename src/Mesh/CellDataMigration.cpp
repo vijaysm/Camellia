@@ -447,13 +447,13 @@ void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, c
     RootedLabeledRefinementBranch rootedBranch = {{refBranch,labels},rootVertices};
     cellHaloGeometry.push_back(rootedBranch);
   }
-  
-  addMigratedGeometry(mesh->getTopology()->baseMeshTopology(), cellHaloGeometry);
+
+  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  addMigratedGeometry(meshTopo, cellHaloGeometry);
   
   // entity sets
-  CellPtr cell = mesh->getTopology()->getCell(cellID);
+  CellPtr cell = meshTopo->getCell(cellID);
   int spaceDim = mesh->getDimension();
-  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
   int numHandles;
   memcpy(&numHandles, dataLocation, sizeof(numHandles));
   dataLocation += sizeof(numHandles);
