@@ -741,6 +741,7 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetEntityGeneralizedParent_LineRefinement)
 
 TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
 {
+  MPIWrapper::CommWorld()->Barrier();
   int k = 1;
   int H1Order = k + 1;
   int delta_k = 1;
@@ -785,11 +786,15 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
 
   // compare sets:
   std::set<IndexType>::iterator rootCellIt = rootCellIndices.begin(), originalCellIt = originalCellIndices.begin();
-  for (int i=0; i<rootMeshTopology->cellCount(); i++)
+  TEST_EQUALITY(rootCellIndices.size(), originalCellIndices.size());
+  if (rootCellIndices.size() == originalCellIndices.size())
   {
-    TEST_EQUALITY(*rootCellIt, *originalCellIt);
-    rootCellIt++;
-    originalCellIt++;
+    for (int i=0; i<rootCellIndices.size(); i++)
+    {
+      TEST_EQUALITY(*rootCellIt, *originalCellIt);
+      rootCellIt++;
+      originalCellIt++;
+    }
   }
 
   for (std::set<IndexType>::iterator cellIDIt = rootCellIndices.begin(); cellIDIt != rootCellIndices.end(); cellIDIt++)
