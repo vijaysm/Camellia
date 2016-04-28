@@ -229,6 +229,25 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
 }
 #endif
 
+MeshPtr MeshFactory::minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, int H1Order, int delta_k,
+                                 Epetra_CommPtr Comm)
+{
+  std::vector<int> H1OrderVector(2);
+  H1OrderVector[0] = H1Order;
+  H1OrderVector[1] = H1Order;
+  return minRuleMesh(meshTopo,bf,H1OrderVector,delta_k,Comm);
+}
+
+MeshPtr MeshFactory::minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, vector<int> H1Order, int delta_k,
+                                 Epetra_CommPtr Comm)
+{
+  std::map<int,int> emptyMap;
+  MeshPartitionPolicyPtr nullPartitionPolicy = Teuchos::null;
+  MeshPtr mesh = Teuchos::rcp( new Mesh (meshTopo, bf, H1Order, delta_k, emptyMap, emptyMap, nullPartitionPolicy, Comm) );
+  mesh->enforceOneIrregularity();
+  return mesh;
+}
+
 MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr Comm)
 {
   bool useMinRule = parameters.get<bool>("useMinRule",true);
@@ -1292,7 +1311,6 @@ MeshPtr MeshFactory::shiftedHemkerMesh(double xLeft, double xRight, double meshH
   return mesh;
 }
 
-// TODO: test this!
 MeshPtr MeshFactory::spaceTimeMesh(MeshTopologyPtr spatialMeshTopology, double t0, double t1,
                                    TBFPtr<double> bf, int spatialH1Order, int temporalH1Order, int pToAdd,
                                    Epetra_CommPtr Comm)
@@ -1321,7 +1339,9 @@ MeshTopologyPtr MeshFactory::spaceTimeMeshTopology(MeshTopologyPtr spatialMeshTo
   int spaceDim = spatialMeshTopology->getDimension();
   int spaceTimeDim = spaceDim + 1;
 
-  MeshTopologyPtr rootSpatialTopology = spatialMeshTopology->getRootMeshTopology();
+  set<IndexType> rootCellIndices = spatialMeshTopology->getRootCellIndicesGlobal();
+  
+  MeshTopologyViewPtr rootSpatialTopology = spatialMeshTopology->getView(rootCellIndices);
   MeshTopologyPtr spaceTimeTopology = Teuchos::rcp( new MeshTopology( spaceTimeDim ));
 
   /*
@@ -1357,7 +1377,7 @@ MeshTopologyPtr MeshFactory::spaceTimeMeshTopology(MeshTopologyPtr spatialMeshTo
 
   // for now, we only do refinements on the first temporal subdivision
   // later, we might want to enforce 1-irregularity, at least
-  set<IndexType> cellIndices = rootSpatialTopology->getRootCellIndicesGlobal();
+  set<IndexType> cellIndices = rootSpatialTopology->baseMeshTopology()->getRootCellIndicesGlobal();
   int tensorialDegree = 1;
   vector< FieldContainer<double> > componentNodes(2);
   FieldContainer<double> spatialCellNodes;

@@ -55,10 +55,7 @@
 #endif
 
 // Epetra includes
-#ifdef HAVE_MPI
-#include "Epetra_MpiDistributor.h"
-#endif
-#include "Epetra_SerialDistributor.h"
+#include "Epetra_Distributor.h"
 #include "Epetra_Time.h"
 
 // EpetraExt includes
@@ -1590,8 +1587,6 @@ template <typename Scalar>
 void TSolution<Scalar>::importSolution()
 {
   Epetra_CommPtr Comm = _mesh->Comm();
-  int rank = Comm->MyPID();
-
   Epetra_Time timer(*Comm);
 
 //  cout << "on rank " << rank << ", about to determine globalDofIndicesForPartition\n";
@@ -1656,6 +1651,20 @@ void TSolution<Scalar>::importSolutionForOffRankCells(std::set<GlobalIndexType> 
   Epetra_CommPtr Comm = _mesh->Comm();
   int rank = Comm->MyPID();
 
+  // we require that all the cellIDs be locally known in terms of the geometry
+  // (for distributed MeshTopology, this basically means that we only allow importing
+  // Solution coefficients in the halo of the cells owned by this rank.)
+  const set<IndexType>* locallyKnownActiveCells = &_mesh->getTopology()->getLocallyKnownActiveCellIndices();
+  for (GlobalIndexType cellID : cellIDs)
+  {
+    if (locallyKnownActiveCells->find(cellID) == locallyKnownActiveCells->end())
+    {
+      cout << "Requested cell " << cellID << " is not locally known on rank " << rank << endl;
+      print("locally known cells", *locallyKnownActiveCells);
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "importSolutionForOffRankCells requires cells to have locally available geometry.");
+    }
+  }
+  
   // it appears to be important that the requests be sorted by MPI rank number
   // the requestMap below accomplishes that.
   
@@ -1684,21 +1693,7 @@ void TSolution<Scalar>::importSolutionForOffRankCells(std::set<GlobalIndexType> 
   }
 
   int myRequestCount = myRequest.size();
-
-  Teuchos::RCP<Epetra_Distributor> distributor;
-#ifdef HAVE_MPI
-  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(Comm.get());
-  if (mpiComm != NULL)
-    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm) );
-  else
-  {
-    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(Comm.get());
-    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-  }
-#else
-  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(Comm.get());
-  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-#endif
+  Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*_mesh->Comm());
 
   GlobalIndexTypeToCast* myRequestPtr = NULL;
   int *myRequestOwnersPtr = NULL;
@@ -3239,140 +3234,6 @@ void TSolution<Scalar>::condensedSolve(TSolverPtr<Scalar> globalSolver, bool red
   solve(globalSolver);
 
   setDofInterpreter(oldDofInterpreter);
-}
-
-// must write to .m file
-template <typename Scalar>
-void TSolution<Scalar>::writeFieldsToFile(int trialID, const string &filePath)
-{
-  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Solution::writeFieldsToFile is no longer supported");
-
-  //  cout << "writeFieldsToFile for trialID: " << trialID << endl;
-//
-//  ofstream fout(filePath.c_str());
-//  fout << setprecision(15);
-//  vector< ElementTypePtr > elementTypes = _mesh->elementTypes();
-//  vector< ElementTypePtr >::iterator elemTypeIt;
-//  int spaceDim = 2; // TODO: generalize to 3D...
-//  int num1DPts = 5;
-//
-//  fout << "numCells = " << _mesh->activeElements().size() << endl;
-//  fout << "x=cell(numCells,1);y=cell(numCells,1);z=cell(numCells,1);" << endl;
-//
-//  // initialize storage
-//  fout << "for i = 1:numCells" << endl;
-//  fout << "x{i} = zeros(" << num1DPts << ",1);"<<endl;
-//  fout << "y{i} = zeros(" << num1DPts << ",1);"<<endl;
-//  fout << "z{i} = zeros(" << num1DPts << ");"<<endl;
-//  fout << "end" << endl;
-//  int globalCellInd = 1; //matlab indexes from 1
-//  for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)   //thru quads/triangles/etc
-//  {
-//    ElementTypePtr elemTypePtr = *(elemTypeIt);
-//    CellTopoPtr cellTopo = elemTypePtr->cellTopoPtr;
-//
-//    Intrepid::FieldContainer<double> vertexPoints, physPoints;
-//    _mesh->verticesForElementType(vertexPoints,elemTypePtr); //stores vertex points for this element
-//    Intrepid::FieldContainer<double> physicalCellNodes = _mesh()->physicalCellNodesGlobal(elemTypePtr);
-//
-//    int numCells = physicalCellNodes.dimension(0);
-//    bool createSideCacheToo = false;
-//    BasisCachePtr basisCache = Teuchos::rcp(new BasisCache(elemTypePtr,_mesh, createSideCacheToo));
-//
-//    vector<GlobalIndexType> cellIDs;
-//    for (int cellIndex=0; cellIndex<numCells; cellIndex++)
-//    {
-//      GlobalIndexType cellID = _mesh->cellID(elemTypePtr, cellIndex, -1); // -1: global cellID
-//      cellIDs.push_back(cellID);
-//    }
-//
-//    int numPoints = num1DPts * num1DPts;
-//    Intrepid::FieldContainer<double> refPoints(numPoints,spaceDim);
-//    for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
-//    {
-//      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
-//      {
-//        int pointIndex = xPointIndex*num1DPts + yPointIndex;
-//        double x = -1.0 + 2.0*(double)xPointIndex/((double)num1DPts-1.0);
-//        double y = -1.0 + 2.0*(double)yPointIndex/((double)num1DPts-1.0);
-//        refPoints(pointIndex,0) = x;
-//        refPoints(pointIndex,1) = y;
-//      }
-//    }
-//
-//    basisCache->setRefCellPoints(refPoints);
-//    basisCache->setPhysicalCellNodes(physicalCellNodes, cellIDs, createSideCacheToo);
-//    Intrepid::FieldContainer<double> computedValues(numCells,numPoints);
-//
-//    this->solutionValues(computedValues, trialID, basisCache);
-//    const Intrepid::FieldContainer<double> *physicalPoints = &basisCache->getPhysicalCubaturePoints();
-//
-//    for (int cellIndex=0; cellIndex<numCells; cellIndex++ )
-//    {
-//      for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
-//      {
-//        int yPointIndex = 0;
-//        int pointIndex = xPointIndex*num1DPts + yPointIndex;
-//        fout << "x{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<")=" << (*physicalPoints)(cellIndex,pointIndex,0) << ";" << endl;
-//      }
-//      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
-//      {
-//        int xPointIndex = 0;
-//        int pointIndex = xPointIndex*num1DPts + yPointIndex;
-//        fout << "y{"<<globalCellInd+cellIndex<< "}("<<yPointIndex+1<<")=" << (*physicalPoints)(cellIndex,pointIndex,1) << ";" << endl;
-//      }
-//    }
-//
-//    for (int cellIndex=0; cellIndex < numCells; cellIndex++)
-//    {
-//      for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++)
-//      {
-//        for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++)
-//        {
-//          int ptIndex = xPointIndex*num1DPts + yPointIndex;
-//          fout << "z{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<","<<yPointIndex+1<<")=" << computedValues(cellIndex,ptIndex) << ";" << endl;
-//        }
-//      }
-//    }
-//
-//    //    // NOW loop over all cells to write solution to file
-//    //    for (int xPointIndex = 0; xPointIndex < num1DPts; xPointIndex++){
-//    //      for (int yPointIndex = 0; yPointIndex < num1DPts; yPointIndex++){
-//    //
-//    //        // for some odd reason, I cannot compute the ref-to-phys map for more than 1 point at a time
-//    //        int numPoints = 1;
-//    //        Intrepid::FieldContainer<double> refPoints(numPoints,spaceDim);
-//    //        double x = -1.0 + 2.0*(double)xPointIndex/((double)num1DPts-1.0);
-//    //        double y = -1.0 + 2.0*(double)yPointIndex/((double)num1DPts-1.0);
-//    //        refPoints(0,0) = x;
-//    //        refPoints(0,1) = y;
-//    //
-//    //        // map side cubature points in reference parent cell domain to physical space
-//    //        Intrepid::FieldContainer<double> physicalPoints(numCells, numPoints, spaceDim);
-//    //        CellTools::mapToPhysicalFrame(physicalPoints, refPoints, physicalCellNodes, cellTopo);
-//    //
-//    //        cout << "physicalPoints:\n" <<  physicalPoints;
-//    //
-//    //        Intrepid::FieldContainer<double> computedValues(numCells,numPoints); // first arg = 1 cell only
-//    //        solutionValues(computedValues, elemTypePtr, trialID, physicalPoints);
-//    //
-//    //        for (int cellIndex=0;cellIndex < numCells;cellIndex++){
-//    //          fout << "x{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<")=" << physicalPoints(cellIndex,0,0) << ";" << endl;
-//    //          fout << "y{"<<globalCellInd+cellIndex<< "}("<<yPointIndex+1<<")=" << physicalPoints(cellIndex,0,1) << ";" << endl;
-//    //          fout << "z{"<<globalCellInd+cellIndex<< "}("<<xPointIndex+1<<","<<yPointIndex+1<<")=" << computedValues(cellIndex,0) << ";" << endl;
-//    //        }
-//    //      }
-//    //    }
-//    globalCellInd+=numCells;
-//
-//  } //end of element type loop
-//  fout.close();
-}
-
-template <typename Scalar>
-void TSolution<Scalar>::writeFluxesToFile(int trialID, const string &filePath)
-{
-  TEUCHOS_TEST_FOR_EXCEPTION(true,std::invalid_argument,"This method is no longer supported.  Use HDF5Exporter instead.");
 }
 
 template <typename Scalar>

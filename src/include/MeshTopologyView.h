@@ -39,7 +39,7 @@ namespace Camellia {
     
     void buildLookups(); // _rootCellIndices and _ancestralCells
   protected:
-    std::set<IndexType> _activeCells; // empty when subclass constructor is used
+    std::set<IndexType> _activeCells;
     std::set<IndexType> _rootCells; // filled during construction when meshTopoPtr is not null; otherwise responsibility belongs to subclass.
     GlobalDofAssignment* _gda; // for cubature degree lookups
     
@@ -97,6 +97,8 @@ namespace Camellia {
     virtual const std::set<IndexType> &getRootCellIndicesLocal();
     
     virtual std::vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex);
+    
+    virtual bool isDistributed() const;
     
     virtual bool isParent(IndexType cellIndex);
     

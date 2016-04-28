@@ -1876,42 +1876,6 @@ unsigned MeshTopology::getFaceEdgeIndex(unsigned int faceIndex, unsigned int edg
   return getSubEntityIndex(2, faceIndex, 1, edgeOrdinalInFace);
 }
 
-MeshTopologyPtr MeshTopology::getRootMeshTopology()
-{
-  // TODO: add support for curvilinear elements, periodic BCs to this method.
-  set<IndexType> vertexIndicesSet;
-
-  vector< vector<IndexType> > allCellsVertexIndices;
-  vector< CellTopoPtr > cellTopos;
-
-  for (set<IndexType>::iterator rootCellIt = _rootCells.begin(); rootCellIt != _rootCells.end(); rootCellIt++)
-  {
-    IndexType rootCellIndex = *rootCellIt;
-    CellPtr cell = getCell(rootCellIndex);
-
-    cellTopos.push_back(cell->topology());
-
-    vector<unsigned> cellVertexIndices = cell->vertices();
-    allCellsVertexIndices.push_back(cellVertexIndices);
-
-    vertexIndicesSet.insert(cellVertexIndices.begin(),cellVertexIndices.end());
-  }
-
-  // we require that the vertices be contiguously numbered (we want to enforce that root MeshTopology shares vertex numbers with this).
-
-  vector< vector<double> > vertices( vertexIndicesSet.size() );
-  for (set<IndexType>::iterator vertexIndexIt = vertexIndicesSet.begin(); vertexIndexIt != vertexIndicesSet.end(); vertexIndexIt++)
-  {
-    IndexType vertexIndex = *vertexIndexIt;
-    vertices[vertexIndex] = getVertex(vertexIndex);
-  }
-
-  MeshGeometryPtr meshGeometry = Teuchos::rcp(new MeshGeometry(vertices, allCellsVertexIndices, cellTopos) );
-
-  MeshTopologyPtr rootTopology = Teuchos::rcp( new MeshTopology(meshGeometry) );
-  return rootTopology;
-}
-
 unsigned MeshTopology::getDimension() const
 {
   return _spaceDim;
@@ -2526,9 +2490,28 @@ set< pair<IndexType, unsigned> > MeshTopology::getCellsContainingEntity(unsigned
   return cells;
 }
 
+void MeshTopology::initializeTransformationFunction(MeshPtr mesh)
+{
+  if ((_cellIDsWithCurves.size() > 0) && (mesh != Teuchos::null))
+  {
+    // mesh transformation function expects global ID type
+    set<GlobalIndexType> cellIDsGlobal(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
+    _transformationFunction = Teuchos::rcp(new MeshTransformationFunction(mesh, cellIDsGlobal));
+  }
+  else
+  {
+    _transformationFunction = Teuchos::null;
+  }
+}
+
 bool MeshTopology::isBoundarySide(IndexType sideEntityIndex)
 {
   return _boundarySides.find(sideEntityIndex) != _boundarySides.end();
+}
+
+bool MeshTopology::isDistributed() const
+{
+  return (Comm() != Teuchos::null) && (Comm()->NumProc() > 1);
 }
 
 bool MeshTopology::isValidCellIndex(IndexType cellIndex) const
@@ -3027,40 +3010,62 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
     }
     (*reverseSideLookup)[oldSideEntityIndex] = prunedSideEntityIndex;
     auto cellsForSideEntry = _cellsForSideEntities[oldSideEntityIndex];
-    // check if the cells listed are still present; if not, set default values
-    IndexType cellID1 = cellsForSideEntry.first.first;
-    IndexType cellID2 = cellsForSideEntry.second.first;
-    bool firstEntryCleared = false, secondEntryCleared = false;
-    if (cellsToInclude.find(cellID1) == cellsToInclude.end())
+    auto replacementSideEntry = [this, &cellsToInclude, oldSideEntityIndex, sideDim] (pair<IndexType, unsigned> existingEntry) -> pair<IndexType, unsigned>
     {
-      cellsForSideEntry.first = {-1,-1};
+      IndexType cellID = existingEntry.first;
+      if (cellsToInclude.find(cellID) != cellsToInclude.end())
+      {
+        return existingEntry;
+      }
+      else
+      {
+        // look for parents that match the side
+        pair<IndexType, unsigned> replacementEntry = {-1,-1};
+        if (cellID == -1) return replacementEntry;
+        
+        CellPtr cell = getCell(cellID);
+        while (cell->getParent() != Teuchos::null)
+        {
+          cell = cell->getParent();
+          unsigned sideOrdinal = cell->findSubcellOrdinal(sideDim, oldSideEntityIndex);
+          if (sideOrdinal == -1) break; // parent does not share side
+          // if we get here, parent *does* share side
+          // is parent one of the cells we know about??
+          if (cellsToInclude.find(cell->cellIndex()) != cellsToInclude.end())
+          {
+            replacementEntry = {cell->cellIndex(), sideOrdinal};
+            break;
+          }
+        }
+        return replacementEntry;
+      }
+    };
+
+    cellsForSideEntry.first = replacementSideEntry(cellsForSideEntry.first);
+    cellsForSideEntry.second = replacementSideEntry(cellsForSideEntry.second);
+    
+    bool firstEntryCleared = false, secondEntryCleared = false;
+    if (cellsForSideEntry.first.first == -1)
+    {
       firstEntryCleared = true;
     }
-    if (cellsToInclude.find(cellID2) == cellsToInclude.end())
+    if (cellsForSideEntry.second.first == -1)
     {
-      cellsForSideEntry.second = {-1,-1};
       secondEntryCleared = true;
     }
-    else if (firstEntryCleared)
+    
+    if (firstEntryCleared && !secondEntryCleared)
     {
       // we've cleared the first entry, but not the second
       // the logic of _cellsForSideEntities requires that the first
       // entry be filled in first, so we flip them
       cellsForSideEntry = {cellsForSideEntry.second, cellsForSideEntry.first};
     }
+    
     if (! (firstEntryCleared && secondEntryCleared) )
     {
       // if one of the entries remains, store in pruned container:
       prunedCellsForSideEntities[prunedSideEntityIndex] = cellsForSideEntry;
-//      {
-//        // DEBUGGING
-//        if ((1 == Comm->MyPID()) && (prunedSideEntityIndex == 0))
-//        {
-//          cout << "prunedCellsForSideEntities[0] = {{";
-//          cout << cellsForSideEntry.first.first << "," << cellsForSideEntry.first.second << "}, {";
-//          cout << cellsForSideEntry.second.first << "," << cellsForSideEntry.second.second << "}}\n";
-//        }
-//      }
     }
   }
   
@@ -3238,7 +3243,7 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   }
   _boundarySides = prunedBoundarySides;
   
-  map<GlobalIndexType, CellPtr> _prunedCells;
+  map<GlobalIndexType, CellPtr> prunedCells;
   set<IndexType> prunedActiveCells;
   for (GlobalIndexType cellID : cellsToInclude)
   {
@@ -3250,14 +3255,36 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
       newVertexIndices.push_back((*reverseVertexLookup)[oldVertexIndex]);
     }
     cell->setVertices(newVertexIndices);
-    _prunedCells[cellID] = cell;
+    prunedCells[cellID] = cell;
     if (!cell->isParent(thisPtr))
     {
       prunedActiveCells.insert(cellID);
     }
   }
-  _cells = _prunedCells;
+  _cells = prunedCells;
   _activeCells = prunedActiveCells;
+  
+  set<IndexType> prunedRootCells;
+  set<IndexType> visitedCells;
+  for (auto cellEntry : _cells)
+  {
+    GlobalIndexType cellID = cellEntry.first;
+    while (visitedCells.find(cellID) == visitedCells.end())
+    {
+      visitedCells.insert(cellID);
+      CellPtr cell = getCell(cellID);
+      if (cell->getParent() != Teuchos::null)
+      {
+        cellID = cell->getParent()->cellIndex();
+      }
+      else
+      {
+        prunedRootCells.insert(cellID);
+      }
+    }
+  }
+  _rootCells = prunedRootCells;
+  
   // things we haven't done yet:
   /*
    // these guys presently only support 2D:
@@ -3726,6 +3753,7 @@ set<IndexType> MeshTopology::getRootCellIndicesGlobal()
 
 void MeshTopology::setEdgeToCurveMap(const map< pair<IndexType, IndexType>, ParametricCurvePtr > &edgeToCurveMap, MeshPtr mesh)
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(isDistributed(), std::invalid_argument, "setEdgeToCurveMap() is not supported for distributed MeshTopology.");
   _edgeToCurveMap.clear();
   map< pair<IndexType, IndexType>, ParametricCurvePtr >::const_iterator edgeIt;
   _cellIDsWithCurves.clear();
@@ -3734,12 +3762,7 @@ void MeshTopology::setEdgeToCurveMap(const map< pair<IndexType, IndexType>, Para
   {
     addEdgeCurve(edgeIt->first, edgeIt->second);
   }
-  // mesh transformation function expects global ID type
-  set<GlobalIndexType> cellIDsGlobal(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
-  if (cellIDsGlobal.size() > 0)
-    _transformationFunction = Teuchos::rcp(new MeshTransformationFunction(mesh, cellIDsGlobal));
-  else
-    _transformationFunction = Teuchos::null;
+  initializeTransformationFunction(mesh);
 }
 
 void MeshTopology::setGlobalDofAssignment(GlobalDofAssignment* gda)   // for cubature degree lookups

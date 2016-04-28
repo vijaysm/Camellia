@@ -38,8 +38,6 @@ MeshTopologyView::MeshTopologyView()
 // ! Constructor that defines a view in terms of an existing MeshTopology and a set of cells selected to be active.
 MeshTopologyView::MeshTopologyView(MeshTopologyPtr meshTopoPtr, const std::set<IndexType> &activeCellIDs)
 {
-  // for now (at least), we disallow empty MeshTopologyViews:
-  TEUCHOS_TEST_FOR_EXCEPTION(activeCellIDs.size() == 0, std::invalid_argument, "Empty activeCellIDs is not allowed in MeshTopologyView constructor!");
   _meshTopo = meshTopoPtr;
   _activeCells = activeCellIDs;
   _globalActiveCellCount = -1;
@@ -117,6 +115,7 @@ void MeshTopologyView::buildLookups()
     if (cell->getParent() == Teuchos::null)
     {
       _rootCells.insert(cellID);
+      visitedIndices.insert(cellID);
     }
   }
   for (IndexType invalidCellID : invalidActiveCells)
@@ -132,7 +131,7 @@ void MeshTopologyView::buildLookups()
    _globalCellCount.
    */
   
-  if ((_meshTopo->Comm() != Teuchos::null) && (_meshTopo->Comm()->NumProc() > 1))
+  if (isDistributed())
   {
     // we're not too concerned, really, with _globalCellCount.  For MeshTopologyView, this is pretty much
     // only used in tests.  But in keeping with what MeshTopology does, we can simply define this as the
@@ -585,10 +584,6 @@ const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
 
 const set<IndexType> & MeshTopologyView::getRootCellIndicesLocal()
 {
-  if (_rootCells.size() == 0)
-  {
-    buildLookups(); // but for the present, we do this on construction anyway
-  }
   return _rootCells;
 }
 
@@ -623,6 +618,11 @@ bool MeshTopologyView::getVertexIndex(const vector<double> &vertex, IndexType &v
 vector<IndexType> MeshTopologyView::getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol)
 {
   return _meshTopo->getVertexIndicesMatching(vertexInitialCoordinates, tol);
+}
+
+bool MeshTopologyView::isDistributed() const
+{
+  return (_meshTopo->Comm() != Teuchos::null) && (_meshTopo->Comm()->NumProc() > 1);
 }
 
 bool MeshTopologyView::isParent(IndexType cellIndex)

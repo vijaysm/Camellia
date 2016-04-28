@@ -46,11 +46,6 @@
 // Epetra includes
 #include "EpetraExt_ConfigDefs.h"
 #include <Epetra_Map.h>
-#ifdef HAVE_MPI
-#include "Epetra_MpiComm.h"
-#else
-#include "Epetra_SerialComm.h"
-#endif
 
 #include "Epetra_Vector.h"
 
@@ -69,8 +64,6 @@
 
 #include "Function.h"
 #include "ParametricCurve.h"
-
-#include "MeshGeometry.h"
 
 #include "MeshTopology.h"
 
@@ -164,6 +157,10 @@ public:
 
   Epetra_CommPtr& Comm();
   Teuchos_CommPtr& TeuchosComm();
+  
+  int dataSize() const;
+  static MeshPtr read(const char* &dataLocation, int size);
+  void write(char* &dataLocation, int size) const;
   
   // ! deepCopy makes a deep copy of both MeshTopology and GDA, but not bilinear form
   MeshPtr deepCopy();

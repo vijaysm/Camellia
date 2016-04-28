@@ -824,9 +824,9 @@ void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partiti
 //  }
   
   constructActiveCellMap();
-  projectParentCoefficientsOntoUnsetChildren();
   if (rebuildDofLookups)
   {
+    projectParentCoefficientsOntoUnsetChildren();
     rebuildLookups();
   }
 }
@@ -858,9 +858,9 @@ void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > 
     }
   }
   constructActiveCellMap();
-  projectParentCoefficientsOntoUnsetChildren();
   if (rebuildDofLookups)
   {
+    projectParentCoefficientsOntoUnsetChildren();
     rebuildLookups();
   }
 }

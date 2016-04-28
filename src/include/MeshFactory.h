@@ -67,6 +67,11 @@ public:
 
   static MeshTopologyPtr intervalMeshTopology(double xLeft, double xRight, int numElements); // 1D equispaced
 
+  static MeshPtr minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, int H1Order, int delta_k,  Epetra_CommPtr Comm = Teuchos::null);
+  
+  static MeshPtr minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, vector<int> H1Order, int delta_k,
+                             Epetra_CommPtr Comm = Teuchos::null);
+  
   static MeshPtr quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr Comm = Teuchos::null);
 
   static MeshPtr quadMesh(TBFPtr<double> bf, int H1Order, int pToAddTest=2,

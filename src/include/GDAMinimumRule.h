@@ -277,6 +277,9 @@ public:
   
   GlobalDofAssignmentPtr deepCopy();
 
+  // ! collective method, takes minimum polynomial order among all owners of a constraining parents' child cell.
+  void determinePolynomialOrderForConstrainingParents();
+  
   void didHRefine(const set<GlobalIndexType> &parentCellIDs);
   void didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP);
   void didHUnrefine(const set<GlobalIndexType> &parentCellIDs);

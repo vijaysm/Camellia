@@ -170,6 +170,8 @@ public:
   // ! If the MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
   Epetra_CommPtr Comm() const;
   
+  virtual bool isDistributed() const;
+  
   CellPtr findCellWithVertices(const vector< vector<double> > &cellVertices);
 
   vector<IndexType> getChildEntities(unsigned d, IndexType entityIndex);
@@ -267,15 +269,15 @@ public:
   // ! Returns a counter, incremented when pruneToInclude was last called.  Allows caching of things that depend on ownedCellIndices (used in MeshTopologyView's determination of *its* ownedCellIndices).
   int pruningOrdinal() const;
 
+  // ! Generates a transformation function if edge-to-curve map has been set.  Particularly useful for cases where a null Mesh was previously provided, resulting in a null transformation function.
+  void initializeTransformationFunction(MeshPtr mesh);
+  
   // not sure this should ultimately be exposed -- using it now to allow correctly timed call to updateCells()
   // (will be transitioning from having MeshTransformationFunction talk to Mesh to having it talk to MeshTopology)
   Teuchos::RCP<MeshTransformationFunction> transformationFunction();
 
   // ! This method exposed for the sake of tests
   vector< pair<IndexType,unsigned> > getConstrainingSideAncestry(IndexType sideEntityIndex);   // pair: first is the sideEntityIndex of the ancestor; second is the refinementIndex of the refinement to get from parent to child (see _parentEntities and _childEntities)
-
-  // ! Creates a new MeshTopology object containing only the root cells from this MeshTopology.
-  Teuchos::RCP<MeshTopology> getRootMeshTopology();
 
   // ! Fills the provided container with the vertices for the requested cell
   void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID);

@@ -268,10 +268,18 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   set<GlobalIndexType> thisLevelCellIndices = fineMeshTopo->getRootCellIndicesLocal();
   GlobalIndexType thisLevelNumCells = 0;
 
-  int tensorialDegree = 1;
-  if (fineMeshTopo->cellCount() > 0)
+  int myTensorialDegree = -1;
+  if (thisLevelCellIndices.size() > 0)
   {
-    tensorialDegree = fineMeshTopo->getCell(0)->topology()->getTensorialDegree();
+    IndexType cellIndex = *thisLevelCellIndices.begin();
+    myTensorialDegree = fineMeshTopo->getCell(cellIndex)->topology()->getTensorialDegree();
+  }
+  int tensorialDegree;
+  fineMesh->Comm()->MaxAll(&myTensorialDegree, &tensorialDegree, 1);
+  // if we have no elements, trust the global guy.  Otherwise, check that the global guy matches ours.
+  if (thisLevelCellIndices.size() > 0)
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(myTensorialDegree != tensorialDegree, std::invalid_argument, "rank-local tensorial degree does not agree with global tensorial degree.");
   }
   
   GlobalIndexType fineMeshNumCells = fineMeshTopo->activeCellCount();
@@ -285,9 +293,12 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   
   do {
     MeshTopologyViewPtr thisLevelMeshTopo = fineMeshTopo->getView(thisLevelCellIndices);
+    // let the fine mesh induce partitioning
+    MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(thisLevelMeshTopo, fineMesh);
     
     // create the actual Mesh object:
-    MeshPtr thisLevelMesh = Teuchos::rcp(new Mesh(thisLevelMeshTopo, bf, H1Order_coarse, delta_k, trialOrderEnhancements));
+    MeshPtr thisLevelMesh = Teuchos::rcp(new Mesh(thisLevelMeshTopo, bf, H1Order_coarse, delta_k,
+                                                  trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy));
     meshesCoarseToFine.push_back(thisLevelMesh);
     
     set<GlobalIndexType> nextLevelCellIndices;

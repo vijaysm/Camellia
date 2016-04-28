@@ -44,12 +44,8 @@
 
 // Epetra includes
 #include <Epetra_Map.h>
-#ifdef HAVE_MPI
-#include "Epetra_MpiComm.h"
-#else
-#include "Epetra_SerialComm.h"
-#endif
 
+#include "Epetra_Comm.h"
 #include "Epetra_FECrsMatrix.h"
 #include "Epetra_FEVector.h"
 #include "Epetra_Operator.h"
@@ -302,10 +298,6 @@ public:
   void saveToHDF5(std::string filename);
   void loadFromHDF5(std::string filename);
 #endif
-
-  // MATLAB output (belongs elsewhere)
-  void writeFieldsToFile(int trialID, const std::string &filePath);
-  void writeFluxesToFile(int trialID, const std::string &filePath);
 
   // Default of 0 adapts the number of points based on poly order
   void writeToVTK(const std::string& filePath, unsigned int num1DPts=0);

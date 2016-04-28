@@ -16,8 +16,6 @@
 #include "SerialDenseWrapper.h"
 #include "Solution.h"
 
-#include "Epetra_SerialDistributor.h"
-
 using namespace std;
 using namespace Camellia;
 
@@ -67,7 +65,12 @@ CellPair GDAMinimumRule::cellContainingEntityWithLeastH1Order(int d, IndexType e
 {
   set< CellPair > cellsForSubcell = _meshTopology->getCellsContainingEntity(d, entityIndex);
   
-  TEUCHOS_TEST_FOR_EXCEPTION(cellsForSubcell.size() == 0, std::invalid_argument, "no cells found that match constraining entity");
+  if (cellsForSubcell.size() == 0)
+  {
+    // repeat the call so we can see it in the debugger:
+    cellsForSubcell = _meshTopology->getCellsContainingEntity(d, entityIndex);
+    TEUCHOS_TEST_FOR_EXCEPTION(cellsForSubcell.size() == 0, std::invalid_argument, "no cells found that match constraining entity");
+  }
   
   // for now, we just use the first component of H1Order; this should be OK so long as refinements are isotropic,
   // but if / when we support anisotropic refinements, we'll want to revisit this (we need a notion of the
@@ -120,6 +123,55 @@ void GDAMinimumRule::setCheckConstraintConsistency(bool value)
 GlobalDofAssignmentPtr GDAMinimumRule::deepCopy()
 {
   return Teuchos::rcp(new GDAMinimumRule(*this) );
+}
+
+void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
+{
+  // 1. Which parents am I interested in?
+  // This is exactly the constraining cells which are inactive
+  map<GlobalIndexType,GlobalIndexType> parentToOwningChild; // the ones I'm interested in
+  const set<GlobalIndexType>* myCellIDs = &_mesh->cellIDsInPartition();
+  for (GlobalIndexType myCellID : *myCellIDs)
+  {
+    CellPtr cell = _meshTopology->getCell(myCellID);
+    CellTopoPtr cellTopo = cell->topology();
+    int cellDim = cellTopo->getDimension();
+    for (int d=0; d<cellDim; d++)
+    {
+      int scCount = cellTopo->getSubcellCount(d);
+      for (int scord=0; scord<scCount; scord++)
+      {
+        IndexType subcellEntityIndex = cell->entityIndex(d, scord);
+        pair<IndexType, unsigned> constrainingEntity = _mesh->getTopology()->getConstrainingEntity(d, subcellEntityIndex);
+        IndexType constrainingEntityIndex = constrainingEntity.first;
+        unsigned constrainingEntityDimension = constrainingEntity.second;
+        set<pair<IndexType,unsigned>> cellEntries = _meshTopology->getCellsContainingEntity(constrainingEntityDimension, constrainingEntityIndex);
+        for (pair<IndexType,unsigned> cellEntry : cellEntries)
+        {
+          IndexType constrainingCellID = cellEntry.first;
+          CellPtr cellForConstrainingEntity = _meshTopology->getCell(constrainingCellID);
+          if (cellForConstrainingEntity->isParent(_meshTopology))
+          {
+            IndexType firstChild = cellForConstrainingEntity->getChildIndices(_meshTopology)[0];
+            parentToOwningChild[constrainingCellID] = firstChild;
+          }
+        }
+      }
+    }
+  }
+  
+  map<PartitionIndexType, set<GlobalIndexType>> requestMap;
+  for (auto parentChildEntry : parentToOwningChild)
+  {
+    GlobalIndexType parentCellID = parentChildEntry.first;
+    GlobalIndexType firstChildCellID = parentChildEntry.second;
+    PartitionIndexType partition = partitionForCellID(firstChildCellID);
+    requestMap[partition].insert(parentCellID);
+  }
+  
+  
+  cout << "WARNING: determinePolynomialOrderForConstrainingParents() method is incomplete!";
+  
 }
 
 void GDAMinimumRule::didChangePartitionPolicy()
@@ -183,37 +235,49 @@ void GDAMinimumRule::didHRefine(const set<GlobalIndexType> &parentCellIDs)
 
 void GDAMinimumRule::didPRefine(const set<GlobalIndexType> &cellIDs, int deltaP)
 {
-  this->GlobalDofAssignment::didPRefine(cellIDs, deltaP);
-
-  // the above assigns _cellPRefinements for active elements; now we take minimums for parents (inactive elements)
+  // before we let super set the new type, record the old type for any cells we see
+  // (and potentially have local solution coefficients for)
+  map<GlobalIndexType, ElementTypePtr> locallyKnownRefinedCellsOldTypes;
+  const set<IndexType>* locallyKnownCellIndices = &_mesh->getTopology()->getLocallyKnownActiveCellIndices();
   for (GlobalIndexType cellID : cellIDs)
   {
-    CellPtr cell = _meshTopology->getCell(cellID);
-    CellPtr parent = cell->getParent();
-    while (parent.get() != NULL)
+    if (locallyKnownCellIndices->find(cellID) != locallyKnownCellIndices->end())
     {
-      vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
-      int minDeltaP = getPRefinementDegree(cellID);
-      for (int childOrdinal=0; childOrdinal<childIndices.size(); childOrdinal++)
-      {
-        minDeltaP = min(getPRefinementDegree(childIndices[childOrdinal]), minDeltaP);
-      }
-      setPRefinementDegree(parent->cellIndex(), minDeltaP);
-      parent = parent->getParent();
+      locallyKnownRefinedCellsOldTypes[cellID] = elementType(cellID);
     }
   }
+  
+  this->GlobalDofAssignment::didPRefine(cellIDs, deltaP);
 
-  for (set<GlobalIndexType>::const_iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  for (auto entry : locallyKnownRefinedCellsOldTypes)
   {
-    ElementTypePtr oldType = elementType(*cellIDIt);
-    for (typename vector< TSolutionPtr<double> >::iterator solutionIt = _registeredSolutions.begin();
-         solutionIt != _registeredSolutions.end(); solutionIt++)
+    GlobalIndexType cellID = entry.first;
+    ElementTypePtr oldType = entry.second;
+    for (SolutionPtr soln : _registeredSolutions)
     {
       // do projection
-      vector<IndexType> childIDs(1,*cellIDIt); // "child" ID is just the cellID
-      (*solutionIt)->projectOldCellOntoNewCells(*cellIDIt,oldType,childIDs);
+      vector<IndexType> childIDs(1,cellID); // "child" ID is just the cellID
+      soln->projectOldCellOntoNewCells(cellID,oldType,childIDs);
     }
   }
+  
+  // the above assigns _cellPRefinements for active elements; now we take minimums for parents (inactive elements)
+//  for (GlobalIndexType cellID : cellIDs)
+//  {
+//    CellPtr cell = _meshTopology->getCell(cellID);
+//    CellPtr parent = cell->getParent();
+//    while (parent.get() != NULL)
+//    {
+//      vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
+//      int minDeltaP = getPRefinementDegree(cellID);
+//      for (int childOrdinal=0; childOrdinal<childIndices.size(); childOrdinal++)
+//      {
+//        minDeltaP = min(getPRefinementDegree(childIndices[childOrdinal]), minDeltaP);
+//      }
+//      setPRefinementDegree(parent->cellIndex(), minDeltaP);
+//      parent = parent->getParent();
+//    }
+//  }
 }
 
 void GDAMinimumRule::setCellPRefinements(const map<GlobalIndexType,int>& pRefinements)
@@ -221,25 +285,25 @@ void GDAMinimumRule::setCellPRefinements(const map<GlobalIndexType,int>& pRefine
   this->GlobalDofAssignment::setCellPRefinements(pRefinements);
   // for now, we *are* assuming that pRefinements is a global container. 
   
-  // the above assigns _cellPRefinements for active elements; now we take minimums for parents (inactive elements)
-  for (auto entry : pRefinements)
-  {
-    IndexType cellID = entry.first;
-    
-    CellPtr cell = _meshTopology->getCell(cellID);
-    CellPtr parent = cell->getParent();
-    while (parent.get() != NULL)
-    {
-      vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
-      int minDeltaP = getPRefinementDegree(cellID);
-      for (int childOrdinal=0; childOrdinal<childIndices.size(); childOrdinal++)
-      {
-        minDeltaP = min(getPRefinementDegree(childIndices[childOrdinal]), minDeltaP);
-      }
-      setPRefinementDegree(parent->cellIndex(), minDeltaP);
-      parent = parent->getParent();
-    }
-  }
+//  // the above assigns _cellPRefinements for active elements; now we take minimums for parents (inactive elements)
+//  for (auto entry : pRefinements)
+//  {
+//    IndexType cellID = entry.first;
+//    
+//    CellPtr cell = _meshTopology->getCell(cellID);
+//    CellPtr parent = cell->getParent();
+//    while (parent.get() != NULL)
+//    {
+//      vector<IndexType> childIndices = parent->getChildIndices(_meshTopology);
+//      int minDeltaP = getPRefinementDegree(cellID);
+//      for (int childOrdinal=0; childOrdinal<childIndices.size(); childOrdinal++)
+//      {
+//        minDeltaP = min(getPRefinementDegree(childIndices[childOrdinal]), minDeltaP);
+//      }
+//      setPRefinementDegree(parent->cellIndex(), minDeltaP);
+//      parent = parent->getParent();
+//    }
+//  }
 }
 
 void GDAMinimumRule::didHUnrefine(const set<GlobalIndexType> &parentCellIDs)
@@ -285,6 +349,10 @@ void GDAMinimumRule::distributeGlobalDofOwnership(const map<GlobalIndexType, Sub
                                                   const set<GlobalIndexType> &remoteCellIDs)
 {
   int rank = _mesh->Comm()->MyPID();
+  {
+    // DEBUGGING: barrier for breakpoint.
+    _mesh->Comm()->Barrier();
+  }
   map<GlobalIndexType,PartitionIndexType> remoteCellOwners;
   for (GlobalIndexType remoteCellID : remoteCellIDs)
   {
@@ -292,6 +360,27 @@ void GDAMinimumRule::distributeGlobalDofOwnership(const map<GlobalIndexType, Sub
     if (partitionForCell == rank)
     {
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "remoteCellIDs includes a local cell");
+    }
+    else if (partitionForCell < 0)
+    {
+      cout << "Partition for cell " << remoteCellID << " not known on rank " << rank << endl;
+      if (!_mesh->getTopology()->isValidCellIndex(remoteCellID))
+      {
+        cout << "Cell " << remoteCellID << " is not a valid cell index on rank " << rank << endl;
+      }
+      else
+      {
+        CellPtr remoteCell = _mesh->getTopology()->getCell(remoteCellID);
+        if (remoteCell->isParent(_mesh->getTopology()))
+        {
+          cout << "Cell " << remoteCellID << " is a parent.\n";
+        }
+        else
+        {
+          cout << "Cell " << remoteCellID << " is active.\n";
+        }
+      }
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Partition not found for remoteCellID");
     }
     else
     {
@@ -314,39 +403,30 @@ void GDAMinimumRule::distributeSubcellDofIndices(Epetra_CommPtr Comm, const map<
                                                  const map<GlobalIndexType, PartitionIndexType> &remoteCellOwners,
                                                  map<GlobalIndexType, SubcellDofIndices> &remotelyOwnedGlobalDofs)
 {
-  vector<int> myRequestOwners;
-  vector<GlobalIndexTypeToCast> myRequest;
+  // sort by partition # using map
+  map<PartitionIndexType,set<GlobalIndexType>> requestMap;
   for (auto remoteCellEntry : remoteCellOwners)
   {
     GlobalIndexType remoteCellID = remoteCellEntry.first;
     PartitionIndexType partitionForCell = remoteCellEntry.second;
-    myRequest.push_back(remoteCellID);
-    myRequestOwners.push_back(partitionForCell);
+    requestMap[partitionForCell].insert(remoteCellID);
+  }
+  
+  vector<int> myRequestOwners;
+  vector<GlobalIndexTypeToCast> myRequest;
+  for (auto requestEntry : requestMap)
+  {
+    PartitionIndexType partition = requestEntry.first;
+    for (GlobalIndexType remoteCellID : requestEntry.second)
+    {
+      myRequest.push_back(remoteCellID);
+      myRequestOwners.push_back(partition);
+    }
   }
   
   int myRequestCount = myRequest.size();
   
-  Teuchos::RCP<Epetra_Distributor> distributor;
-#ifdef HAVE_MPI
-  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(Comm.get());
-  if (mpiComm != NULL)
-  {
-    distributor = Teuchos::rcp(new Epetra_MpiDistributor(*mpiComm));
-  }
-  else
-  {
-    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(Comm.get());
-    distributor = Teuchos::rcp(new Epetra_SerialDistributor(*serialComm));
-  }
-  
-#else
-  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(Comm.get());
-  if (serialComm == NULL)
-  {
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "_mesh->Comm() is not an instance of Epetra_SerialComm*, even though HAVE_MPI evaluated to false.")
-  }
-  distributor = Teuchos::rcp(new Epetra_SerialDistributor(*serialComm));
-#endif
+  Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*Comm);
   
   GlobalIndexTypeToCast* myRequestPtr = NULL;
   int *myRequestOwnersPtr = NULL;
@@ -3289,6 +3369,9 @@ void GDAMinimumRule::rebuildLookups()
   
   int spaceDim = _meshTopology->getDimension();
 
+  // determine polynomial order for parent cells, as required
+  determinePolynomialOrderForConstrainingParents();
+  
   map<GlobalIndexType, SubcellDofIndices> myCellDofIndices;
   set<GlobalIndexType> nonLocalCellNeighbors; // cells whose dofs I need to label, but aren't in myCells
   

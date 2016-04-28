@@ -520,29 +520,8 @@ void TRefinementStrategy<Scalar>::pRefineCells(MeshPtr mesh, const vector<Global
 template <typename Scalar>
 void TRefinementStrategy<Scalar>::hRefineCells(MeshPtr mesh, const vector<GlobalIndexType> &cellIDs)
 {
-  map< Camellia::CellTopologyKey, set<GlobalIndexType> > topologyCellsToRefine;
-
-  MeshTopologyViewPtr meshTopology = mesh->getTopology();
-
-  for (vector< GlobalIndexType >::const_iterator cellIDIt = cellIDs.begin();
-       cellIDIt != cellIDs.end(); cellIDIt++)
-  {
-    int cellID = *cellIDIt;
-
-    CellPtr cell = meshTopology->getCell(cellID);
-    Camellia::CellTopologyKey topoKey = cell->topology()->getKey();
-
-    topologyCellsToRefine[topoKey].insert(cellID);
-  }
-
   bool repartitionAndRebuild = false;
-  for (map< Camellia::CellTopologyKey, set<GlobalIndexType> >::iterator topoEntry = topologyCellsToRefine.begin();
-       topoEntry != topologyCellsToRefine.end(); topoEntry++)
-  {
-    Camellia::CellTopologyKey topoKey = topoEntry->first;
-    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(topoKey);
-    mesh->hRefine(topoEntry->second, refPattern, repartitionAndRebuild);
-  }
+  mesh->hRefine(cellIDs, repartitionAndRebuild);
 }
 
 template <typename Scalar>

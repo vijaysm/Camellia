@@ -1695,7 +1695,27 @@ void Mesh::saveToHDF5(string filename)
   int commRank = Comm()->MyPID();
 
   // TODO: Add support for distributed MeshTopology to this and MeshFactory::loadFromHDF5.
-  if ((getTopology()->baseMeshTopology()->Comm() != Teuchos::null) && (getTopology()->baseMeshTopology()->Comm()->NumProc() > 1))
+  /*
+   A few comments on the above TODO.
+   1. I'm still a bit vague on how to use EpetraExt::HDF5 to read and write distributed objects; the methods
+        Write (const std::string &GroupName, const std::string &DataSetName, int MySize, int GlobalSize, int type, const void *data)
+      and
+        Read (const std::string &GroupName, const std::string &DataSetName, int MySize, int GlobalSize, const int type, void *data)
+      are clearly important, but we need to develop a strategy for writing and reading the geometry data, which is variable in length.
+   2. It may be that the best thing is to store the whole halo for each active cell in a packet of its own, and then do something to
+      indicate where the packet boundaries are.
+   3. Alternately, we could have a big blob of data written for each rank, with some indication where the rank boundaries are in the
+      global structure.  I.e., you commit to reading a whole rank's worth, or not.  This has the advantage that we can avoid some
+      redundant storage.
+   
+   The idea in #2 would be *relatively* straightforward to implement using existing methods in CellDataMigration.
+   
+   It is probably better to move loadFromHDF5 into Mesh, rather than having it in MeshFactory.
+   
+   Don't forget to save the p-refinements!
+   
+   */
+  if (getTopology()->isDistributed())
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Mesh::saveToHDF5 not yet supported for distributed MeshTopology");
   }
