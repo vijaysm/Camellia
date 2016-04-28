@@ -462,6 +462,7 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
   
   TEUCHOS_UNIT_TEST( Mesh, ProjectSolutionOnRefinement )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     bool conformingTraces = true;
     PoissonFormulation form(spaceDim,conformingTraces);

@@ -13,6 +13,7 @@
 #include "CamelliaTestingHelpers.h"
 #include "MeshFactory.h"
 #include "MeshTransformationFunction.h"
+#include "MPIWrapper.h"
 #include "SpaceTimeHeatFormulation.h"
 
 using namespace Camellia;
@@ -54,26 +55,28 @@ namespace
   
   TEUCHOS_UNIT_TEST( MeshTransformationFunction, SpaceTimeCellGetsCorrectTimeCoordinates)
   {
+    MPIWrapper::CommWorld()->Barrier();
     MeshTopologyPtr unitQuadMeshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0}, {1,1});
+    IndexType cellIndex = 0;
+    CellPtr spatialCell = unitQuadMeshTopo->getCell(cellIndex);
+    
     int spaceDim = unitQuadMeshTopo->getDimension();
     double t0 = 1.0, t1 = 2.0;
     int H1OrderSpace = 2, H1OrderTime = 1, delta_k = 1;
     double epsilon = 1e-2;
     bool useConformingTraces = false;
     SpaceTimeHeatFormulation form(spaceDim, epsilon, useConformingTraces);
-    MeshPtr spaceTimeMesh = MeshFactory::spaceTimeMesh(unitQuadMeshTopo, t0, t1, form.bf(), H1OrderSpace, H1OrderTime, delta_k);
+    MeshTopologyPtr spaceTimeMeshTopology = MeshFactory::spaceTimeMeshTopology(unitQuadMeshTopo, t0, t1);
     
     map<pair<GlobalIndexType,GlobalIndexType>,ParametricCurvePtr> edgeToCurveMap;
 
-    IndexType cellIndex = 0;
-    CellPtr spatialCell = unitQuadMeshTopo->getCell(cellIndex);
+    int edgeDim = 1;
     vector<ParametricCurvePtr> edgeFxns = unitQuadMeshTopo->parametricEdgesForCell(cellIndex, true);
     
-    CellPtr spaceTimeCell = spaceTimeMesh->getTopology()->getCell(cellIndex);
+    CellPtr spaceTimeCell = spaceTimeMeshTopology()->getCell(cellIndex);
     unsigned sideTime0 = spaceTimeCell->topology()->getTemporalSideOrdinal(0);
     unsigned sideTime1 = spaceTimeCell->topology()->getTemporalSideOrdinal(1);
 
-    int edgeDim = 1;
     int edgeCount = spaceTimeCell->topology()->getSubcell(spaceDim, sideTime0)->getSubcellCount(edgeDim);
     for (int edgeOrdinal = 0; edgeOrdinal < edgeCount; edgeOrdinal++) // ordinal in spatial topo
     {
@@ -82,7 +85,14 @@ namespace
       vector<IndexType> edgeNodes = spaceTimeCell->getEntityVertexIndices(edgeDim, edgeOrdinalSpaceTime);
       edgeToCurveMap[{edgeNodes[0],edgeNodes[1]}] = edgeFxns[edgeOrdinal];
     }
-    spaceTimeMesh->setEdgeToCurveMap(edgeToCurveMap);
+    
+    // set edge to curve map before creating Mesh, which would distribute the MeshTopology
+    // this prevents the edges with curves from being pruned away
+    spaceTimeMeshTopology->setEdgeToCurveMap(edgeToCurveMap, Teuchos::null);
+    
+    MeshPtr spaceTimeMesh = MeshFactory::minRuleMesh(spaceTimeMeshTopology, form.bf(), {H1OrderSpace, H1OrderTime}, delta_k);
+    
+    spaceTimeMeshTopology->initializeTransformationFunction(spaceTimeMesh);
 
     testTimeCoordinatesOfCell(t0, t1, spaceTimeMesh, cellIndex, out, success);
     

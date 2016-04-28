@@ -10,6 +10,7 @@
 
 #include "MeshFactory.h"
 #include "MeshTopologyView.h"
+#include "MPIWrapper.h"
 #include "PoissonFormulation.h"
 
 using namespace Camellia;
@@ -140,7 +141,6 @@ namespace
           out << "topoCellsForEntity.size() != viewCellsForEntity.size().\n";
         }
 
-        
         pair<IndexType,unsigned> topoConstrainingEntity = topo->getConstrainingEntity(d, entityIndex);
         pair<IndexType,unsigned> viewConstrainingEntity = view->getConstrainingEntity(d, entityIndex);
         TEST_EQUALITY(topoConstrainingEntity, viewConstrainingEntity);
@@ -156,10 +156,6 @@ namespace
             TEST_ASSERT(! view->entityIsAncestor(d, entityIndex, viewConstrainingEntity.first));
           }
         }
-        
-        pair<IndexType,IndexType> topoOwner = topo->owningCellIndexForConstrainingEntity(topoConstrainingEntity.second, topoConstrainingEntity.first);
-        pair<IndexType,IndexType> viewOwner = view->owningCellIndexForConstrainingEntity(viewConstrainingEntity.second, viewConstrainingEntity.first);
-        TEST_EQUALITY(topoOwner, viewOwner);
         
         IndexType topoConstrainingEntityLikeDimension = topo->getConstrainingEntityIndexOfLikeDimension(d, entityIndex);
         IndexType viewConstrainingEntityLikeDimension = view->getConstrainingEntityIndexOfLikeDimension(d, entityIndex);
@@ -211,7 +207,8 @@ namespace
     }
     
     // cell methods:
-    for (IndexType cellIndex=0; cellIndex<topo->cellCount(); cellIndex++)
+    auto cellIndices = &topo->getLocallyKnownActiveCellIndices();
+    for (IndexType cellIndex : *cellIndices)
     {
       TEST_ASSERT(topo->isValidCellIndex(cellIndex));
       TEST_ASSERT(view->isValidCellIndex(cellIndex));
@@ -230,6 +227,44 @@ namespace
       vector<double> topoCentroid = topo->getCellCentroid(cellIndex);
       vector<double> viewCentroid = view->getCellCentroid(cellIndex);
       TEST_COMPARE_ARRAYS(topoCentroid, viewCentroid); // could relax to floating equality
+    }
+    
+    // check that topos agree on ownership
+    const set<IndexType>* myCellIndices;
+    if ((topo->Comm() != Teuchos::null) && (topo->Comm()->NumProc() > 1))
+    {
+      myCellIndices = &topo->getMyActiveCellIndices();
+    }
+    else
+    {
+      myCellIndices = cellIndices;
+    }
+    for (IndexType cellIndex : *myCellIndices)
+    {
+      CellPtr cell = topo->getCell(cellIndex);
+      CellPtr viewCell = view->getCell(cellIndex);
+      TEST_ASSERT(cell->topology()->getKey() == viewCell->topology()->getKey());
+      CellTopoPtr cellTopo = cell->topology();
+      int cellDim = cellTopo->getDimension();
+      for (int d=0; d<cellDim; d++)
+      {
+        int scCount = cellTopo->getSubcellCount(d);
+        for (int scord=0; scord<scCount; scord++)
+        {
+          IndexType entityIndex = cell->entityIndex(d, scord);
+          IndexType entityIndexView = viewCell->entityIndex(d, scord);
+          
+          TEST_EQUALITY(entityIndex, entityIndexView);
+          
+          pair<IndexType,unsigned> topoConstrainingEntity = topo->getConstrainingEntity(d, entityIndex);
+          pair<IndexType,unsigned> viewConstrainingEntity = view->getConstrainingEntity(d, entityIndex);
+          
+          pair<IndexType,IndexType> topoOwner = topo->owningCellIndexForConstrainingEntity(topoConstrainingEntity.second, topoConstrainingEntity.first);
+          pair<IndexType,IndexType> viewOwner = view->owningCellIndexForConstrainingEntity(viewConstrainingEntity.second, viewConstrainingEntity.first);
+          
+          TEST_EQUALITY(topoOwner, viewOwner);
+        }
+      }
     }
     
     // check that cells outside bounds return false for isValidCellIndex:
@@ -251,20 +286,15 @@ namespace
     MeshPtr mesh = poissonIrregularMesh(spaceDim, irregularity, H1Order);
     MeshTopologyPtr meshTopoCopy = mesh->getTopology()->deepCopy(); // the object we'll check agreement with
     
-    set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
+    set<IndexType> knownActiveCellIDs = mesh->getTopology()->getLocallyKnownActiveCellIndices();
+    MeshTopologyViewPtr originalMeshTopoView = mesh->getTopology()->getView(knownActiveCellIDs);
     
-    // refine original 2-irregular mesh uniformly:
-    mesh->hRefine(activeCellIDs);
-    // create a view on its MeshTopology:
-    MeshTopology* meshTopoCast = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
-    MeshTopologyPtr meshTopo = Teuchos::rcp(meshTopoCast, false);
-    MeshTopologyViewPtr coarseMeshView = Teuchos::rcp(new MeshTopologyView(meshTopo, activeCellIDs));
-    
-    testMeshTopologyAgreesWithView(meshTopoCopy, coarseMeshView, out, success);
+    testMeshTopologyAgreesWithView(meshTopoCopy, originalMeshTopoView, out, success);
   }
   
   void testOneElementMeshIdentityAgrees(int spaceDim, Teuchos::FancyOStream &out, bool &success)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int H1Order = 1; // we're interested in MeshTopology, so this doesn't matter.
     int elementWidth = 1;
     bool useConformingTraces = false; // doesn't matter for this test
@@ -458,6 +488,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( MeshTopologyView, DeepCopyAgrees_2D )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     for (int irregularity = 0; irregularity < 3; irregularity++)
     {

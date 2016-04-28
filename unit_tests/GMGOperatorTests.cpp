@@ -700,12 +700,8 @@ namespace
     }
     
     fineSoln->addSolution(exactSoln, -1.0); // should recover zero solution this way
-    
-    // import global solution data onto each rank:
-    set<GlobalIndexType> cellIDs = fineMesh->getActiveCellIDsGlobal();
-    fineSoln->importSolutionForOffRankCells(cellIDs);
-    
-    for (GlobalIndexType cellID : cellIDs) {
+        
+    for (GlobalIndexType cellID : myCellIDs) {
       FieldContainer<double> coefficients = fineSoln->allCoefficientsForCellID(cellID, warnAboutOffRank);
       FieldContainer<double> expectedCoefficients(coefficients.size()); // zero coefficients
       

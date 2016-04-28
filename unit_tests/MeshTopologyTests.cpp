@@ -766,29 +766,23 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
   MeshPtr originalMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0);
   MeshPtr mesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0);
 
-  // get a sample cellTopo:
-  CellTopoPtr cellTopo = mesh->getTopology()->getCell(0)->topology();
-  RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
-
   int numUniformRefinements = 3;
   for (int i=0; i<numUniformRefinements; i++)
   {
     set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
-    mesh->RefinementObserver::hRefine(activeCellIDs, refPattern);
+    mesh->hRefine(activeCellIDs);
   }
 
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
   
-  MeshTopologyPtr rootMeshTopology = meshTopo->getRootMeshTopology();
+  MeshTopologyViewPtr rootMeshTopology = meshTopo->getView(meshTopo->getRootCellIndicesGlobal());
   MeshTopology* originalMeshTopology = originalMesh->getTopology()->baseMeshTopology();
 
   TEST_EQUALITY(rootMeshTopology->cellCount(), originalMeshTopology->cellCount());
 
-  vector<IndexType> rootCellIndicesVector = rootMeshTopology->getActiveCellIndicesGlobal();
-  vector<IndexType> originalCellIndicesVector = originalMeshTopology->getActiveCellIndicesGlobal();
+  set<IndexType> rootCellIndices = rootMeshTopology->getLocallyKnownActiveCellIndices();
+  set<IndexType> originalCellIndices = originalMeshTopology->getLocallyKnownActiveCellIndices();
 
-  set<IndexType> rootCellIndices(rootCellIndicesVector.begin(), rootCellIndicesVector.end());
-  set<IndexType> originalCellIndices(originalCellIndicesVector.begin(), originalCellIndicesVector.end());
   // compare sets:
   std::set<IndexType>::iterator rootCellIt = rootCellIndices.begin(), originalCellIt = originalCellIndices.begin();
   for (int i=0; i<rootMeshTopology->cellCount(); i++)

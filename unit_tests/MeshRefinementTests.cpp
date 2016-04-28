@@ -13,6 +13,7 @@
 #include "HDF5Exporter.h"
 #include "Mesh.h"
 #include "MeshFactory.h"
+#include "MPIWrapper.h"
 #include "PoissonFormulation.h"
 #include "RHS.h"
 #include "Solution.h"
@@ -24,6 +25,7 @@ namespace
 {
 TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
 {
+  MPIWrapper::CommWorld()->Barrier();
   int spaceDim = 2;
 
   FunctionPtr x = Function::xn(1);
@@ -112,12 +114,6 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
   bc->addDirichlet(phi_hat, boundary, phi_exact);
   solution = Solution::solution(mesh, bc, rhs, graphNorm);
 
-  // DEBUGGING:
-//    solution->setWriteMatrixToMatrixMarketFile(true, "/tmp/traceTermProjectionMatrix.dat");
-//    solution->setWriteRHSToMatrixMarketFile(true, "/tmp/traceTermProjection_RHS.dat");
-//
-//    SolverPtr superLUSolver = Solver::getSolver(Solver::SuperLUDist, false);
-
   solution->solve();
 
   FunctionPtr psi_exact = (spaceDim > 1) ? phi_exact->grad() : phi_exact->dx();
@@ -169,12 +165,8 @@ TEUCHOS_UNIT_TEST( MeshRefinement, TraceTermProjection )
   }
 
   // do a uniform refinement, then check that psi_n_soln and phi_hat_soln match the exact
-  CellPtr sampleCell = mesh->getTopology()->getCell(0);
-  CellTopoPtr cellTopo = sampleCell->topology();
-  RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo->getKey());
-
   mesh->registerSolution(solution); // this way, solution will get the memo to project
-  mesh->hRefine(mesh->getActiveCellIDsGlobal(), refPattern);
+  mesh->hRefine(mesh->getActiveCellIDsGlobal());
 
   err_L2 = phi_hat_err->l2norm(mesh);
   if (err_L2 > tol)

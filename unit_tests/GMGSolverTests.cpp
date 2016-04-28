@@ -176,10 +176,10 @@ namespace
         break;
       case 2:
         cellIDs = {3};
-        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),false);
+        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
 
         cellIDs = {6,7};
-        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),false);
+        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
 
         cellIDs = {1};
         mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
@@ -188,16 +188,16 @@ namespace
 
       case 3:
         cellIDs = {1,3};
-        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),false);
+        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
 
         cellIDs = {6,7,8,10,11};
-        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),false);
+        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
 
         cellIDs = {2};
-        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),false);
+        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
 
         cellIDs = {4,9,12,14,19,26,31};
-        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),false);
+        mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
 
         cellIDs = {0,5};
         mesh->hRefine(cellIDs,RefinementPattern::regularRefinementPatternQuad(),true);
@@ -468,6 +468,7 @@ namespace
 
   TEUCHOS_UNIT_TEST( GMGSolver, MeshesForMultigrid)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 1;
     bool useConformingTraces = true;
     PoissonFormulation form(spaceDim, useConformingTraces);
@@ -570,6 +571,7 @@ namespace
 
   TEUCHOS_UNIT_TEST( GMGSolver, RefinedIdentity_2D_Slow)
   {
+    MPIWrapper::CommWorld()->Barrier();
     bool useConformingTraces = false;
 
     vector<bool> staticCondensationChoices = {false, true};
@@ -633,10 +635,11 @@ namespace
     IndexType firstChildCellIndex = fineMeshTopo->cellCount();
     fineMeshTopo->refineCell(cellIndex, refPattern, firstChildCellIndex);
     
-    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView({cellIndex});
-    
-    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k) );
     MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
+    
+    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView({cellIndex});
+    MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo, fineMesh);
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
 
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
@@ -669,8 +672,9 @@ namespace
     MeshTopologyPtr fineMeshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts);
     MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo;
     
-    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k) );
     MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
+    MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo, fineMesh);
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
     
     RHSPtr rhs = RHS::rhs();
     if (spaceDim==1)
@@ -714,8 +718,10 @@ namespace
     }
     
     MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView(originalCells);
-    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k) );
     MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
+    
+    MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo, fineMesh);
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
     
     RHSPtr rhs = RHS::rhs();
     rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
@@ -746,8 +752,9 @@ namespace
     MeshTopologyPtr meshTopology = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1], elementCounts[0], elementCounts[1],
                                                                  divideIntoTriangles);
     
-    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order_coarse, delta_k) );
     MeshPtr fineMesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order_fine, delta_k) );
+    MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(meshTopology, fineMesh);
+    MeshPtr coarseMesh = Teuchos::rcp( new Mesh(meshTopology, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
     
     RHSPtr rhs = RHS::rhs();
       rhs->addTerm((phi_exact->dx()->dx() + phi_exact->dy()->dy()) * form.q());
@@ -895,6 +902,7 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
 
   TEUCHOS_UNIT_TEST( GMGSolver, PoissonTwoGridOperatorIsSPD_1D_h )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 1;
     GMGOperator::SmootherApplicationType smootherApplicationType = GMGOperator::ADDITIVE;
     GridType gridType = TwoGrid_h;
@@ -968,6 +976,7 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
   
   TEUCHOS_UNIT_TEST( GMGSolver, PoissonTwoGridOperatorIsSPD_Triangles_p_multiplicative )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     GMGOperator::SmootherApplicationType smootherApplicationType = GMGOperator::MULTIPLICATIVE;
     GridType gridType = TwoGridTriangles_p;
