@@ -796,27 +796,28 @@ void HConvergenceStudy::writeToFiles(const string & filePathPrefix, int trialID,
 
     if (writeMATLABPlotData)
     {
-      // now write out the solution for MATLAB plotting...
-      fileName.str(""); // clear out the filename
-      fileName << filePathPrefix << "_solution_" << numElements << "x" << numElements << ".m";
-      //    solution.writeToFile(trialID, fileName.str());
-      solution->writeFieldsToFile(trialID, fileName.str());
-      fileName.str("");
-
-      fileName.str(""); // clear out the filename
-      fileName << filePathPrefix << "_best_approximation_" << numElements << "x" << numElements << ".m";
-      //    solution.writeToFile(trialID, fileName.str());
-      bestApproximation->writeFieldsToFile(trialID, fileName.str());
-      fileName.str("");
-
-      fileName << filePathPrefix << "_exact_" << numElements << "x" << numElements << ".m";
-      _exactSolutionFunctions[trialID]->writeValuesToMATLABFile(solution->mesh(), fileName.str());
-      fileName.str(""); // clear out the filename
-      if (traceID != -1)
-      {
-        fileName << filePathPrefix << "_trace_solution_" << numElements << "x" << numElements << ".dat";
-        solution->writeFluxesToFile(traceID, fileName.str());
-      }
+      cout << "writeMATLABPlotData is no longer supported.\n";
+//      // now write out the solution for MATLAB plotting...
+//      fileName.str(""); // clear out the filename
+//      fileName << filePathPrefix << "_solution_" << numElements << "x" << numElements << ".m";
+//      //    solution.writeToFile(trialID, fileName.str());
+//      solution->writeFieldsToFile(trialID, fileName.str());
+//      fileName.str("");
+//
+//      fileName.str(""); // clear out the filename
+//      fileName << filePathPrefix << "_best_approximation_" << numElements << "x" << numElements << ".m";
+//      //    solution.writeToFile(trialID, fileName.str());
+//      bestApproximation->writeFieldsToFile(trialID, fileName.str());
+//      fileName.str("");
+//
+//      fileName << filePathPrefix << "_exact_" << numElements << "x" << numElements << ".m";
+//      _exactSolutionFunctions[trialID]->writeValuesToMATLABFile(solution->mesh(), fileName.str());
+//      fileName.str(""); // clear out the filename
+//      if (traceID != -1)
+//      {
+//        fileName << filePathPrefix << "_trace_solution_" << numElements << "x" << numElements << ".dat";
+//        solution->writeFluxesToFile(traceID, fileName.str());
+//      }
     }
     numElements *= 2;
   }
