@@ -187,46 +187,28 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
           rankListLabel << "For rank " << myNode << ", Zoltan assigned IDs: ";
           Camellia::print(rankListLabel.str(), rankLocalCells);
         }
-
-        // TODO: change this to use (a) allGatherCompact(), and (b) STL vectors.
         
-        int myPartitionSize = rankLocalCells.size();
-        int maxPartitionSize;
-        Comm()->MaxAll(&myPartitionSize, &maxPartitionSize, 1);
-
-        FieldContainer<GlobalIndexType> partitionedActiveCells(numNodes,maxPartitionSize);
-
-        partitionedActiveCells.initialize(-1); // cellID == -1 signals end of partition
-
         // need to communicate partitions - on the present design, each rank needs to know every other rank's assignments
-        FieldContainer<int> myPartition(maxPartitionSize);
-        myPartition.initialize(-1);
-
-        int index = 0;
-        for (set<GlobalIndexType>::iterator myCellIt = rankLocalCells.begin(); myCellIt != rankLocalCells.end(); myCellIt++)
+        vector<int> myCellIDs(rankLocalCells.begin(),rankLocalCells.end());
+        vector<int> allCellIDs;
+        vector<int> offsets;
+        MPIWrapper::allGatherCompact(*mesh->Comm(), allCellIDs, myCellIDs, offsets);
+        
+        vector<set<GlobalIndexType> > partitions(offsets.size());
+        for (int rank=0; rank<offsets.size(); rank++)
         {
-          myPartition[index] = *myCellIt;
-          index++;
+          int startIndex = offsets[rank];
+          int endIndex = (rank < offsets.size() - 1) ? offsets[rank+1] : allCellIDs.size();
+          partitions[rank].insert(allCellIDs.begin() + startIndex, allCellIDs.begin() + endIndex);
         }
-        FieldContainer<int> allPartitions(numNodes,maxPartitionSize);
-        MPIWrapper::allGatherHomogeneous(*this->Comm(), allPartitions, myPartition);
-
-        // convert the ints to GlobalIndexType -- if sizeof(GlobalIndexType) ever is bigger than sizeof(int), then we'll want to do something else above to pack the cell IDs into ints, etc.
-        for (int node=0; node<numNodes; node++)
-        {
-          for (int i=0; i<maxPartitionSize; i++)
-          {
-            partitionedActiveCells(node,i) = allPartitions(node,i);
-          }
-        }
-
-        // now that we have the new partition, communicate it:
-        mesh->globalDofAssignment()->setPartitions(partitionedActiveCells, false); // false: delay rebuild.  May depend on geometric information communicated by Migrate() call below.
+        
+        mesh->globalDofAssignment()->setPartitions(partitions, false); // false: delay rebuild.  May depend on geometric information communicated by Migrate() call below.
 
   //      cout << "about to call zz->Migrate on rank " << myNode << endl;
         int rc = zz->Migrate(numImport, importGlobalIds, importLocalIds, importProcs, importToPart,
                              numExport, exportGlobalIds, exportLocalIds, exportProcs, exportToPart);
 
+        mesh->globalDofAssignment()->projectParentCoefficientsOntoUnsetChildren();
         mesh->globalDofAssignment()->rebuildLookups();
         
         if (rc == ZOLTAN_FATAL)
