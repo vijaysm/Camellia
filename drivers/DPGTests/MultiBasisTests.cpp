@@ -539,8 +539,6 @@ void MultiBasisTests::setup()
 
   _confusionEnergyErrorForOriginalMesh = _confusionSolution->energyErrorTotal();
 
-//  _confusionSolution->writeFieldsToFile(ConfusionBilinearForm::U, "confusion_u_multiBasis_before_refinement.m");
-
   _mesh->setUsePatchBasis(false);
 
   _fluxIDs = confusionBF->trialBoundaryIDs();
@@ -567,27 +565,8 @@ bool MultiBasisTests::refinementsHaveNotIncreasedError(Teuchos::RCP<Solution> so
   {
     cout << "MultiBasisTests: increase in error after refinement " << diff << " > tol " << tol << ".\n";
 
-//    solution->writeFieldsToFile(ConfusionBilinearForm::U, "confusion_u_multiBasis.m");
-//    solution->writeFluxesToFile(ConfusionBilinearForm::U_HAT, "confusion_u_hat_multiBasis.m");
-
     success = false;
   }
-
-//  for (vector<int>::iterator fieldIt=_fieldIDs.begin(); fieldIt != _fieldIDs.end(); fieldIt++) {
-//    int fieldID = *fieldIt;
-//    double err = _confusionExactSolution->L2NormOfError(*(_confusionSolution.get()),fieldID);
-//    double originalErr = _confusionL2ErrorForOriginalMesh[fieldID];
-//    if (err - originalErr > tol) {
-//      cout << "MultiBasisTests: increase in error after refinement " << err - originalErr << " > tol " << tol << " for ";
-//      cout << _confusionExactSolution->bilinearForm()->trialName(fieldID) << endl;
-//
-//      solution->writeFieldsToFile(ConfusionBilinearForm::U, "confusion_u_multiBasis.m");
-//      solution->writeFluxesToFile(ConfusionBilinearForm::U_HAT, "confusion_u_hat_multiBasis.m");
-//
-//      success = false;
-//    }
-//  }
-
   return success;
 }
 

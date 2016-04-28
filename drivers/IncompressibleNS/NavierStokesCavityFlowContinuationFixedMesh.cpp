@@ -735,16 +735,6 @@ int main(int argc, char *argv[])
       massFlux->writeBoundaryValuesToMATLABFile(solution->mesh(), "massFlux.dat");
       u_mag->writeValuesToMATLABFile(solution->mesh(), "u_mag.m");
       u_div->writeValuesToMATLABFile(solution->mesh(), "u_div.m");
-      solution->writeFieldsToFile(u1->ID(), "u1.m");
-      solution->writeFluxesToFile(u1hat->ID(), "u1_hat.dat");
-      solution->writeFieldsToFile(u2->ID(), "u2.m");
-      solution->writeFluxesToFile(u2hat->ID(), "u2_hat.dat");
-      solution->writeFieldsToFile(p->ID(), "p.m");
-      streamSolution->writeFieldsToFile(phi->ID(), "phi.m");
-
-      streamSolution->writeFluxesToFile(phi_hat->ID(), "phi_hat.dat");
-      streamSolution->writeFieldsToFile(psi_1->ID(), "psi1.m");
-      streamSolution->writeFieldsToFile(psi_2->ID(), "psi2.m");
       vorticity->writeValuesToMATLABFile(streamMesh, "vorticity.m");
 
       FunctionPtr ten = Teuchos::rcp( new ConstantScalarFunction(10) );

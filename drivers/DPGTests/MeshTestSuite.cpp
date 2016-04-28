@@ -1682,9 +1682,7 @@ bool MeshTestSuite::testHRefinementForConfusion()
     cout << "FAILURE: after 'deep' refinement for smooth solution, L2 error greater than tolerance.\n";
     cout << "L2 error in 'deeply' refined fine mesh: " << refinedError << endl;
   }
-
-  // solution.writeFieldsToFile(ConfusionBilinearForm::U, "confusion_demo.m");
-
+  
   return success;
 }
 
