@@ -12,12 +12,6 @@
 
 // Epetra includes
 #include <Epetra_Map.h>
-#ifdef HAVE_MPI
-#include <Teuchos_GlobalMPISession.hpp>
-#include "Epetra_MpiComm.h"
-#else
-#include "Epetra_SerialComm.h"
-#endif
 
 #include "Intrepid_FieldContainer.hpp"
 #include "Epetra_SerialDenseMatrix.h"
