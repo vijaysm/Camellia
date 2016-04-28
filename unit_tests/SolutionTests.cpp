@@ -91,8 +91,6 @@ namespace
   {
     double tol = 1e-11;
     
-    int rank = Teuchos::GlobalMPISession::getRank();;
-    
     int spaceDim = 2;
     bool conformingTraces = false; // false mostly because I want to do cavity flow with non-H^1 BCs
     double mu = 1.0;
@@ -143,7 +141,7 @@ namespace
     SolutionPtr condensedSolution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
     condensedSolution->setUseCondensedSolve(true);
     
-    solution->solve(false);
+    solution->solve();
     condensedSolution->solve(false);
     condensedSolution->setUseCondensedSolve(false); // not sure if this makes a difference, or why it should (just trying something)
     FunctionPtr u1_soln = Function::solution(u1,solution);
@@ -164,6 +162,10 @@ namespace
       cout << "L2 norm of difference is " << diff << "; tol is " << tol << endl;
       success=false;
     }
+    double p_mean_soln = p_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_soln), <, 1e-12);
+    double p_mean_condensed_soln = p_condensed_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_condensed_soln), <, 1e-12);
     
     int numCells = 2;
     if (!minRule)
@@ -174,7 +176,7 @@ namespace
     
     solution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
     condensedSolution = Teuchos::rcp( new Solution(mesh, bc, rhs, ip) );
-    solution->solve(false);
+    solution->solve();
     condensedSolution->condensedSolve();
     u1_soln = Function::solution(u1,solution);
     u1_condensed_soln = Function::solution(u1,condensedSolution);
@@ -207,6 +209,10 @@ namespace
       cout << "L2 norm of difference is " << diff << "; tol is " << tol << endl;
       success=false;
     }
+    p_mean_soln = p_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_soln), <, 1e-12);
+    p_mean_condensed_soln = p_condensed_soln->integrate(mesh);
+    TEST_COMPARE(abs(p_mean_condensed_soln), <, 1e-12);
   }
   
   void testImportOffRankCellSolution(int spaceDim, int meshWidth, Teuchos::FancyOStream &out, bool &success)

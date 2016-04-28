@@ -16,9 +16,8 @@
 
 #include <Teuchos_GlobalMPISession.hpp>
 
-#include "Epetra_MpiDistributor.h"
+#include "Epetra_Distributor.h"
 #include "Epetra_SerialComm.h"
-#include "Epetra_SerialDistributor.h"
 
 #include "CamelliaDebugUtility.h"
 #include "GDAMinimumRule.h"
@@ -159,20 +158,15 @@ void CondensedDofInterpreter<Scalar>::getLocalData(GlobalIndexType cellID, Teuch
 //  cout << "rhs for cell " << cellID << ":\n" << rhs;
   
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
-  set<int> trialIDs = trialOrder->getVarIDs();
-  for (int trialID : trialIDs)
-  {
-    const vector<int>* sides = &trialOrder->getSidesForVarID(trialID);
-    if (sides->size() == 1)
-    {
-      // field
-      vector<int> thisFieldIndices = fieldRowIndices(cellID, trialID);
-      fieldIndices.insert(thisFieldIndices.begin(),thisFieldIndices.end());
-    }
-  }
-  
   vector<int> fluxIndicesVector = fluxIndexLookupLocalCell(cellID);
   fluxIndices.insert(fluxIndicesVector.begin(),fluxIndicesVector.end());
+  for (int localDofOrdinal=0; localDofOrdinal<trialOrder->totalDofs(); localDofOrdinal++)
+  {
+    if (fluxIndices.find(localDofOrdinal) == fluxIndices.end())
+    {
+      fieldIndices.insert(localDofOrdinal);
+    }
+  }
   
   Epetra_SerialDenseMatrix fluxMat;
   Epetra_SerialDenseVector b_flux;
@@ -301,11 +295,15 @@ template <typename Scalar>
 vector<int> CondensedDofInterpreter<Scalar>::fieldRowIndices(GlobalIndexType cellID, int condensibleVarID)
 {
   // this is not a particularly efficient way of doing this, but it's not likely to add up to much total expense, especially
-  // now that we cache the result.
+  // now that we cache the result, for all but the cells with local exceptions to the condensation pattern.
+  
+  auto uncondensibleLocalDofsEntry = _cellLocalUncondensibleDofIndices.find(cellID);
+  bool hasLocalExceptions = uncondensibleLocalDofsEntry != _cellLocalUncondensibleDofIndices.end();
+  
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
   
   pair<DofOrdering*,int> key = {trialOrder.get(),condensibleVarID};
-  if (_fieldRowIndices.find(key) == _fieldRowIndices.end())
+  if ((_fieldRowIndices.find(key) == _fieldRowIndices.end()) || hasLocalExceptions)
   {
     // the way we order field dof indices is according to their index order in the local uncondensed stiffness matrix
     
@@ -320,7 +318,23 @@ vector<int> CondensedDofInterpreter<Scalar>::fieldRowIndices(GlobalIndexType cel
         vector<int> varIndices = trialOrder->getDofIndices(trialID, sideOrdinal);
         if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder))
         {
-          fieldIndices.insert(varIndices.begin(), varIndices.end());
+          if (!hasLocalExceptions)
+          {
+            fieldIndices.insert(varIndices.begin(), varIndices.end());
+          }
+          else
+          {
+            const vector<int>* uncondensibleDofs = &uncondensibleLocalDofsEntry->second;
+            for (int varIndex : varIndices)
+            {
+              // note: call to find does require that uncondensibleDofs be in order
+              if (std::find(uncondensibleDofs->begin(), uncondensibleDofs->end(), varIndex) == uncondensibleDofs->end())
+              {
+                // this dof is condensible: add it
+                fieldIndices.insert(varIndex);
+              }
+            }
+          }
         }
       }
     }
@@ -346,28 +360,14 @@ vector<int> CondensedDofInterpreter<Scalar>::fieldRowIndices(GlobalIndexType cel
       }
       TEUCHOS_TEST_FOR_EXCEPTION(rowIndices.size() != varIndices.size(), std::invalid_argument, "Internal error: number of rowIndices does not match the number of varIndices");
     }
-    _fieldRowIndices[key] = rowIndices;
-  }
-  
-  /*
-   If the cell has a singleton BC imposed on it (for example), then one of the field row indices should be skipped (it instead enters the fluxRowIndices).
-   */
-  auto uncondensibleLocalDofsEntry = _cellLocalUncondensibleDofIndices.find(cellID);
-  if (uncondensibleLocalDofsEntry != _cellLocalUncondensibleDofIndices.end())
-  {
-    vector<int> fieldRowIndices = _fieldRowIndices[key];
-    const vector<int>* uncondensibleDofs = &uncondensibleLocalDofsEntry->second;
-    for (int localUncondensibleIndex : *uncondensibleDofs)
+    if (hasLocalExceptions)
     {
-      for (int i=fieldRowIndices.size()-1; i >= 0; i--)
-      {
-        if (fieldRowIndices[i] == localUncondensibleIndex)
-        {
-          fieldRowIndices.erase(fieldRowIndices.begin() + i);
-        }
-      }
+      return rowIndices;
     }
-    return fieldRowIndices;
+    else
+    {
+      _fieldRowIndices[key] = rowIndices;
+    }
   }
   
   return _fieldRowIndices[key];
@@ -535,6 +535,8 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForNeighborGlobalIndic
   set<GlobalIndexType> dofIndicesSet;
   int rank = _mesh->Comm()->MyPID();
   
+  // myRequestOwners should be in nondecreasing order (it appears)
+  // this is accomplished by virtue of the order in which we traverse partitionToMeshGlobalIndices
   vector<int> myRequestOwners;
   vector<GlobalIndexTypeToCast> myRequest;
   for (auto entry : partitionToMeshGlobalIndices)
@@ -547,21 +549,7 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForNeighborGlobalIndic
   }
   int myRequestCount = myRequest.size();
   
-  Teuchos::RCP<Epetra_Distributor> distributor;
-#ifdef HAVE_MPI
-  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(_mesh->Comm().get());
-  if (mpiComm != NULL)
-    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm));
-  else
-  {
-    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
-    TEUCHOS_TEST_FOR_EXCEPTION(serialComm == NULL, std::invalid_argument, "Mesh::Comm() should be either an Epetra_SerialComm or an Epetra_MpiComm");
-    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-  }
-#else
-  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
-  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-#endif
+  Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*_mesh->Comm());
   
   GlobalIndexTypeToCast* myRequestPtr = NULL;
   int *myRequestOwnersPtr = NULL;
@@ -639,8 +627,10 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const 
   set<GlobalIndexType> dofIndicesSet;
   int rank = _mesh->Comm()->MyPID();
   
-  vector<int> myRequestOwners;
-  vector<GlobalIndexTypeToCast> myRequest;
+  // myRequestOwners should be in nondecreasing order (it appears)
+  // this is accomplished by requestMap
+  map<int, vector<GlobalIndexTypeToCast>> requestMap;
+  
   for (GlobalIndexType cellID : cellIDs)
   {
     int partitionForCell = _mesh->globalDofAssignment()->partitionForCellID(cellID);
@@ -651,28 +641,25 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const 
     }
     else
     {
-      myRequest.push_back(cellID);
-      myRequestOwners.push_back(partitionForCell);
+      requestMap[partitionForCell].push_back(cellID);
+    }
+  }
+
+  vector<int> myRequestOwners;
+  vector<GlobalIndexTypeToCast> myRequest;
+  for (auto entry : requestMap)
+  {
+    int partition = entry.first;
+    for (auto cellIDInPartition : entry.second)
+    {
+      myRequest.push_back(cellIDInPartition);
+      myRequestOwners.push_back(partition);
     }
   }
   
   int myRequestCount = myRequest.size();
   
-  Teuchos::RCP<Epetra_Distributor> distributor;
-#ifdef HAVE_MPI
-  Epetra_MpiComm* mpiComm = dynamic_cast<Epetra_MpiComm*>(_mesh->Comm().get());
-  if (mpiComm != NULL)
-    distributor = Teuchos::rcp( new Epetra_MpiDistributor(*mpiComm));
-  else
-  {
-    Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
-    TEUCHOS_TEST_FOR_EXCEPTION(serialComm == NULL, std::invalid_argument, "Mesh::Comm() should be either an Epetra_SerialComm or an Epetra_MpiComm");
-    distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-  }
-#else
-  Epetra_SerialComm* serialComm = dynamic_cast<Epetra_SerialComm*>(_mesh->Comm().get());
-  distributor = Teuchos::rcp( new Epetra_SerialDistributor(*serialComm) );
-#endif
+  Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*_mesh->Comm());
   
   GlobalIndexTypeToCast* myRequestPtr = NULL;
   int *myRequestOwnersPtr = NULL;
@@ -817,8 +804,6 @@ map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpret
             TEUCHOS_TEST_FOR_EXCEPTION(localDofIndex == -1, std::invalid_argument, "interpretedDofIndex not found in meshGlobalDofs");
             
             _cellLocalUncondensibleDofIndices[cellID].push_back(localDofIndex);
-            
-            cout << " hasSingletonBCImposed.\n";
           }
           bool dofIsCondensible = varIsCondensible && !hasSingletonBCImposed;
           bool isOwnedByThisPartition = _mesh->isLocallyOwnedGlobalDofIndex(interpretedDofIndex);
@@ -996,13 +981,11 @@ void CondensedDofInterpreter<Scalar>::interpretLocalCoefficients(GlobalIndexType
 {
   DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
   FieldContainer<Scalar> basisCoefficients; // declared here so that we can sometimes avoid mallocs, if we get lucky in terms of the resize()
-  for (set<int>::iterator trialIDIt = trialOrder->getVarIDs().begin(); trialIDIt != trialOrder->getVarIDs().end(); trialIDIt++)
+  for (int trialID : trialOrder->getVarIDs())
   {
-    int trialID = *trialIDIt;
     const vector<int>* sides = &trialOrder->getSidesForVarID(trialID);
-    for (vector<int>::const_iterator sideIt = sides->begin(); sideIt != sides->end(); sideIt++)
+    for (int sideOrdinal : *sides)
     {
-      int sideOrdinal = *sideIt;
       if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder)) continue;
       int basisCardinality = trialOrder->getBasisCardinality(trialID, sideOrdinal);
       basisCoefficients.resize(basisCardinality);
