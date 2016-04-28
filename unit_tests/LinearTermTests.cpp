@@ -10,6 +10,7 @@
 
 #include "Function.h"
 #include "MeshFactory.h"
+#include "MeshPartitionPolicy.h"
 #include "PoissonFormulation.h"
 #include "SerialDenseWrapper.h"
 #include "SpaceTimeHeatFormulation.h"
@@ -118,7 +119,7 @@ void setFauxSpaceTimeHeatFormulation(int spaceDim, double epsilon, bool useConfo
   }
 }
 
-MeshPtr singleElementSpaceTimeMesh(int spaceDim, int H1Order)
+  MeshPtr singleElementSpaceTimeMesh(int spaceDim, int H1Order, MeshPtr otherSingleElementMesh = Teuchos::null)
 {
   vector<double> dimensions(spaceDim,2.0); // 2.0^d hypercube domain
   vector<int> elementCounts(spaceDim,1);   // 1^d mesh
@@ -134,7 +135,15 @@ MeshPtr singleElementSpaceTimeMesh(int spaceDim, int H1Order)
   vector<int> H1OrderVector(2);
   H1OrderVector[0] = H1Order;
   H1OrderVector[1] = H1Order;
-  MeshPtr mesh = Teuchos::rcp( new Mesh(spaceTimeMeshTopo, form.bf(), H1OrderVector, delta_k) ) ;
+  
+  MeshPartitionPolicyPtr inducedPartitionPolicy;
+  if (otherSingleElementMesh != Teuchos::null)
+  {
+    inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(spaceTimeMeshTopo, otherSingleElementMesh);
+  }
+  
+  MeshPtr mesh = Teuchos::rcp( new Mesh(spaceTimeMeshTopo, form.bf(), H1OrderVector, delta_k,
+                                        map<int,int>(), map<int,int>(), inducedPartitionPolicy) ) ;
   return mesh;
 }
 
@@ -356,99 +365,103 @@ TEUCHOS_UNIT_TEST( LinearTerm, CompareFauxWithTrueSpaceTime_1D )
 
   int H1Order = 2;
   MeshPtr fauxMesh = singleElementFauxSpaceTimeMesh(spaceDim, H1Order);
-  MeshPtr trueMesh = singleElementSpaceTimeMesh(spaceDim, H1Order);
+  MeshPtr trueMesh = singleElementSpaceTimeMesh(spaceDim, H1Order, fauxMesh);
 
   // we can use the space-time ("true") discretization for the faux, but not
   // the other way around, since the space-time basis is required to be a TensorBasis
   GlobalIndexType cellID = 0;
-  DofOrderingPtr trueTestOrder = trueMesh->getElementType(cellID)->testOrderPtr;
-
-  // get ID for v (here, we are using the knowledge that lt1, lt2 only involve a single variable)
-  int vIDTrue = *lt1_true->varIDs().begin();
-  int vIDFaux = *lt1_faux->varIDs().begin();
-  BasisPtr vBasisTrue = trueTestOrder->getBasis(vIDTrue);
-
-  // we need to allow the faux basis to compute gradient on the way to OP_DY (aka OP_DT)
-  typedef Camellia::TensorBasis<double, Intrepid::FieldContainer<double> > TensorBasis;
-  TensorBasis* vTensorBasis = dynamic_cast<TensorBasis*>(vBasisTrue.get());
-  Teuchos::RCP<TensorBasis> tensorBasis = Teuchos::rcp( new TensorBasis(vTensorBasis->getSpatialBasis(),
-                                          vTensorBasis->getTemporalBasis(),
-                                          true) );
-  BasisPtr vBasisFaux = tensorBasis;
-  // set up a DofOrdering for v for both true and faux:
-  DofOrderingPtr vOrderFaux = Teuchos::rcp( new DofOrdering(fauxMesh->getElementType(cellID)->cellTopoPtr) );
-  DofOrderingPtr vOrderTrue = Teuchos::rcp( new DofOrdering(trueMesh->getElementType(cellID)->cellTopoPtr) );
-  vOrderFaux->addEntry(vIDFaux, vBasisFaux, vBasisFaux->rangeRank());
-  vOrderTrue->addEntry(vIDTrue, vBasisTrue, vBasisTrue->rangeRank());
-
-  BasisCachePtr fauxBasisCache = BasisCache::basisCacheForCell(fauxMesh, cellID);
-  BasisCachePtr trueBasisCache = BasisCache::basisCacheForCell(trueMesh, cellID);
-  // make sure the BasisCaches agree on which points and their ordering:
-  fauxBasisCache->setRefCellPoints(trueBasisCache->getRefCellPoints(), trueBasisCache->getCubatureWeights());
-  int numPoints = fauxBasisCache->getRefCellPoints().dimension(0);
-
-  // compare values:
-  Intrepid::FieldContainer<double> lt1FauxValues(1,vBasisFaux->getCardinality(),numPoints);
-  Intrepid::FieldContainer<double> lt1TrueValues(1,vBasisTrue->getCardinality(),numPoints);
-  lt1_faux->values(lt1FauxValues, vIDFaux, vBasisFaux, fauxBasisCache);
-  lt1_true->values(lt1TrueValues, vIDTrue, vBasisTrue, trueBasisCache);
-
-  double tol=1e-14;
-  TEST_COMPARE_FLOATING_ARRAYS(lt1FauxValues, lt1TrueValues, tol);
-
-  // compare integrals:
-  Intrepid::FieldContainer<double> lt1FauxIntegrals(1,vOrderFaux->totalDofs());
-  Intrepid::FieldContainer<double> lt1TrueIntegrals(1,vOrderTrue->totalDofs());
-  lt1_faux->integrate(lt1FauxIntegrals, vOrderFaux, fauxBasisCache);
-  lt1_true->integrate(lt1TrueIntegrals, vOrderTrue, trueBasisCache);
-  SerialDenseWrapper::roundZeros(lt1FauxIntegrals,1e-15);
-  SerialDenseWrapper::roundZeros(lt1TrueIntegrals,1e-15);
-  TEST_COMPARE_FLOATING_ARRAYS(lt1FauxIntegrals, lt1TrueIntegrals, tol);
-
-  // Here, a couple ugly hard-codings:
-  // 1. How the space-time sides map to the faux sides
-  // 2. Whether the side orientations are reversed in the two meshes
-  map<unsigned,unsigned> trueToFauxSideOrdinal = {{0,0},{1,2},{2,3},{3,1}};
-  vector<bool> orientationReversedForTrueSide = {false,true,true,false};
-
-  int sideDim = spaceDim; // 1
-  for (unsigned sideOrdinal=0; sideOrdinal<trueBasisCache->cellTopology()->getSideCount(); sideOrdinal++)
+  
+  if (fauxMesh->cellIDsInPartition().find(cellID) != fauxMesh->cellIDsInPartition().end())
   {
-    BasisCachePtr trueSideCache = trueBasisCache->getSideBasisCache(sideOrdinal);
-    unsigned fauxSideOrdinal = trueToFauxSideOrdinal[sideOrdinal];
-    out << "Checking that values on true side " << sideOrdinal << " match faux side " << fauxSideOrdinal << endl;
-    BasisCachePtr fauxSideCache = fauxBasisCache->getSideBasisCache(fauxSideOrdinal);
-    Intrepid::FieldContainer<double> trueRefPoints = trueSideCache->getRefCellPoints();
-    int numPoints = trueRefPoints.dimension(0);
+    DofOrderingPtr trueTestOrder = trueMesh->getElementType(cellID)->testOrderPtr;
 
-    Intrepid::FieldContainer<double> fauxRefPoints(numPoints,sideDim);
-    for (int fauxPointOrdinal=0; fauxPointOrdinal<numPoints; fauxPointOrdinal++)
-    {
-      int truePointOrdinal = orientationReversedForTrueSide[sideOrdinal] ? numPoints - fauxPointOrdinal - 1 : fauxPointOrdinal;
-      // check that, modulo order, the weighted measures agree:
-      double trueWeightedMeasure = trueSideCache->getWeightedMeasures()(0,truePointOrdinal);
-      double fauxWeightedMeasure = fauxSideCache->getWeightedMeasures()(0,fauxPointOrdinal);
-      TEST_FLOATING_EQUALITY(fauxWeightedMeasure, trueWeightedMeasure, tol);
+    // get ID for v (here, we are using the knowledge that lt1, lt2 only involve a single variable)
+    int vIDTrue = *lt1_true->varIDs().begin();
+    int vIDFaux = *lt1_faux->varIDs().begin();
+    BasisPtr vBasisTrue = trueTestOrder->getBasis(vIDTrue);
 
-      fauxRefPoints(fauxPointOrdinal,0) = trueRefPoints(truePointOrdinal,0);
-    }
-    fauxSideCache->setRefCellPoints(fauxRefPoints);
+    // we need to allow the faux basis to compute gradient on the way to OP_DY (aka OP_DT)
+    typedef Camellia::TensorBasis<double, Intrepid::FieldContainer<double> > TensorBasis;
+    TensorBasis* vTensorBasis = dynamic_cast<TensorBasis*>(vBasisTrue.get());
+    Teuchos::RCP<TensorBasis> tensorBasis = Teuchos::rcp( new TensorBasis(vTensorBasis->getSpatialBasis(),
+                                            vTensorBasis->getTemporalBasis(),
+                                            true) );
+    BasisPtr vBasisFaux = tensorBasis;
+    // set up a DofOrdering for v for both true and faux:
+    DofOrderingPtr vOrderFaux = Teuchos::rcp( new DofOrdering(fauxMesh->getElementType(cellID)->cellTopoPtr) );
+    DofOrderingPtr vOrderTrue = Teuchos::rcp( new DofOrdering(trueMesh->getElementType(cellID)->cellTopoPtr) );
+    vOrderFaux->addEntry(vIDFaux, vBasisFaux, vBasisFaux->rangeRank());
+    vOrderTrue->addEntry(vIDTrue, vBasisTrue, vBasisTrue->rangeRank());
+
+    BasisCachePtr fauxBasisCache = BasisCache::basisCacheForCell(fauxMesh, cellID);
+    BasisCachePtr trueBasisCache = BasisCache::basisCacheForCell(trueMesh, cellID);
+    // make sure the BasisCaches agree on which points and their ordering:
+    fauxBasisCache->setRefCellPoints(trueBasisCache->getRefCellPoints(), trueBasisCache->getCubatureWeights());
+    int numPoints = fauxBasisCache->getRefCellPoints().dimension(0);
 
     // compare values:
-    Intrepid::FieldContainer<double> lt2FauxValues(1,vBasisFaux->getCardinality(),numPoints);
-    Intrepid::FieldContainer<double> lt2TrueValues(1,vBasisTrue->getCardinality(),numPoints);
-    lt2_faux->values(lt2FauxValues, vIDFaux, vBasisFaux, fauxSideCache);
-    lt2_true->values(lt2TrueValues, vIDTrue, vBasisTrue, trueSideCache);
-    TEST_COMPARE_FLOATING_ARRAYS(lt2FauxValues, lt2TrueValues, tol);
+    Intrepid::FieldContainer<double> lt1FauxValues(1,vBasisFaux->getCardinality(),numPoints);
+    Intrepid::FieldContainer<double> lt1TrueValues(1,vBasisTrue->getCardinality(),numPoints);
+    lt1_faux->values(lt1FauxValues, vIDFaux, vBasisFaux, fauxBasisCache);
+    lt1_true->values(lt1TrueValues, vIDTrue, vBasisTrue, trueBasisCache);
+
+    double tol=1e-14;
+    TEST_COMPARE_FLOATING_ARRAYS(lt1FauxValues, lt1TrueValues, tol);
 
     // compare integrals:
-    Intrepid::FieldContainer<double> lt2FauxIntegrals(1,vOrderFaux->totalDofs());
-    Intrepid::FieldContainer<double> lt2TrueIntegrals(1,vOrderTrue->totalDofs());
-    lt2_faux->integrate(lt2FauxIntegrals, vOrderFaux, fauxSideCache);
-    lt2_true->integrate(lt2TrueIntegrals, vOrderTrue, trueSideCache);
-    SerialDenseWrapper::roundZeros(lt2FauxIntegrals,1e-15);
-    SerialDenseWrapper::roundZeros(lt2TrueIntegrals,1e-15);
-    TEST_COMPARE_FLOATING_ARRAYS(lt2FauxIntegrals, lt2TrueIntegrals, tol);
+    Intrepid::FieldContainer<double> lt1FauxIntegrals(1,vOrderFaux->totalDofs());
+    Intrepid::FieldContainer<double> lt1TrueIntegrals(1,vOrderTrue->totalDofs());
+    lt1_faux->integrate(lt1FauxIntegrals, vOrderFaux, fauxBasisCache);
+    lt1_true->integrate(lt1TrueIntegrals, vOrderTrue, trueBasisCache);
+    SerialDenseWrapper::roundZeros(lt1FauxIntegrals,1e-15);
+    SerialDenseWrapper::roundZeros(lt1TrueIntegrals,1e-15);
+    TEST_COMPARE_FLOATING_ARRAYS(lt1FauxIntegrals, lt1TrueIntegrals, tol);
+
+    // Here, a couple ugly hard-codings:
+    // 1. How the space-time sides map to the faux sides
+    // 2. Whether the side orientations are reversed in the two meshes
+    map<unsigned,unsigned> trueToFauxSideOrdinal = {{0,0},{1,2},{2,3},{3,1}};
+    vector<bool> orientationReversedForTrueSide = {false,true,true,false};
+
+    int sideDim = spaceDim; // 1
+    for (unsigned sideOrdinal=0; sideOrdinal<trueBasisCache->cellTopology()->getSideCount(); sideOrdinal++)
+    {
+      BasisCachePtr trueSideCache = trueBasisCache->getSideBasisCache(sideOrdinal);
+      unsigned fauxSideOrdinal = trueToFauxSideOrdinal[sideOrdinal];
+      out << "Checking that values on true side " << sideOrdinal << " match faux side " << fauxSideOrdinal << endl;
+      BasisCachePtr fauxSideCache = fauxBasisCache->getSideBasisCache(fauxSideOrdinal);
+      Intrepid::FieldContainer<double> trueRefPoints = trueSideCache->getRefCellPoints();
+      int numPoints = trueRefPoints.dimension(0);
+
+      Intrepid::FieldContainer<double> fauxRefPoints(numPoints,sideDim);
+      for (int fauxPointOrdinal=0; fauxPointOrdinal<numPoints; fauxPointOrdinal++)
+      {
+        int truePointOrdinal = orientationReversedForTrueSide[sideOrdinal] ? numPoints - fauxPointOrdinal - 1 : fauxPointOrdinal;
+        // check that, modulo order, the weighted measures agree:
+        double trueWeightedMeasure = trueSideCache->getWeightedMeasures()(0,truePointOrdinal);
+        double fauxWeightedMeasure = fauxSideCache->getWeightedMeasures()(0,fauxPointOrdinal);
+        TEST_FLOATING_EQUALITY(fauxWeightedMeasure, trueWeightedMeasure, tol);
+
+        fauxRefPoints(fauxPointOrdinal,0) = trueRefPoints(truePointOrdinal,0);
+      }
+      fauxSideCache->setRefCellPoints(fauxRefPoints);
+
+      // compare values:
+      Intrepid::FieldContainer<double> lt2FauxValues(1,vBasisFaux->getCardinality(),numPoints);
+      Intrepid::FieldContainer<double> lt2TrueValues(1,vBasisTrue->getCardinality(),numPoints);
+      lt2_faux->values(lt2FauxValues, vIDFaux, vBasisFaux, fauxSideCache);
+      lt2_true->values(lt2TrueValues, vIDTrue, vBasisTrue, trueSideCache);
+      TEST_COMPARE_FLOATING_ARRAYS(lt2FauxValues, lt2TrueValues, tol);
+
+      // compare integrals:
+      Intrepid::FieldContainer<double> lt2FauxIntegrals(1,vOrderFaux->totalDofs());
+      Intrepid::FieldContainer<double> lt2TrueIntegrals(1,vOrderTrue->totalDofs());
+      lt2_faux->integrate(lt2FauxIntegrals, vOrderFaux, fauxSideCache);
+      lt2_true->integrate(lt2TrueIntegrals, vOrderTrue, trueSideCache);
+      SerialDenseWrapper::roundZeros(lt2FauxIntegrals,1e-15);
+      SerialDenseWrapper::roundZeros(lt2TrueIntegrals,1e-15);
+      TEST_COMPARE_FLOATING_ARRAYS(lt2FauxIntegrals, lt2TrueIntegrals, tol);
+    }
   }
 }
 
@@ -468,74 +481,77 @@ TEUCHOS_UNIT_TEST( LinearTerm, SpaceTimeIntegration_1D)
   // we can use the space-time ("true") discretization for the faux, but not
   // the other way around, since the space-time basis is required to be a TensorBasis
   GlobalIndexType cellID = 0;
-  DofOrderingPtr wholeTestOrder = mesh->getElementType(cellID)->testOrderPtr; // includes tau
-
-  // get ID for v (here, we are using the knowledge that lt1, lt2 only involve a single variable)
-  int vID = *lt1->varIDs().begin();
-  BasisPtr vBasis = wholeTestOrder->getBasis(vID);
-
-  // set up a DofOrdering for just v:
-  DofOrderingPtr vOrder = Teuchos::rcp( new DofOrdering(mesh->getElementType(cellID)->cellTopoPtr) );
-  vOrder->addEntry(vID, vBasis, vBasis->rangeRank());
-
-  BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
-
-  int numPoints = basisCache->getRefCellPoints().dimension(0);
-  // compute values:
-  Intrepid::FieldContainer<double> lt1Values(1,vBasis->getCardinality(),numPoints);
-  lt1->values(lt1Values, vID, vBasis, basisCache);
-
-  double tol=1e-14;
-
-  // compute integrals:
-  Intrepid::FieldContainer<double> lt1IntegralsExpected(1,vOrder->totalDofs());
-  for (int basisOrdinal=0; basisOrdinal<vBasis->getCardinality(); basisOrdinal++)
+  
+  if (mesh->cellIDsInPartition().find(cellID) != mesh->cellIDsInPartition().end())
   {
-    int dofIndex = vOrder->getDofIndex(vID, basisOrdinal);
-    for (int ptOrdinal=0; ptOrdinal<numPoints; ptOrdinal++)
-    {
-      double value = lt1Values(0,basisOrdinal,ptOrdinal);
-      double weight = basisCache->getWeightedMeasures()(0,ptOrdinal);
-      lt1IntegralsExpected(0,dofIndex) += value * weight;
-    }
-  }
+    DofOrderingPtr wholeTestOrder = mesh->getElementType(cellID)->testOrderPtr; // includes tau
 
-  Intrepid::FieldContainer<double> lt1IntegralsActual(1,vOrder->totalDofs());
-  lt1->integrate(lt1IntegralsActual, vOrder, basisCache);
-  SerialDenseWrapper::roundZeros(lt1IntegralsActual,1e-15);
-  SerialDenseWrapper::roundZeros(lt1IntegralsExpected,1e-15);
-  TEST_COMPARE_FLOATING_ARRAYS(lt1IntegralsExpected, lt1IntegralsActual, tol);
+    // get ID for v (here, we are using the knowledge that lt1, lt2 only involve a single variable)
+    int vID = *lt1->varIDs().begin();
+    BasisPtr vBasis = wholeTestOrder->getBasis(vID);
 
-  for (unsigned sideOrdinal=0; sideOrdinal<basisCache->cellTopology()->getSideCount(); sideOrdinal++)
-  {
-    BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
-    out << "Checking space-time LinearTerm integration on side " << sideOrdinal << endl;
-    int numPoints = sideCache->getRefCellPoints().dimension(0);
+    // set up a DofOrdering for just v:
+    DofOrderingPtr vOrder = Teuchos::rcp( new DofOrdering(mesh->getElementType(cellID)->cellTopoPtr) );
+    vOrder->addEntry(vID, vBasis, vBasis->rangeRank());
 
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+
+    int numPoints = basisCache->getRefCellPoints().dimension(0);
     // compute values:
-    Intrepid::FieldContainer<double> lt2Values(1,vBasis->getCardinality(),numPoints);
-    lt2->values(lt2Values, vID, vBasis, sideCache);
+    Intrepid::FieldContainer<double> lt1Values(1,vBasis->getCardinality(),numPoints);
+    lt1->values(lt1Values, vID, vBasis, basisCache);
+
+    double tol=1e-14;
 
     // compute integrals:
-    Intrepid::FieldContainer<double> lt2IntegralsExpected(1,vOrder->totalDofs());
+    Intrepid::FieldContainer<double> lt1IntegralsExpected(1,vOrder->totalDofs());
     for (int basisOrdinal=0; basisOrdinal<vBasis->getCardinality(); basisOrdinal++)
     {
       int dofIndex = vOrder->getDofIndex(vID, basisOrdinal);
       for (int ptOrdinal=0; ptOrdinal<numPoints; ptOrdinal++)
       {
-        double value = lt2Values(0,basisOrdinal,ptOrdinal);
-        double weight = sideCache->getWeightedMeasures()(0,ptOrdinal);
-        lt2IntegralsExpected(0,dofIndex) += value * weight;
+        double value = lt1Values(0,basisOrdinal,ptOrdinal);
+        double weight = basisCache->getWeightedMeasures()(0,ptOrdinal);
+        lt1IntegralsExpected(0,dofIndex) += value * weight;
       }
     }
 
-    Intrepid::FieldContainer<double> lt2IntegralsActual(1,vOrder->totalDofs());
-    lt2->integrate(lt2IntegralsActual, vOrder, sideCache);
-    SerialDenseWrapper::roundZeros(lt2IntegralsActual,1e-15);
-    SerialDenseWrapper::roundZeros(lt2IntegralsExpected,1e-15);
-    TEST_COMPARE_FLOATING_ARRAYS(lt2IntegralsExpected, lt2IntegralsActual, tol);
-  }
+    Intrepid::FieldContainer<double> lt1IntegralsActual(1,vOrder->totalDofs());
+    lt1->integrate(lt1IntegralsActual, vOrder, basisCache);
+    SerialDenseWrapper::roundZeros(lt1IntegralsActual,1e-15);
+    SerialDenseWrapper::roundZeros(lt1IntegralsExpected,1e-15);
+    TEST_COMPARE_FLOATING_ARRAYS(lt1IntegralsExpected, lt1IntegralsActual, tol);
 
+    for (unsigned sideOrdinal=0; sideOrdinal<basisCache->cellTopology()->getSideCount(); sideOrdinal++)
+    {
+      BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+      out << "Checking space-time LinearTerm integration on side " << sideOrdinal << endl;
+      int numPoints = sideCache->getRefCellPoints().dimension(0);
+
+      // compute values:
+      Intrepid::FieldContainer<double> lt2Values(1,vBasis->getCardinality(),numPoints);
+      lt2->values(lt2Values, vID, vBasis, sideCache);
+
+      // compute integrals:
+      Intrepid::FieldContainer<double> lt2IntegralsExpected(1,vOrder->totalDofs());
+      for (int basisOrdinal=0; basisOrdinal<vBasis->getCardinality(); basisOrdinal++)
+      {
+        int dofIndex = vOrder->getDofIndex(vID, basisOrdinal);
+        for (int ptOrdinal=0; ptOrdinal<numPoints; ptOrdinal++)
+        {
+          double value = lt2Values(0,basisOrdinal,ptOrdinal);
+          double weight = sideCache->getWeightedMeasures()(0,ptOrdinal);
+          lt2IntegralsExpected(0,dofIndex) += value * weight;
+        }
+      }
+
+      Intrepid::FieldContainer<double> lt2IntegralsActual(1,vOrder->totalDofs());
+      lt2->integrate(lt2IntegralsActual, vOrder, sideCache);
+      SerialDenseWrapper::roundZeros(lt2IntegralsActual,1e-15);
+      SerialDenseWrapper::roundZeros(lt2IntegralsExpected,1e-15);
+      TEST_COMPARE_FLOATING_ARRAYS(lt2IntegralsExpected, lt2IntegralsActual, tol);
+    }
+  }
 }
 
 TEUCHOS_UNIT_TEST( LinearTerm, FauxSpaceTimeIntegrationByPartsInTime_1D )
