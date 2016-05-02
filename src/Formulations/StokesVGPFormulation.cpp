@@ -630,12 +630,33 @@ void StokesVGPFormulation::addPointPressureCondition(vector<double> vertex)
 
   if (vertex.size() == 0)
   {
-    vertex = _solution->mesh()->getTopology()->getVertex(0);
+    MeshTopologyViewPtr meshTopo = _solution->mesh()->getTopology();
+    if (meshTopo->isDistributed())
+    {
+      // then take vertex 0 on the first rank that has at least one vertex
+      int myMinRankWithAVertex = meshTopo->Comm()->NumProc();
+      bool haveAVertex = meshTopo->cellCount() > 0;
+      if (haveAVertex)
+      {
+        myMinRankWithAVertex = meshTopo->Comm()->MyPID();
+      }
+      int globalMinRankWithAVertex;
+      meshTopo->Comm()->MinAll(&myMinRankWithAVertex, &globalMinRankWithAVertex, 1);
+      if (globalMinRankWithAVertex == meshTopo->Comm()->NumProc())
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No known vertices for MeshTopology");
+      vertex.resize(meshTopo->getDimension());
+      meshTopo->Comm()->Broadcast(&vertex[0], vertex.size(), globalMinRankWithAVertex);
+    }
+    else
+    {
+      vertex = _solution->mesh()->getTopology()->getVertex(0);
+    }
     if (_spaceTime) // then the last coordinate is time; drop it
     {
       vertex.pop_back();
     }
   }
+  
   _solution->bc()->addSpatialPointBC(p->ID(), 0.0, vertex);
 
 //  cout << "setting point pressure condition at point (";

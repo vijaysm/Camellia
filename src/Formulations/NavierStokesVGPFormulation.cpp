@@ -757,12 +757,37 @@ void NavierStokesVGPFormulation::addPointPressureCondition()
 {
   VarPtr p = this->p();
 
-  _solnIncrement->bc()->addSinglePointBC(p->ID(), 0.0, _solnIncrement->mesh());
-
-  if (_solnIncrement->bc()->shouldImposeZeroMeanConstraint(p->ID()))
+  vector<double> vertex;
+  if (vertex.size() == 0)
   {
-    _solnIncrement->bc()->removeZeroMeanConstraint(p->ID());
+    MeshTopologyViewPtr meshTopo = _solnIncrement->mesh()->getTopology();
+    if (meshTopo->isDistributed())
+    {
+      // then take vertex 0 on the first rank that has at least one vertex
+      int myMinRankWithAVertex = meshTopo->Comm()->NumProc();
+      bool haveAVertex = meshTopo->cellCount() > 0;
+      if (haveAVertex)
+      {
+        myMinRankWithAVertex = meshTopo->Comm()->MyPID();
+      }
+      int globalMinRankWithAVertex;
+      meshTopo->Comm()->MinAll(&myMinRankWithAVertex, &globalMinRankWithAVertex, 1);
+      if (globalMinRankWithAVertex == meshTopo->Comm()->NumProc())
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "No known vertices for MeshTopology");
+      vertex.resize(meshTopo->getDimension());
+      meshTopo->Comm()->Broadcast(&vertex[0], vertex.size(), globalMinRankWithAVertex);
+    }
+    else
+    {
+      vertex = _solnIncrement->mesh()->getTopology()->getVertex(0);
+    }
+    if (_spaceTime) // then the last coordinate is time; drop it
+    {
+      vertex.pop_back();
+    }
   }
+  
+  this->addPointPressureCondition(vertex);
 }
 
 void NavierStokesVGPFormulation::addPointPressureCondition(vector<double> vertex)
