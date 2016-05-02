@@ -169,8 +169,13 @@ void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
     requestMap[partition].insert(parentCellID);
   }
   
+  static bool haveWarned = false;
   
-  cout << "WARNING: determinePolynomialOrderForConstrainingParents() method is incomplete!";
+  if (!haveWarned)
+  {
+    cout << "\n\n\n****************   WARNING: determinePolynomialOrderForConstrainingParents() method is incomplete!  ****************\n\n\n";
+    haveWarned = true;
+  }
   
 }
 
