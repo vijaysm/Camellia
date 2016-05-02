@@ -208,6 +208,7 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, StreamFormulationConsistency )
 
   TEUCHOS_UNIT_TEST( StokesVGPFormulation, Consistency_2D_SpaceTime_Slow )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     vector<double> dimensions(spaceDim,2.0); // 2x2 square domain
     vector<int> elementCounts(spaceDim,1); // 1 x 1 mesh

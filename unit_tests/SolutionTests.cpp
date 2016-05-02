@@ -60,16 +60,21 @@ namespace
     
     int meshIrregularity = 0;
     vector<GlobalIndexType> cellsToRefine = {1};
-    CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
-    unsigned sharedSideOrdinal = -1;
-    for (int sideOrdinal=0; sideOrdinal<cellToRefine->getSideCount(); sideOrdinal++)
+    int mySideOrdinal = 0;
+    int globalSideOrdinal;
+    if (mesh->cellIDsInPartition().find(cellsToRefine[0]) != mesh->cellIDsInPartition().end())
     {
-      if (cellToRefine->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+      CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+      for (int sideOrdinal=0; sideOrdinal<cellToRefine->getSideCount(); sideOrdinal++)
       {
-        sharedSideOrdinal = sideOrdinal;
-        break;
+        if (cellToRefine->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+        {
+          mySideOrdinal = sideOrdinal;
+          break;
+        }
       }
     }
+    mesh->Comm()->SumAll(&mySideOrdinal, &globalSideOrdinal, 1);
     
     while (meshIrregularity < irregularity)
     {
@@ -77,12 +82,33 @@ namespace
       mesh->hRefine(cellsToRefine);
       meshIrregularity++;
       
+      mySideOrdinal = 0;
+      if (mesh->getTopology()->isValidCellIndex(cellsToRefine[0]))
+      {
+        CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+        for (int sideOrdinal=0; sideOrdinal<cellToRefine->getSideCount(); sideOrdinal++)
+        {
+          if (cellToRefine->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+          {
+            mySideOrdinal = sideOrdinal;
+            break;
+          }
+        }
+      }
+      mesh->Comm()->MaxAll(&mySideOrdinal, &globalSideOrdinal, 1);
+      
       // setup for the next refinement, if any:
-      auto childEntry = cellToRefine->childrenForSide(sharedSideOrdinal)[0];
-      GlobalIndexType childWithNeighborCellID = childEntry.first;
-      sharedSideOrdinal = childEntry.second;
-      cellsToRefine = {childWithNeighborCellID};
-      cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+      mySideOrdinal = 0;
+      int myChildWithNeighborCellID = 0;
+      if (mesh->getTopology()->isValidCellIndex(cellsToRefine[0]))
+      {
+        CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+        auto childEntry = cellToRefine->childrenForSide(globalSideOrdinal)[0];
+        myChildWithNeighborCellID = childEntry.first;
+      }
+      int globalChildWithNeighborCellID;
+      mesh->Comm()->MaxAll(&myChildWithNeighborCellID, &globalChildWithNeighborCellID, 1);
+      cellsToRefine = {(GlobalIndexType)globalChildWithNeighborCellID};
     }
     return mesh;
   }
@@ -263,6 +289,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( Solution, AddSolution )
   {
+    MPIWrapper::CommWorld()->Barrier();
     bool useConformingTraces = true;
     int H1Order = 2;
     int elementWidth = 2;
@@ -296,6 +323,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( Solution, AddSolutionWithHangingNodes )
   {
+    MPIWrapper::CommWorld()->Barrier();
     bool useConformingTraces = true;
     int H1Order = 2;
     int irregularity = 1;

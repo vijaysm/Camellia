@@ -31,15 +31,16 @@ namespace
   void testNeighborRelationshipIsSymmetric(MeshPtr mesh, int dimensionToUseForNeighbor, int overlapLevel, bool hierarchical,
                                            Teuchos::FancyOStream &out, bool &success)
   {
-    set<GlobalIndexType> activeCells = mesh->cellIDsInPartition();
+    set<GlobalIndexType> myCells = mesh->cellIDsInPartition();
     
-    GlobalIndexType maxCellID = *max_element(activeCells.begin(), activeCells.end());
+    set<IndexType> knownActiveCells = mesh->getTopology()->getLocallyKnownActiveCellIndices();
+    GlobalIndexType maxCellID = *max_element(knownActiveCells.begin(), knownActiveCells.end());
     
     FieldContainer<int> adjacency(maxCellID+1,maxCellID+1); // we assume that in our tests we don't ever get too many cells!
     
-    for (GlobalIndexType cellID : activeCells)
+    for (GlobalIndexType cellID : myCells)
     {
-      set<GlobalIndexType> neighbors = OverlappingRowMatrix::overlappingCells(cellID, mesh, overlapLevel,hierarchical,
+      set<GlobalIndexType> neighbors = OverlappingRowMatrix::overlappingCells(cellID, mesh, overlapLevel, hierarchical,
                                                                               dimensionToUseForNeighbor);
       for (GlobalIndexType neighborID: neighbors)
       {

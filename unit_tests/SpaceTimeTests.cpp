@@ -11,6 +11,7 @@
 #include "Function.h"
 #include "GDAMinimumRule.h"
 #include "MeshFactory.h"
+#include "MPIWrapper.h"
 #include "SpaceTimeHeatFormulation.h"
 #include "TypeDefs.h"
 
@@ -18,15 +19,20 @@ using namespace Camellia;
 
 namespace
 {
+  MeshTopologyPtr singleElementSpaceTimeMeshTopology(int spaceDim)
+  {
+    vector<double> dimensions(spaceDim,2.0); // 2.0^d hypercube domain
+    vector<int> elementCounts(spaceDim,1);   // 1^d mesh
+    vector<double> x0(spaceDim,-1.0);
+    MeshTopologyPtr spatialMeshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts, x0);
+    
+    double t0 = 0.0, t1 = 1.0;
+    MeshTopologyPtr spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(spatialMeshTopo, t0, t1);
+    return spaceTimeMeshTopo;
+  }
 MeshPtr singleElementSpaceTimeMesh(int spaceDim, int H1Order, bool conforming = false)
 {
-  vector<double> dimensions(spaceDim,2.0); // 2.0^d hypercube domain
-  vector<int> elementCounts(spaceDim,1);   // 1^d mesh
-  vector<double> x0(spaceDim,-1.0);
-  MeshTopologyPtr spatialMeshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts, x0);
-
-  double t0 = 0.0, t1 = 1.0;
-  MeshTopologyPtr spaceTimeMeshTopo = MeshFactory::spaceTimeMeshTopology(spatialMeshTopo, t0, t1);
+  MeshTopologyPtr spaceTimeMeshTopo = singleElementSpaceTimeMeshTopology(spaceDim);
 
   double epsilon = 1.0;
   SpaceTimeHeatFormulation form(spaceDim, epsilon, conforming);
@@ -196,6 +202,7 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
   
   TEUCHOS_UNIT_TEST( SpaceTime, ConformingSpaceTimeTracesAreContinuousInTime )
   {
+    MPIWrapper::CommWorld()->Barrier();
     // When a trace is in HGRAD and is not purely spatial, we expect it to be continuous in time.
     int spaceDim = 1;
     int H1Order = 2;
@@ -207,17 +214,34 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
     
     MeshPtr mesh = singleElementSpaceTimeMesh(spaceDim, H1Order, conforming);
     GlobalIndexType cellID0 = 0;
-    CellPtr cell = mesh->getTopology()->getCell(cellID0);
+    // get a non-distributed MeshTopology:
+    MeshTopologyPtr meshTopologySingleCell = singleElementSpaceTimeMeshTopology(spaceDim);
+    CellTopoPtr cellTopo = meshTopologySingleCell->getCell(cellID0)->topology();
+    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
     
-    unsigned sideOrdinal_t0 = cell->topology()->getTemporalSideOrdinal(0);
-    unsigned sideOrdinal_t1 = cell->topology()->getTemporalSideOrdinal(1);
+    unsigned sideOrdinal_t0 = cellTopo->getTemporalSideOrdinal(0);
+    unsigned sideOrdinal_t1 = cellTopo->getTemporalSideOrdinal(1);
     
     // refine to produce 4 cells, two for time interval [0.0,0.5], two for [0.5,1.0]
-    mesh->hRefine(vector<GlobalIndexType>{cellID0});
+    mesh->hRefine(vector<GlobalIndexType>{cellID0}, refPattern);
     
-    // determine which children are the earlier-time ones:
-    vector< pair<GlobalIndexType, unsigned> > childrenTime0 = cell->childrenForSide(sideOrdinal_t0);
+    int firstChildIndex = cellID0 + 1;
+    vector<int> childrenTime0;
+    vector< pair<unsigned, unsigned> > refinementChildIndicesForSide_t0 = refPattern->childrenForSides()[sideOrdinal_t0];
+    for(auto entry : refinementChildIndicesForSide_t0)
+    {
+      unsigned childOrdinal = entry.first;
+      childrenTime0.push_back(childOrdinal + firstChildIndex);
+    }
     
+    vector<int> childrenTime1;
+    vector< pair<unsigned, unsigned> > refinementChildIndicesForSide_t1 = refPattern->childrenForSides()[sideOrdinal_t1];
+    for(auto entry : refinementChildIndicesForSide_t1)
+    {
+      unsigned childOrdinal = entry.first;
+      childrenTime1.push_back(childOrdinal + firstChildIndex);
+    }
+
     map<int,FunctionPtr> projectionMap;
     
     SolutionPtr solution = Solution::solution(mesh->bilinearForm(), mesh);
@@ -226,14 +250,13 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
     
     // set 1 values for time 0 children
     projectionMap[spaceTimeTrace->ID()] = Function::constant(1.0);
-    for (auto childEntry : childrenTime0)
+    for (int childCellID : childrenTime0)
     {
-      GlobalIndexType childCellID = childEntry.first;
       if (rankLocalCells.find(childCellID) == rankLocalCells.end())
       {
-        for (unsigned sideOrdinal=0; sideOrdinal < cell->getSideCount(); sideOrdinal++)
+        for (unsigned sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
         {
-          if (cell->topology()->sideIsSpatial(sideOrdinal))
+          if (cellTopo->sideIsSpatial(sideOrdinal))
           {
             solution->projectOntoCell(projectionMap, childCellID, sideOrdinal);
           }
@@ -242,16 +265,14 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
     }
     
     // set 2.0 values for time 1 children
-    vector< pair<GlobalIndexType, unsigned> > childrenTime1 = cell->childrenForSide(sideOrdinal_t1);
     projectionMap[spaceTimeTrace->ID()] = Function::constant(2.0);
-    for (auto childEntry : childrenTime1)
+    for (GlobalIndexType childCellID : childrenTime1)
     {
-      GlobalIndexType childCellID = childEntry.first;
       if (rankLocalCells.find(childCellID) == rankLocalCells.end())
       {
-        for (unsigned sideOrdinal=0; sideOrdinal < cell->getSideCount(); sideOrdinal++)
+        for (unsigned sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
         {
-          if (cell->topology()->sideIsSpatial(sideOrdinal))
+          if (cellTopo->sideIsSpatial(sideOrdinal))
           {
             solution->projectOntoCell(projectionMap, childCellID, sideOrdinal);
           }
@@ -266,9 +287,9 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
     solution->importSolution();
     
     FunctionPtr solnFxn = Function::solution(spaceTimeTrace, solution);
-    for (auto childEntry : childrenTime0)
+    for (GlobalIndexType cellIDTime0 : childrenTime0)
     {
-      GlobalIndexType cellIDTime0 = childEntry.first;
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Need to check for rank-locality of cellIDs in this loop");
       CellPtr cellTime0 = mesh->getTopology()->getCell(cellIDTime0);
       CellPtr cellTime1 = cellTime0->getNeighbor(sideOrdinal_t1, mesh->getTopology());
       GlobalIndexType cellIDTime1 = cellTime1->cellIndex();
@@ -281,9 +302,9 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
       BasisCachePtr basisCacheTime0 = BasisCache::basisCacheForCell(mesh, cellIDTime0);
       BasisCachePtr basisCacheTime1 = BasisCache::basisCacheForCell(mesh, cellIDTime1);
       
-      for (unsigned sideOrdinal=0; sideOrdinal < cell->getSideCount(); sideOrdinal++)
+      for (unsigned sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
       {
-        if (cell->topology()->sideIsSpatial(sideOrdinal))
+        if (cellTopo->sideIsSpatial(sideOrdinal))
         {
           BasisCachePtr sideBasisCacheTime0 = basisCacheTime0->getSideBasisCache(sideOrdinal);
           BasisCachePtr sideBasisCacheTime1 = basisCacheTime1->getSideBasisCache(sideOrdinal);
