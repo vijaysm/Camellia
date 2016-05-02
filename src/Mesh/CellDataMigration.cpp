@@ -20,6 +20,9 @@ using namespace Camellia;
 typedef pair<RefinementBranch,vector<GlobalIndexType>> LabeledRefinementBranch; // first cellID indicates the root cell ID; after that, each cellID indicates first child of each refinement
 typedef pair<LabeledRefinementBranch, vector<vector<double>> > RootedLabeledRefinementBranch; // second contains vertex coordinates for root cell
 
+#define READ_ADVANCE(dataLocation,variable) readAndAdvance(&variable,dataLocation,sizeof(variable))
+#define WRITE_ADVANCE(dataLocation,variable) writeAndAdvance(dataLocation,&variable,sizeof(variable))
+
 void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
                                             const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches)
 {
@@ -561,5 +564,202 @@ void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, c
       solutions[solnOrdinal]->projectOldCellOntoNewCells(parent->cellIndex(), mesh->getElementType(parent->cellIndex()), solnCoeffs, childIndices);
     }
     //    cout << "setting solution coefficients for cellID " << cellID << endl << solnCoeffs;
+  }
+}
+
+void CellDataMigration::getGeometry(MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo)
+{
+  const set<IndexType>* myRootCellIndices = &meshTopo->getRootCellIndicesLocal();
+  geometryInfo.rootVertices.resize(myRootCellIndices->size());
+  geometryInfo.rootCellIDs.resize(myRootCellIndices->size());
+  geometryInfo.rootCellTopos.resize(myRootCellIndices->size());
+  geometryInfo.globalCellCount = meshTopo->cellCount();
+  geometryInfo.globalActiveCellCount = meshTopo->activeCellCount();
+  int rootCellOrdinal = 0;
+  vector<GlobalIndexType> thisLevelParents;
+  for (IndexType rootCellIndex : *myRootCellIndices)
+  {
+    geometryInfo.rootCellIDs[rootCellOrdinal] = rootCellIndex;
+    CellPtr rootCell = meshTopo->getCell(rootCellIndex);
+    geometryInfo.rootCellTopos[rootCellOrdinal] = rootCell->topology()->getKey();
+    const vector<IndexType>* vertexIndices = &rootCell->vertices();
+    int vertexCount = vertexIndices->size();
+    geometryInfo.rootVertices[rootCellOrdinal].resize(vertexCount);
+    for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
+    {
+      IndexType vertexIndex = (*vertexIndices)[vertexOrdinal];
+      geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal] = meshTopo->getVertex(vertexIndex);
+    }
+    if (rootCell->numChildren() > 0)
+    {
+      thisLevelParents.push_back(rootCellIndex);
+    }
+    rootCellOrdinal++;
+  }
+  
+  MeshTopologyPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
+  geometryInfo.refinementLevels.clear();
+  
+  while (thisLevelParents.size() > 0)
+  {
+    vector<IndexType> nextLevelParents;
+    RefinementLevel refinementLevel;
+    for (GlobalIndexType parentCellID : thisLevelParents)
+    {
+      CellPtr parentCell = meshTopo->getCell(parentCellID);
+      vector<IndexType> childCellIndices = parentCell->getChildIndices(meshTopoRCP);
+      GlobalIndexType firstChildID = childCellIndices[0];
+      RefinementPatternKey refPatternKey = parentCell->refinementPattern()->getKey();
+      refinementLevel[refPatternKey].push_back({parentCellID,firstChildID});
+      
+      // look to see if any children should be included in the next mesh refinement level:
+      for (IndexType childCellID : childCellIndices)
+      {
+        if (meshTopo->isValidCellIndex(childCellID))
+        {
+          CellPtr childCell = meshTopo->getCell(childCellID);
+          if (childCell->numChildren() > 0)
+          {
+            nextLevelParents.push_back(childCellID);
+          }
+        }
+      }
+    }
+    thisLevelParents = nextLevelParents;
+    geometryInfo.refinementLevels.push_back(refinementLevel);
+  }
+}
+
+int CellDataMigration::getGeometryDataSize(const MeshGeometryInfo &geometryInfo)
+{
+  int dataSize = 0;
+  dataSize += sizeof(geometryInfo.globalCellCount);
+  dataSize += sizeof(geometryInfo.globalActiveCellCount);
+  int rootCellCount = geometryInfo.rootVertices.size();
+  dataSize += sizeof(rootCellCount);
+  for (int rootCellOrdinal=0; rootCellOrdinal<rootCellCount; rootCellOrdinal++)
+  {
+    dataSize += sizeof(geometryInfo.rootCellIDs[rootCellOrdinal]);
+    dataSize += sizeof(geometryInfo.rootCellTopos[rootCellOrdinal]);
+    int vertexCount = geometryInfo.rootVertices[rootCellOrdinal].size();
+    dataSize += sizeof(vertexCount);
+    int spaceDim = CellTopology::cellTopology(geometryInfo.rootCellTopos[rootCellOrdinal])->getDimension();
+    dataSize += vertexCount * sizeof(double) * spaceDim;
+  }
+  
+  int numLevels = geometryInfo.refinementLevels.size();
+  dataSize += sizeof(numLevels);
+  for (int level=0; level<numLevels; level++)
+  {
+    int numRefTypes = geometryInfo.refinementLevels[level].size();
+    dataSize += sizeof(numRefTypes);
+    for (auto entry : geometryInfo.refinementLevels[level])
+    {
+      RefinementPatternKey refPatternKey = entry.first;
+      dataSize += sizeof(refPatternKey);
+      int numRefinements = entry.second.size();
+      dataSize += sizeof(numRefinements);
+      dataSize += numRefinements * sizeof(pair<GlobalIndexType,GlobalIndexType>);
+    }
+  }
+  return dataSize;
+}
+
+void CellDataMigration::writeGeometryData(const MeshGeometryInfo &geometryInfo, char* &dataLocation, int bufferSize)
+{
+  int minSize = getGeometryDataSize(geometryInfo);
+  TEUCHOS_TEST_FOR_EXCEPTION(bufferSize < minSize, std::invalid_argument, "buffer is too small!");
+  
+  WRITE_ADVANCE(dataLocation, geometryInfo.globalCellCount);
+  WRITE_ADVANCE(dataLocation, geometryInfo.globalActiveCellCount);
+  
+  int rootCellCount = geometryInfo.rootVertices.size();
+  WRITE_ADVANCE(dataLocation, rootCellCount);
+  
+  for (int rootCellOrdinal=0; rootCellOrdinal<rootCellCount; rootCellOrdinal++)
+  {
+    WRITE_ADVANCE(dataLocation, geometryInfo.rootCellIDs[rootCellOrdinal]);
+    WRITE_ADVANCE(dataLocation, geometryInfo.rootCellTopos[rootCellOrdinal]);
+    int vertexCount = geometryInfo.rootVertices[rootCellOrdinal].size();
+    WRITE_ADVANCE(dataLocation, vertexCount);
+    int spaceDim = CellTopology::cellTopology(geometryInfo.rootCellTopos[rootCellOrdinal])->getDimension();
+    for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
+    {
+      for (int d=0; d<spaceDim; d++)
+      {
+        WRITE_ADVANCE(dataLocation, geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal][d]);
+      }
+    }
+  }
+  
+  int numLevels = geometryInfo.refinementLevels.size();
+  WRITE_ADVANCE(dataLocation, numLevels);
+  
+  for (int level=0; level<numLevels; level++)
+  {
+    int numRefTypes = geometryInfo.refinementLevels[level].size();
+    WRITE_ADVANCE(dataLocation, numRefTypes);
+    for (auto entry : geometryInfo.refinementLevels[level])
+    {
+      RefinementPatternKey refPatternKey = entry.first;
+      WRITE_ADVANCE(dataLocation, refPatternKey);
+      int numRefinements = entry.second.size();
+      WRITE_ADVANCE(dataLocation, numRefinements);
+      for (int refinementOrdinal=0; refinementOrdinal<numRefinements; refinementOrdinal++)
+      {
+        WRITE_ADVANCE(dataLocation, entry.second[refinementOrdinal]);
+      }
+    }
+  }
+}
+
+void CellDataMigration::readGeometryData(const char* &dataLocation, int bufferSize, MeshGeometryInfo &geometryInfo)
+{
+  READ_ADVANCE(dataLocation, geometryInfo.globalCellCount);
+  READ_ADVANCE(dataLocation, geometryInfo.globalActiveCellCount);
+  
+  int rootCellCount;
+  READ_ADVANCE(dataLocation, rootCellCount);
+  geometryInfo.rootCellIDs.resize(rootCellCount);
+  geometryInfo.rootCellTopos.resize(rootCellCount);
+  geometryInfo.rootVertices.resize(rootCellCount);
+  
+  for (int rootCellOrdinal=0; rootCellOrdinal<rootCellCount; rootCellOrdinal++)
+  {
+    READ_ADVANCE(dataLocation, geometryInfo.rootCellIDs[rootCellOrdinal]);
+    READ_ADVANCE(dataLocation, geometryInfo.rootCellTopos[rootCellOrdinal]);
+    int vertexCount;
+    READ_ADVANCE(dataLocation, vertexCount);
+    geometryInfo.rootVertices[rootCellOrdinal].resize(vertexCount);
+    int spaceDim = CellTopology::cellTopology(geometryInfo.rootCellTopos[rootCellOrdinal])->getDimension();
+    for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
+    {
+      for (int d=0; d<spaceDim; d++)
+      {
+        READ_ADVANCE(dataLocation, geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal][d]);
+      }
+    }
+  }
+  
+  int numLevels;
+  READ_ADVANCE(dataLocation, numLevels);
+  geometryInfo.refinementLevels.resize(numLevels);
+  
+  for (int level=0; level<numLevels; level++)
+  {
+    int numRefTypes;
+    READ_ADVANCE(dataLocation, numRefTypes);
+    for (int refTypeOrdinal=0; refTypeOrdinal<numRefTypes; refTypeOrdinal++)
+    {
+      RefinementPatternKey refPatternKey;
+      READ_ADVANCE(dataLocation, refPatternKey);
+      int numRefinements;
+      READ_ADVANCE(dataLocation, numRefinements);
+      geometryInfo.refinementLevels[level][refPatternKey].resize(numRefinements);
+      for (int refinementOrdinal=0; refinementOrdinal<numRefinements; refinementOrdinal++)
+      {
+        READ_ADVANCE(dataLocation,geometryInfo.refinementLevels[level][refPatternKey][refinementOrdinal]);
+      }
+    }
   }
 }

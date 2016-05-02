@@ -16,6 +16,31 @@ namespace Camellia
   typedef pair<RefinementBranch,vector<GlobalIndexType>> LabeledRefinementBranch; // first cellID indicates the root cell ID; after that, each cellID indicates first child of each refinement
   typedef pair<LabeledRefinementBranch, vector<vector<double>> > RootedLabeledRefinementBranch; // second contains vertex coordinates for root cell
   
+  // RefinementLevel: pairs are (parentCellID, firstChildCellID).
+  typedef std::map<RefinementPatternKey,vector<pair<GlobalIndexType,GlobalIndexType>>> RefinementLevel;
+  
+  void inline readAndAdvance(void *writeLocation, const char* &readLocation, size_t size)
+  {
+    memcpy(writeLocation, readLocation, size);
+    readLocation += size;
+  }
+  
+  void inline writeAndAdvance(char* &writeLocation, const void *readLocation, size_t size)
+  {
+    memcpy(writeLocation, readLocation, size);
+    writeLocation += size;
+  }
+  
+  struct MeshGeometryInfo
+  {
+    GlobalIndexType globalActiveCellCount;
+    GlobalIndexType globalCellCount;
+    std::vector<std::vector<std::vector<double>>> rootVertices;
+    std::vector<GlobalIndexType> rootCellIDs;
+    std::vector<CellTopologyKey> rootCellTopos;
+    std::vector<RefinementLevel> refinementLevels;
+  };
+  
 class CellDataMigration
 {
 public:
@@ -41,6 +66,12 @@ public:
                                   GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloBranches);
   
   static void addMigratedGeometry(MeshTopology* meshTopo, const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches);
+  
+  static void getGeometry(MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo);
+  static int getGeometryDataSize(const MeshGeometryInfo &geometryInfo);
+  static void writeGeometryData(const MeshGeometryInfo &geometryInfo, char* &dataLocation, int bufferSize);
+  // ! Reads 0 or more serialized geometryInfo objects into the geometryInfo structure provided.  (Reads until end of buffer.)
+  static void readGeometryData(const char* &dataLocation, int bufferSize, MeshGeometryInfo &geometryInfo);
 };
 }
 
