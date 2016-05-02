@@ -821,10 +821,6 @@ set<GlobalIndexType> Mesh::globalDofIndicesForPartition(PartitionIndexType parti
   return _gda->globalDofIndicesForPartition(partitionNumber);
 }
 
-//void Mesh::hRefine(vector<GlobalIndexType> cellIDs, Teuchos::RCP<RefinementPattern> refPattern) {
-//  hRefine(cellIDs,refPattern,vector< TSolutionPtr<double> >());
-//}
-
 void Mesh::hRefine(const vector<GlobalIndexType> &cellIDs, bool repartitionAndRebuild)
 {
   set<GlobalIndexType> cellSet(cellIDs.begin(),cellIDs.end());
