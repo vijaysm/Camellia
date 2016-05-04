@@ -418,20 +418,32 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
   vector<double> dims = {1.0,2.0};
 
   MeshPtr mesh = MeshFactory::rectilinearMesh(bf, dims, elemCounts, H1Order);
-
+  RefinementPatternPtr quadRefinement = RefinementPattern::regularRefinementPatternQuad();
+  
+  int numGlobalRefinements = 2;
+  for (int refinementLevel=0; refinementLevel<numGlobalRefinements; refinementLevel++)
+  {
+    set<GlobalIndexType> activeCells = mesh->getActiveCellIDsGlobal();
+    mesh->hRefine(activeCells, quadRefinement);
+  }
+  
   string meshFile = "SavedMesh.HDF5";
   mesh->saveToHDF5(meshFile);
 
   MeshPtr loadedMesh = MeshFactory::loadFromHDF5(bf, meshFile);
   TEST_EQUALITY(loadedMesh->globalDofCount(), mesh->globalDofCount());
 
-  // delete the file we created
-  remove(meshFile.c_str());
-
   // just to confirm that we can manipulate the loaded mesh:
   set<GlobalIndexType> cellsToRefine;
   cellsToRefine.insert(0);
   loadedMesh->pRefine(cellsToRefine);
+  
+  // we default to using CommWorld for loading and creation.  Try loading in serial:
+  loadedMesh = MeshFactory::loadFromHDF5(bf, meshFile, MPIWrapper::CommSerial());
+  TEST_EQUALITY(loadedMesh->globalDofCount(), mesh->globalDofCount());
+  
+  // delete the file we created
+  remove(meshFile.c_str());
 }
   
   TEUCHOS_UNIT_TEST( Mesh, ProjectFieldSolution )
