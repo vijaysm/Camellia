@@ -36,6 +36,8 @@
  */
 
 #include "Mesh.h"
+
+#include "CellDataMigration.h"
 #include "ElementType.h"
 #include "DofOrderingFactory.h"
 #include "BasisFactory.h"
@@ -127,7 +129,6 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, int H1Ord
   this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
-// Deprecated constructor
 Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector<int> H1Order, int pToAddTest,
            map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements,
            MeshPartitionPolicyPtr partitionPolicy, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
@@ -157,7 +158,6 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector
   this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
-// Deprecated constructor
 Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, int H1Order, int pToAddTest,
            map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements,
            MeshPartitionPolicyPtr partitionPolicy, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
@@ -1688,11 +1688,9 @@ vector<double> Mesh::getCellOrientation(GlobalIndexType cellID)
 #ifdef HAVE_EPETRAEXT_HDF5
 void Mesh::saveToHDF5(string filename)
 {
-  int commRank = Comm()->MyPID();
+  int numProcs = Comm()->NumProc();
 
-  // TODO: Add support for distributed MeshTopology to this and MeshFactory::loadFromHDF5.
   /*
-   A few comments on the above TODO.
    1. I'm still a bit vague on how to use EpetraExt::HDF5 to read and write distributed objects; the methods
         Write (const std::string &GroupName, const std::string &DataSetName, int MySize, int GlobalSize, int type, const void *data)
       and
@@ -1711,119 +1709,122 @@ void Mesh::saveToHDF5(string filename)
    Don't forget to save the p-refinements!
    
    */
-  if (getTopology()->isDistributed())
+  
+  // get my view of the base mesh topology; write it to a byte array
+  MeshTopology* baseMeshTopology = getTopology()->baseMeshTopology();
+  MeshGeometryInfo baseMeshGeometry;
+  CellDataMigration::getGeometry(baseMeshTopology, baseMeshGeometry);
+  int myGeometrySize = CellDataMigration::getGeometryDataSize(baseMeshGeometry);
+  vector<char> myGeometryData(myGeometrySize);
+  char *myWriteLocation = &myGeometryData[0];
+  CellDataMigration::writeGeometryData(baseMeshGeometry, myWriteLocation, myGeometrySize);
+  
+  // gather all the rank sizes so that we can write a global "header" indicating where the boundaries lie
+  // among other things, this will allow safe reading when the number of reading processors is
+  // different from the number of writing processors
+  vector<int> rankSizes(numProcs);
+  Comm()->GatherAll(&myGeometrySize, &rankSizes[0], 1);
+  
+  int globalGeometrySize;
+  Comm()->SumAll(&myGeometrySize, &globalGeometrySize, 1);
+  
+  EpetraExt::HDF5 hdf5(*Comm());
+  hdf5.Create(filename);
+  hdf5.Write("MeshTopology", "num chunks", numProcs);
+  hdf5.Write("MeshTopology", "chunk sizes", H5T_NATIVE_INT, numProcs, &rankSizes[0]);
+  hdf5.Write("MeshTopology", "geometry chunks", myGeometrySize, globalGeometrySize, H5T_NATIVE_CHAR, &myGeometryData[0]);
+  
+  // if the base mesh topology has a pure view, record that, too
+  bool isView = (dynamic_cast<MeshTopology*>(getTopology().get()) == NULL);
+  if (isView)
   {
-    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Mesh::saveToHDF5 not yet supported for distributed MeshTopology");
+    if (getTopology()->isDistributed())
+    {
+      hdf5.Write("MeshTopologyViewDistributed", "numProcs", numProcs);
+      const set<IndexType>* myViewCellIDs = &getTopology()->getLocallyKnownActiveCellIndices();
+      vector<int> cellIDVector(myViewCellIDs->begin(),myViewCellIDs->end());
+      int myKnownCellCount = myViewCellIDs->size();
+      vector<int> knownCellCounts(numProcs);
+      Comm()->GatherAll(&myKnownCellCount, &knownCellCounts[0], 1);
+      hdf5.Write("MeshTopologyViewDistributed", "known cell counts", H5T_NATIVE_INT, numProcs, &knownCellCounts[0]);
+      
+      int globalKnownActiveCellCount;
+      Comm()->SumAll(&myKnownCellCount, &globalKnownActiveCellCount, 1);
+      hdf5.Write("MeshTopologyViewDistributed", "known cell IDs", myKnownCellCount, globalKnownActiveCellCount,
+                 H5T_NATIVE_INT, &cellIDVector[0]);
+    }
+    else
+    {
+      // if topology is *not* distributed, everyone sees the same cells, and we can just write those out
+      // (reader can detect the difference based on whether there is an entry named "known cell sizes")
+      const set<IndexType>* viewCellIDs = &getTopology()->getLocallyKnownActiveCellIndices();
+      vector<int> cellIDVector(viewCellIDs->begin(),viewCellIDs->end());
+      int knownCellCount = viewCellIDs->size();
+      
+      hdf5.Write("MeshTopologyView", "known cell count", knownCellCount);
+      hdf5.Write("MeshTopologyView", "known cell IDs", H5T_NATIVE_INT, knownCellCount, &cellIDVector[0]);
+    }
   }
   
-  if (commRank == 0)
+  map<int, int> trialOrderEnhancements = getDofOrderingFactory().getTrialOrderEnhancements();
+  map<int, int> testOrderEnhancements = getDofOrderingFactory().getTestOrderEnhancements();
+  vector<int> trialOrderEnhancementsVec;
+  vector<int> testOrderEnhancementsVec;
+  for (auto trialEntry : trialOrderEnhancements)
   {
-    set<IndexType> rootCellIndicesSet = getTopology()->getRootCellIndicesLocal();
-    vector<IndexType> rootCellIndices(rootCellIndicesSet.begin(), rootCellIndicesSet.end());
-    vector<IndexType> rootVertexIndices;
-    vector<Camellia::CellTopologyKey> rootKeys;
-    vector<double> rootVertices;
-    for (int i=0; i < rootCellIndices.size(); i++)
-    {
-      CellPtr cell = getTopology()->getCell(rootCellIndices[i]);
-      vector< unsigned > vertexIndices = cell->vertices();
-      rootKeys.push_back(cell->topology()->getKey());
-      rootVertexIndices.insert(rootVertexIndices.end(), vertexIndices.begin(), vertexIndices.end());
-    }
-    IndexType maxVertexIndex = *max_element(rootVertexIndices.begin(), rootVertexIndices.end());
-    for (int i=0; i <= maxVertexIndex; i++)
-    {
-      vector< double > vertex = getTopology()->getVertex(i);
-      rootVertices.insert(rootVertices.end(), vertex.begin(), vertex.end());
-//      cout << "vertex " << i << ":\n";
-//      Camellia::print("vertex coords", vertex);
-    }
-    map<int, int> trialOrderEnhancements = getDofOrderingFactory().getTrialOrderEnhancements();
-    map<int, int> testOrderEnhancements = getDofOrderingFactory().getTestOrderEnhancements();
-    vector<int> trialOrderEnhancementsVec;
-    vector<int> testOrderEnhancementsVec;
-    for (map<int,int>::iterator it=trialOrderEnhancements.begin(); it!=trialOrderEnhancements.end(); ++it)
-    {
-      trialOrderEnhancementsVec.push_back(it->first);
-      trialOrderEnhancementsVec.push_back(it->second);
-    }
-    for (map<int,int>::iterator it=testOrderEnhancements.begin(); it!=testOrderEnhancements.end(); ++it)
-    {
-      testOrderEnhancementsVec.push_back(it->first);
-      testOrderEnhancementsVec.push_back(it->second);
-    }
-    int vertexIndicesSize = rootVertexIndices.size();
-    int topoKeysIntSize = rootKeys.size() * sizeof(Camellia::CellTopologyKey) / sizeof(int);
-    int topoKeysSize = rootKeys.size();
-    int verticesSize = rootVertices.size();
-    int trialOrderEnhancementsSize = trialOrderEnhancementsVec.size();
-    int testOrderEnhancementsSize = testOrderEnhancementsVec.size();
-
-
-    FieldContainer<GlobalIndexType> partitions;
-    bool partitionsSet = globalDofAssignment()->getPartitions(partitions);
-    int numPartitions, maxPartitionSize;
-    if (partitionsSet)
-    {
-      numPartitions = partitions.dimension(0);
-      maxPartitionSize = partitions.dimension(1);
-    }
-    else
-    {
-      numPartitions = 0;
-      maxPartitionSize = 0;
-    }
-    FieldContainer<int> partitionsCastToInt;
-    if (partitions.size() > 0)
-    {
-      partitionsCastToInt.resize(numPartitions, maxPartitionSize);
-      for (int i=0; i<numPartitions; i++)
-      {
-        for (int j=0; j<maxPartitionSize; j++)
-        {
-          partitionsCastToInt(i,j) = (int) partitions(i,j);
-        }
-      }
-    }
-
-    vector<int> initialH1Order = globalDofAssignment()->getInitialH1Order();
-
-    Epetra_SerialComm Comm;
-    EpetraExt::HDF5 hdf5(Comm);
-    hdf5.Create(filename);
-    hdf5.Write("Mesh", "vertexIndicesSize", vertexIndicesSize);
-    hdf5.Write("Mesh", "topoKeysSize", topoKeysSize);
-    hdf5.Write("Mesh", "verticesSize", verticesSize);
-    hdf5.Write("Mesh", "trialOrderEnhancementsSize", trialOrderEnhancementsSize);
-    hdf5.Write("Mesh", "testOrderEnhancementsSize", testOrderEnhancementsSize);
-    hdf5.Write("Mesh", "dimension", getDimension());
-    hdf5.Write("Mesh", "vertexIndices", H5T_NATIVE_INT, rootVertexIndices.size(), &rootVertexIndices[0]);
-    hdf5.Write("Mesh", "topoKeys", H5T_NATIVE_INT, topoKeysIntSize, &rootKeys[0]);
-    hdf5.Write("Mesh", "vertices", H5T_NATIVE_DOUBLE, rootVertices.size(), &rootVertices[0]);
-    hdf5.Write("Mesh", "H1OrderSize", (int)initialH1Order.size());
-    hdf5.Write("Mesh", "deltaP", globalDofAssignment()->getTestOrderEnrichment());
-    hdf5.Write("Mesh", "numPartitions", numPartitions);
-    hdf5.Write("Mesh", "maxPartitionSize", maxPartitionSize);
-    if (numPartitions > 0)
-    {
-      hdf5.Write("Mesh", "partitions", H5T_NATIVE_INT, partitionsCastToInt.size(), &partitionsCastToInt[0]);
-    }
-    else
-    {
-      hdf5.Write("Mesh", "partitions", H5T_NATIVE_INT, partitionsCastToInt.size(), NULL);
-    }
-    if (meshUsesMaximumRule())
-      hdf5.Write("Mesh", "GDARule", "max");
-    else if(meshUsesMinimumRule())
-      hdf5.Write("Mesh", "GDARule", "min");
-    else
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid GDA");
-    hdf5.Write("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsVec.size(), &trialOrderEnhancementsVec[0]);
-    hdf5.Write("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsVec.size(), &testOrderEnhancementsVec[0]);
-    hdf5.Write("Mesh", "H1Order", H5T_NATIVE_INT, initialH1Order.size(), &initialH1Order[0]);
-    _refinementHistory.saveToHDF5(hdf5);
-    hdf5.Close();
+    trialOrderEnhancementsVec.push_back(trialEntry.first);
+    trialOrderEnhancementsVec.push_back(trialEntry.second);
   }
+  for (auto testEntry : testOrderEnhancements)
+  {
+    testOrderEnhancementsVec.push_back(testEntry.first);
+    testOrderEnhancementsVec.push_back(testEntry.second);
+  }
+  int trialOrderEnhancementsSize = trialOrderEnhancementsVec.size();
+  hdf5.Write("Mesh", "trialOrderEnhancementsSize", trialOrderEnhancementsSize);
+  hdf5.Write("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsVec.size(), &trialOrderEnhancementsVec[0]);
+
+  int testOrderEnhancementsSize = testOrderEnhancementsVec.size();
+  hdf5.Write("Mesh", "testOrderEnhancementsSize", testOrderEnhancementsSize);
+  hdf5.Write("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsVec.size(), &testOrderEnhancementsVec[0]);
+
+  vector<int> initialH1Order = globalDofAssignment()->getInitialH1Order();
+  hdf5.Write("Mesh", "H1OrderSize", (int)initialH1Order.size());
+  hdf5.Write("Mesh", "H1Order", H5T_NATIVE_INT, initialH1Order.size(), &initialH1Order[0]);
+  hdf5.Write("Mesh", "deltaP", globalDofAssignment()->getTestOrderEnrichment());
+
+  const set<IndexType>* myCellIDs = &this->cellIDsInPartition();
+  vector<int> myCellIDsVector(myCellIDs->begin(), myCellIDs->end());
+  int myCellCount = myCellIDsVector.size();
+  vector<int> partitionCounts(numProcs);
+  Comm()->GatherAll(&myCellCount, &partitionCounts[0], 1);
+
+  int globalCellCount;
+  Comm()->SumAll(&myCellCount, &globalCellCount, 1);
+  
+  hdf5.Write("Mesh", "partition counts", H5T_NATIVE_INT, numProcs, &partitionCounts[0]);
+  hdf5.Write("Mesh", "partitions", myCellCount, globalCellCount, H5T_NATIVE_INT, &myCellIDsVector[0]);
+
+  // for now, the p refinements are globally known:
+  const map<GlobalIndexType,int>* pRefinements = &globalDofAssignment()->getCellPRefinements();
+  vector<int> pRefinementsVector(pRefinements->size() * 2);
+  int index = 0;
+  for (auto entry : *pRefinements)
+  {
+    pRefinementsVector[index++] = entry.first;
+    pRefinementsVector[index++] = entry.second;
+  }
+  int pRefinementsSize = pRefinementsVector.size();
+  hdf5.Write("Mesh", "p refinements size", pRefinementsSize);
+  hdf5.Write("Mesh", "p refinements", H5T_NATIVE_INT, pRefinementsVector.size(), &pRefinementsVector[0]);
+  
+  if (meshUsesMaximumRule())
+    hdf5.Write("Mesh", "GDARule", "max");
+  else if(meshUsesMinimumRule())
+    hdf5.Write("Mesh", "GDARule", "min");
+  else
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid GDA");
+  hdf5.Close();
 }
 // end HAVE_EPETRAEXT_HDF5 include guard
 #endif

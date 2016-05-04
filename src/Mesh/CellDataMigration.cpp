@@ -20,8 +20,11 @@ using namespace Camellia;
 typedef pair<RefinementBranch,vector<GlobalIndexType>> LabeledRefinementBranch; // first cellID indicates the root cell ID; after that, each cellID indicates first child of each refinement
 typedef pair<LabeledRefinementBranch, vector<vector<double>> > RootedLabeledRefinementBranch; // second contains vertex coordinates for root cell
 
+// TODO: move READ_ADVANCE and WRITE_ADVANCE into Camellia_Serialization.h or something like that
 #define READ_ADVANCE(dataLocation,variable) readAndAdvance(&variable,dataLocation,sizeof(variable))
+#define READ_ADVANCE_ARRAY(dataLocation,array) if (array.size() > 0) readAndAdvance(&array[0],dataLocation,sizeof(array[0])*array.size())
 #define WRITE_ADVANCE(dataLocation,variable) writeAndAdvance(dataLocation,&variable,sizeof(variable))
+#define WRITE_ADVANCE_ARRAY(dataLocation,array) if (array.size() > 0) writeAndAdvance(dataLocation,&array[0],sizeof(array[0])*array.size())
 
 void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
                                             const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches)
@@ -628,6 +631,12 @@ void CellDataMigration::getGeometry(MeshTopology* meshTopo, MeshGeometryInfo &ge
     thisLevelParents = nextLevelParents;
     geometryInfo.refinementLevels.push_back(refinementLevel);
   }
+  
+  geometryInfo.myCellIDs.clear();
+  const set<IndexType>* myCellIDs = &meshTopo->getMyActiveCellIndices();
+  geometryInfo.myCellIDs.insert(geometryInfo.myCellIDs.begin(), myCellIDs->begin(), myCellIDs->end());
+  
+  // TODO: treat periodic BCs
 }
 
 int CellDataMigration::getGeometryDataSize(const MeshGeometryInfo &geometryInfo)
@@ -662,6 +671,12 @@ int CellDataMigration::getGeometryDataSize(const MeshGeometryInfo &geometryInfo)
       dataSize += numRefinements * sizeof(pair<GlobalIndexType,GlobalIndexType>);
     }
   }
+  
+  int numMyCellIDs = geometryInfo.myCellIDs.size();
+  dataSize += sizeof(numMyCellIDs);
+  dataSize += sizeof(GlobalIndexTypeToCast) * numMyCellIDs;
+  
+  // TODO: treat periodic BCs
   return dataSize;
 }
 
@@ -711,10 +726,18 @@ void CellDataMigration::writeGeometryData(const MeshGeometryInfo &geometryInfo, 
       }
     }
   }
+  
+  int numMyCellIDs = geometryInfo.myCellIDs.size();
+  WRITE_ADVANCE(dataLocation, numMyCellIDs);
+  WRITE_ADVANCE_ARRAY(dataLocation, geometryInfo.myCellIDs);
+  
+    // TODO: treat periodic BCs
 }
 
 void CellDataMigration::readGeometryData(const char* &dataLocation, int bufferSize, MeshGeometryInfo &geometryInfo)
 {
+  const char* startingDataLocation = dataLocation;
+  
   READ_ADVANCE(dataLocation, geometryInfo.globalCellCount);
   READ_ADVANCE(dataLocation, geometryInfo.globalActiveCellCount);
   
@@ -734,10 +757,8 @@ void CellDataMigration::readGeometryData(const char* &dataLocation, int bufferSi
     int spaceDim = CellTopology::cellTopology(geometryInfo.rootCellTopos[rootCellOrdinal])->getDimension();
     for (int vertexOrdinal=0; vertexOrdinal<vertexCount; vertexOrdinal++)
     {
-      for (int d=0; d<spaceDim; d++)
-      {
-        READ_ADVANCE(dataLocation, geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal][d]);
-      }
+      geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal].resize(spaceDim);
+      READ_ADVANCE_ARRAY(dataLocation, geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal]);
     }
   }
   
@@ -761,5 +782,108 @@ void CellDataMigration::readGeometryData(const char* &dataLocation, int bufferSi
         READ_ADVANCE(dataLocation,geometryInfo.refinementLevels[level][refPatternKey][refinementOrdinal]);
       }
     }
+  }
+  
+  int numMyCellIDs;
+  READ_ADVANCE(dataLocation, numMyCellIDs);
+  geometryInfo.myCellIDs.resize(numMyCellIDs);
+  READ_ADVANCE_ARRAY(dataLocation, geometryInfo.myCellIDs);
+
+  // TODO: treat periodic BCs
+  
+  // have we read the whole buffer?
+  int remainingBufferSize = bufferSize - (dataLocation - startingDataLocation);
+  TEUCHOS_TEST_FOR_EXCEPTION(remainingBufferSize < 0, std::invalid_argument, "Read past the edge of the buffer!!");
+  bool bufferExhausted = (remainingBufferSize == 0);
+  
+  if (!bufferExhausted)
+  {
+    // if not, then there must be another entry to read.  First read, then merge:
+    MeshGeometryInfo otherGeometryInfo;
+    readGeometryData(dataLocation, remainingBufferSize, otherGeometryInfo);
+    
+    // *******  MERGE  *******
+    // sanity check: the two geometry info objects should agree on global counts
+    TEUCHOS_TEST_FOR_EXCEPTION(geometryInfo.globalCellCount != otherGeometryInfo.globalCellCount, std::invalid_argument, "Two geometry chunks differ on globalCellCount");
+    TEUCHOS_TEST_FOR_EXCEPTION(geometryInfo.globalActiveCellCount != otherGeometryInfo.globalActiveCellCount, std::invalid_argument, "Two geometry chunks differ on globalActiveCellCount");
+    
+    // merge root cells:
+    int otherRootCellOrdinal = 0;
+    for (GlobalIndexType otherRootCellID : otherGeometryInfo.rootCellIDs)
+    {
+      if (std::find(geometryInfo.rootCellIDs.begin(), geometryInfo.rootCellIDs.end(), otherRootCellID) == geometryInfo.rootCellIDs.end())
+      {
+        auto lowerIt = std::lower_bound(geometryInfo.rootCellIDs.begin(), geometryInfo.rootCellIDs.end(), otherRootCellID);
+        int insertLocation = lowerIt - geometryInfo.rootCellIDs.begin();
+        geometryInfo.rootCellIDs.insert(geometryInfo.rootCellIDs.begin() + insertLocation, otherRootCellID);
+        geometryInfo.rootCellTopos.insert(geometryInfo.rootCellTopos.begin() + insertLocation, otherGeometryInfo.rootCellTopos[otherRootCellOrdinal]);
+        geometryInfo.rootVertices.insert(geometryInfo.rootVertices.begin() + insertLocation, otherGeometryInfo.rootVertices[otherRootCellOrdinal]);
+      }
+      
+      otherRootCellOrdinal++;
+    }
+    
+    // merge refinement levels:
+    int totalLevels = max(geometryInfo.refinementLevels.size(),otherGeometryInfo.refinementLevels.size());
+    for (int level=0; level<totalLevels; level++)
+    {
+      if (level >= geometryInfo.refinementLevels.size())
+      {
+        // then copy otherGeometryInfo for this level to geometryInfo
+        geometryInfo.refinementLevels.push_back(otherGeometryInfo.refinementLevels[level]);
+      }
+      else if (level >= otherGeometryInfo.refinementLevels.size())
+      {
+        // then geometryInfo has the right information
+      }
+      else
+      {
+        // collect all refinement pattern keys in the two geometry objects
+        set<RefinementPatternKey> refKeys;
+        for (auto entry : geometryInfo.refinementLevels[level])
+        {
+          refKeys.insert(entry.first);
+        }
+        for (auto entry : otherGeometryInfo.refinementLevels[level])
+        {
+          refKeys.insert(entry.first);
+        }
+        for (RefinementPatternKey refKey : refKeys)
+        {
+          if (otherGeometryInfo.refinementLevels[level].find(refKey) == otherGeometryInfo.refinementLevels[level].end())
+          {
+            // then geometryInfo is already correct for this refKey
+          }
+          else if (geometryInfo.refinementLevels[level].find(refKey) == geometryInfo.refinementLevels[level].end())
+          {
+            // otherGeometryInfo is correct:
+            geometryInfo.refinementLevels[level][refKey] = otherGeometryInfo.refinementLevels[level][refKey];
+          }
+          else
+          {
+            // we actually need to merge
+            // easy way to do the merge is using set
+            set<pair<GlobalIndexType,GlobalIndexType>> refinements;
+            for (pair<GlobalIndexType,GlobalIndexType> refinement : geometryInfo.refinementLevels[level][refKey])
+            {
+              refinements.insert(refinement);
+            }
+            for (pair<GlobalIndexType,GlobalIndexType> refinement : otherGeometryInfo.refinementLevels[level][refKey])
+            {
+              refinements.insert(refinement);
+            }
+            vector<pair<GlobalIndexType,GlobalIndexType>> refinementsVector(refinements.begin(),refinements.end());
+            geometryInfo.refinementLevels[level][refKey] = refinementsVector;
+          }
+        }
+      }
+    }
+    
+    // merge active cells:
+    // concatenate:
+    geometryInfo.myCellIDs.insert(geometryInfo.myCellIDs.begin(),otherGeometryInfo.myCellIDs.begin(),otherGeometryInfo.myCellIDs.end());
+    // sort: (may not be important, but it seems a little cleaner)
+    std::sort(geometryInfo.myCellIDs.begin(), geometryInfo.myCellIDs.end());
+    // *******  END MERGE  *******
   }
 }

@@ -26,7 +26,7 @@ class MeshFactory
 public:
   // These versions are all deprecated, new versions should take in a VarFactoryPtr instead of BFPtr
 #ifdef HAVE_EPETRAEXT_HDF5
-  static MeshPtr loadFromHDF5(TBFPtr<double> bf, string filename);
+  static MeshPtr loadFromHDF5(TBFPtr<double> bf, string filename, Epetra_CommPtr Comm = Teuchos::null);
 #endif
   static MeshPtr hemkerMesh(double meshWidth, double meshHeight, double cylinderRadius, // cylinder is centered in quad mesh.
                             TBFPtr<double> bilinearForm, int H1Order, int pToAddTest);

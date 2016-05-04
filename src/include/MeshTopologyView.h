@@ -126,6 +126,14 @@ namespace Camellia {
     
     void printActiveCellAncestors();
     void printCellAncestors(IndexType cellIndex);
+    
+    // distributed read/write methods (for HDF5 support, e.g.)
+    // ! returns the size, in bytes, of the serialization of this rank's view of the MeshTopologyView object.  Includes the base MeshTopology's serialization.  (While potentially inefficient, this makes exported MeshTopologyViews self-contained.)
+    virtual int dataSize() const;
+    // ! reads a distributed MeshTopologyView
+    static MeshTopologyViewPtr read(Epetra_CommPtr comm, const char* &dataLocation, int size);
+    // ! writes a distributed MeshTopologyView
+    virtual void write(char* &dataLocation, int size) const;
   };
 
 }

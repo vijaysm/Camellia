@@ -138,12 +138,12 @@ public:
        map<int,int> trialOrderEnhancements=_emptyIntIntMap, map<int,int> testOrderEnhancements=_emptyIntIntMap,
        vector< PeriodicBCPtr > periodicBCs = vector< PeriodicBCPtr >(), Epetra_CommPtr Comm = Teuchos::null);
 
-  // Deprecated Constructor for min rule, n-D, single H1Order
+  // Constructor for min rule, n-D, single H1Order
   Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, int H1Order, int pToAddTest,
        map<int,int> trialOrderEnhancements=_emptyIntIntMap, map<int,int> testOrderEnhancements=_emptyIntIntMap,
        MeshPartitionPolicyPtr meshPartitionPolicy = Teuchos::null, Epetra_CommPtr Comm = Teuchos::null);
 
-  // Deprecated Constructor for min rule, n-D, vector H1Order for tensor topologies (tensorial degree 0 and 1 supported)
+  // Constructor for min rule, n-D, vector H1Order for tensor topologies (tensorial degree 0 and 1 supported)
   Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector<int> H1Order, int pToAddTest,
        map<int,int> trialOrderEnhancements=_emptyIntIntMap, map<int,int> testOrderEnhancements=_emptyIntIntMap,
        MeshPartitionPolicyPtr meshPartitionPolicy = Teuchos::null, Epetra_CommPtr Comm = Teuchos::null);
@@ -157,10 +157,6 @@ public:
 
   Epetra_CommPtr& Comm();
   Teuchos_CommPtr& TeuchosComm();
-  
-  int dataSize() const;
-  static MeshPtr read(const char* &dataLocation, int size);
-  void write(char* &dataLocation, int size) const;
   
   // ! deepCopy makes a deep copy of both MeshTopology and GDA, but not bilinear form
   MeshPtr deepCopy();

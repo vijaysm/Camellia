@@ -51,18 +51,17 @@ GlobalDofAssignment::GlobalDofAssignment(MeshPtr mesh, VarFactoryPtr varFactory,
     }
     
     _numPartitions = Comm->NumProc();
-    int myRank = Comm->MyPID();
     
     int globalActiveCellCount = _mesh->getTopology()->activeCellCount();
     set<GlobalIndexType> myCellIDs = _mesh->getTopology()->getMyActiveCellIndices();
     int numMyCellIDs = myCellIDs.size();
 
-    vector<int> myPartitionOffset(_numPartitions,0);
-    Comm->ScanSum(&numMyCellIDs, &myPartitionOffset[myRank], 1);
-    myPartitionOffset[myRank] -= numMyCellIDs;
+    int myPartitionOffset;
+    Comm->ScanSum(&numMyCellIDs, &myPartitionOffset, 1);
+    myPartitionOffset -= numMyCellIDs;
     
     vector<int> gatheredPartitionOffsets(_numPartitions,0);
-    Comm->SumAll(&myPartitionOffset[0], &gatheredPartitionOffsets[0], _numPartitions);
+    Comm->GatherAll(&myPartitionOffset, &gatheredPartitionOffsets[0], 1);
     
     vector<GlobalIndexTypeToCast> partitionOrderedCells(globalActiveCellCount,0);
     vector<GlobalIndexTypeToCast> gatheredPartitionOrderedCells(globalActiveCellCount,0);
@@ -70,9 +69,10 @@ GlobalDofAssignment::GlobalDofAssignment(MeshPtr mesh, VarFactoryPtr varFactory,
     int i=0;
     for (GlobalIndexType cellID : myCellIDs)
     {
-      partitionOrderedCells[i + myPartitionOffset[myRank]] = cellID;
+      partitionOrderedCells[i + myPartitionOffset] = cellID;
       i++;
     }
+    // since this does not contain the same number of entries on each rank, can't use GatherAll
     Comm->SumAll(&partitionOrderedCells[0], &gatheredPartitionOrderedCells[0], globalActiveCellCount);
     
     _partitions = vector<set<GlobalIndexType> >(_numPartitions);

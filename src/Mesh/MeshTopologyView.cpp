@@ -759,3 +759,20 @@ MeshTopologyViewPtr MeshTopologyView::getView(const set<IndexType> &activeCells)
 {
   return Teuchos::rcp( new MeshTopologyView(_meshTopo, activeCells) );
 }
+
+int MeshTopologyView::dataSize() const
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method");
+  return -1;
+}
+// ! reads a distributed MeshTopologyView
+MeshTopologyViewPtr MeshTopologyView::read(Epetra_CommPtr comm, const char* &dataLocation, int size)
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method");
+}
+
+// ! writes a distributed MeshTopologyView
+void MeshTopologyView::write(char* &dataLocation, int size) const
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method");
+}

@@ -7,6 +7,7 @@
 //
 
 #include "CamelliaCellTools.h"
+#include "CellDataMigration.h"
 #include "CellTopology.h"
 #include "GlobalDofAssignment.h"
 #include "MeshTopology.h"
@@ -87,6 +88,49 @@ MeshTopology::MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> p
     addCell(cellID, cellTopo, cellVertices);
     cellID++;
   }
+}
+
+MeshTopology::MeshTopology(Epetra_CommPtr Comm, const MeshGeometryInfo &meshGeometryInfo)
+{
+  // initialize data structures with spaceDim
+  // TODO: consider storing spaceDim in meshGeometryInfo
+  int mySpaceDim = 0;
+  if (meshGeometryInfo.rootCellIDs.size() != 0)
+  {
+    CellTopologyKey sampleCellTopoKey = meshGeometryInfo.rootCellTopos[0];
+    mySpaceDim = CellTopology::cellTopology(sampleCellTopoKey)->getDimension();
+  }
+  int globalSpaceDim;
+  Comm->MaxAll(&mySpaceDim, &globalSpaceDim, 1);
+  init(globalSpaceDim);
+  
+  _Comm = Comm;
+  _activeCellCount = meshGeometryInfo.globalActiveCellCount;
+  _nextCellIndex = meshGeometryInfo.globalCellCount;
+  int rootCellOrdinal = 0;
+  for (IndexType rootCellID : meshGeometryInfo.rootCellIDs)
+  {
+    const vector<vector<double>>* vertices = &meshGeometryInfo.rootVertices[rootCellOrdinal];
+    CellTopoPtr cellTopo = CellTopology::cellTopology(meshGeometryInfo.rootCellTopos[rootCellOrdinal]);
+    this->addCell(rootCellID, cellTopo, *vertices);
+    rootCellOrdinal++;
+  }
+  int numLevels = meshGeometryInfo.refinementLevels.size();
+  for (int level=0; level<numLevels; level++)
+  {
+    for (auto entry : meshGeometryInfo.refinementLevels[level])
+    {
+      RefinementPatternKey refPatternKey = entry.first;
+      RefinementPatternPtr refPattern = RefinementPattern::refinementPattern(refPatternKey);
+      for (pair<GlobalIndexType,GlobalIndexType> parentAndFirstChildID : entry.second)
+      {
+        GlobalIndexType parentCellID = parentAndFirstChildID.first;
+        GlobalIndexType firstChildCellID = parentAndFirstChildID.second;
+        refineCell(parentCellID, refPattern, firstChildCellID);
+      }
+    }
+  }
+  _ownedCellIndices.insert(meshGeometryInfo.myCellIDs.begin(), meshGeometryInfo.myCellIDs.end());
 }
 
 unsigned MeshTopology::activeCellCount()
@@ -1381,6 +1425,17 @@ pair<IndexType, unsigned> MeshTopology::getSecondCellForSide(IndexType sideEntit
 {
   if (_cellsForSideEntities.find(sideEntityIndex) == _cellsForSideEntities.end()) return {-1,-1};
   return _cellsForSideEntities[sideEntityIndex].second;
+}
+
+const map<EntityHandle, EntitySetPtr>& MeshTopology::getEntitySets()
+{
+  return _entitySets;
+}
+
+const map<string, vector<pair<EntityHandle, int>>>& MeshTopology::getTagSetsInteger()
+{
+  // tags with integer value, applied to EntitySets.
+  return _tagSetsInteger;
 }
 
 vector<IndexType> MeshTopology::getBoundarySidesThatMatch(SpatialFilterPtr spatialFilter) const
@@ -3818,4 +3873,22 @@ MeshTopologyViewPtr MeshTopology::getView(const set<IndexType> &activeCells)
 {
   MeshTopologyPtr thisPtr = Teuchos::rcp(this,false);
   return Teuchos::rcp( new MeshTopologyView(thisPtr, activeCells) );
+}
+
+int MeshTopology::dataSize() const
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method");
+  return -1;
+}
+
+// ! reads a distributed MeshTopology
+MeshTopologyPtr MeshTopology::read(Epetra_CommPtr comm, const char* &dataLocation, int size)
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method");
+}
+
+// ! writes a distributed MeshTopologyView
+void MeshTopology::write(char* &dataLocation, int size) const
+{
+  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unimplemented method");
 }

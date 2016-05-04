@@ -39,6 +39,7 @@ namespace Camellia
     std::vector<GlobalIndexType> rootCellIDs;
     std::vector<CellTopologyKey> rootCellTopos;
     std::vector<RefinementLevel> refinementLevels;
+    std::vector<GlobalIndexType> myCellIDs;
   };
   
 class CellDataMigration

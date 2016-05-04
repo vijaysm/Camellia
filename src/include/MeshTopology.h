@@ -26,8 +26,9 @@ using namespace std;
 
 namespace Camellia
 {
-class MeshTransformationFunction;
-class GlobalDofAssignment;
+  class MeshTransformationFunction;
+  class GlobalDofAssignment;
+  struct MeshGeometryInfo;
 
 class MeshTopology : public MeshTopologyView
 {
@@ -121,6 +122,7 @@ class MeshTopology : public MeshTopologyView
 public:
   MeshTopology(unsigned spaceDim, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
   MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
+  MeshTopology(Epetra_CommPtr Comm, const MeshGeometryInfo &meshGeometryInfo);
   virtual ~MeshTopology() {}
 
   CellPtr addCell(CellTopoPtr cellTopo, const vector< vector<double> > &cellVertices);
@@ -282,7 +284,18 @@ public:
   // ! Fills the provided container with the vertices for the requested cell
   void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID);
   
+  const map<EntityHandle, EntitySetPtr>& getEntitySets();
+  const map<string, vector<pair<EntityHandle, int>>>& getTagSetsInteger(); // tags with integer value, applied to EntitySets.
+  
   MeshTopologyViewPtr getView(const std::set<IndexType> &activeCells);
+  
+  // distributed read/write methods (for HDF5 support, e.g.)
+  // ! returns the size, in bytes, of the serialization of this rank's view of the MeshTopology object.
+  virtual int dataSize() const;
+  // ! reads a distributed MeshTopology
+  static MeshTopologyPtr read(Epetra_CommPtr comm, const char* &dataLocation, int size);
+  // ! writes a distributed MeshTopology
+  virtual void write(char* &dataLocation, int size) const;
 };
 }
 

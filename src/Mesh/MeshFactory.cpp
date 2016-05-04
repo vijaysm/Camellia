@@ -10,9 +10,11 @@
 
 #include "CamelliaCellTools.h"
 #include "CamelliaDebugUtility.h"
+#include "CellDataMigration.h"
 #include "GlobalDofAssignment.h"
 #include "GnuPlotUtil.h"
 #include "MOABReader.h"
+#include "MPIWrapper.h"
 #include "ParametricCurve.h"
 #include "RefinementHistory.h"
 
@@ -39,65 +41,124 @@ static ParametricCurvePtr parametricRect(double width, double height, double x0,
 map<int,int> MeshFactory::_emptyIntIntMap;
 
 #ifdef HAVE_EPETRAEXT_HDF5
-MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
+MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename, Epetra_CommPtr Comm)
 {
-  // 8-13-15 modified to use MPI communicator instead of serial.  This should give
-  // HDF5 a chance to do smart things with I/O and the network (e.g. read in on rank 0,
-  // and broadcast to all).  (Though the fact that it has a *chance* to do smart things
-  // doesn't mean it will.)
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-#else
-  Epetra_SerialComm Comm;
-#endif
-  EpetraExt::HDF5 hdf5(Comm);
-  hdf5.Open(filename);
-  int vertexIndicesSize, topoKeysSize, verticesSize, trialOrderEnhancementsSize, testOrderEnhancementsSize, histArraySize, H1OrderSize;
-  hdf5.Read("Mesh", "vertexIndicesSize", vertexIndicesSize);
-  hdf5.Read("Mesh", "topoKeysSize", topoKeysSize);
-  hdf5.Read("Mesh", "verticesSize", verticesSize);
-  hdf5.Read("Mesh", "trialOrderEnhancementsSize", trialOrderEnhancementsSize);
-  hdf5.Read("Mesh", "testOrderEnhancementsSize", testOrderEnhancementsSize);
-  hdf5.Read("Mesh", "histArraySize", histArraySize);
-  hdf5.Read("Mesh", "H1OrderSize", H1OrderSize);
-
-  int topoKeysIntSize = topoKeysSize * sizeof(Camellia::CellTopologyKey) / sizeof(int);
-
-  int numPartitions, maxPartitionSize;
-
-  hdf5.Read("Mesh", "numPartitions", numPartitions);
-  hdf5.Read("Mesh", "maxPartitionSize", maxPartitionSize);
-  FieldContainer<int> partitionsCastToInt(numPartitions,maxPartitionSize);
-  FieldContainer<GlobalIndexType> partitions;
-  if (numPartitions > 0)
+  if (Comm == Teuchos::null)
   {
-    hdf5.Read("Mesh", "partitions", H5T_NATIVE_INT, partitionsCastToInt.size(), &partitionsCastToInt[0]);
-    partitions.resize(numPartitions,maxPartitionSize);
-    for (int i=0; i<numPartitions; i++)
+    Comm = MPIWrapper::CommWorld();
+  }
+  EpetraExt::HDF5 hdf5(*Comm);
+  hdf5.Open(filename);
+  int numChunks;
+  hdf5.Read("MeshTopology", "num chunks", numChunks);
+  vector<int> chunkSizes(numChunks);
+  hdf5.Read("MeshTopology", "chunk sizes", H5T_NATIVE_INT, numChunks, &chunkSizes[0]);
+
+  int myRank = Comm->MyPID();
+  int numProcs = Comm->NumProc();
+  vector<int> myChunkRanks; // ranks that were part of the write, now assigned to me
+  if (numProcs < numChunks)
+  {
+    int chunksPerRank = numChunks / numProcs;
+    int extraChunks = numChunks % numProcs;
+    int myChunkCount;
+    int myChunkStart;
+    if (myRank < extraChunks)
     {
-      for (int j=0; j<maxPartitionSize; j++)
-      {
-        partitions(i,j) = (GlobalIndexType) partitionsCastToInt(i,j);
-      }
+      myChunkCount = chunksPerRank + 1;
+      myChunkStart = (chunksPerRank + 1) * myRank;
+    }
+    else
+    {
+      myChunkCount = chunksPerRank;
+      myChunkStart = extraChunks + chunksPerRank * myRank;
+    }
+    for (int i=0; i<myChunkCount; i++)
+    {
+      myChunkRanks.push_back(myChunkStart + i);
     }
   }
   else
   {
+    if (myRank < numChunks)
+    {
+      myChunkRanks.push_back(myRank);
+    }
+  }
+  int myGeometrySize = 0;
+  for (int myChunkRank : myChunkRanks)
+  {
+    myGeometrySize += chunkSizes[myChunkRank];
+  }
+  int globalGeometrySize;
+  Comm->SumAll(&myGeometrySize, &globalGeometrySize, 1);
+  vector<char> myGeometryData(myGeometrySize);
+  void* myGeometryLocation = (myGeometrySize > 0) ? &myGeometryData[0] : NULL;
+  hdf5.Read("MeshTopology", "geometry chunks", myGeometrySize, globalGeometrySize, H5T_NATIVE_CHAR, myGeometryLocation);
+  MeshGeometryInfo geometryInfo;
+
+  const char* geometryDataLocation = (myGeometrySize > 0) ? &myGeometryData[0] : NULL;
+  CellDataMigration::readGeometryData(geometryDataLocation, myGeometrySize, geometryInfo);
+  MeshTopologyPtr baseMeshTopo = Teuchos::rcp( new MeshTopology(Comm, geometryInfo) );
+  
+  // if the base mesh topology has a pure view, record that, too
+  bool isDistributedView = hdf5.IsContained("MeshTopologyViewDistributed");
+  bool isSerialView = hdf5.IsContained("MeshTopologyView");
+  bool isView = (isDistributedView || isSerialView);
+  MeshTopologyViewPtr meshTopoView;
+  if (!isView)
+  {
+    meshTopoView = baseMeshTopo;
+  }
+  else
+  {
+    set<IndexType> viewCells;
+    if (isDistributedView)
+    {
+      int numWritingProcs;
+      hdf5.Read("MeshTopologyViewDistributed", "numProcs", numWritingProcs);
+      vector<int> knownCellCounts(numWritingProcs);
+      void* knownCellCountsLocation = (numWritingProcs > 0) ? &knownCellCounts[0] : NULL;
+      hdf5.Write("MeshTopologyViewDistributed", "known cell counts", H5T_NATIVE_INT, numWritingProcs, knownCellCountsLocation);
+      TEUCHOS_TEST_FOR_EXCEPTION(numWritingProcs != numChunks, std::invalid_argument, "numWritingProcs != numChunks");
+      
+      // we use the same assignments as above
+      int myKnownCellCount = 0;
+      for (int myChunkRank : myChunkRanks)
+      {
+        myKnownCellCount += knownCellCounts[myChunkRank];
+      }
+      int globalKnownCellCount;
+      Comm()->SumAll(&myKnownCellCount, &globalKnownCellCount, 1);
+      
+      vector<int> myKnownCellsVector(myKnownCellCount); // may contain duplicates
+      void* myKnownCellsLocation = (myKnownCellCount > 0) ? &myKnownCellsVector[0] : NULL;
+      hdf5.Read("MeshTopologyViewDistributed", "known cell IDs", myKnownCellCount, globalKnownCellCount,
+                 H5T_NATIVE_INT, myKnownCellsLocation);
+      viewCells.insert(myKnownCellsVector.begin(),myKnownCellsVector.end());
+    }
+    else
+    {
+      int knownCellCount;
+      hdf5.Read("MeshTopologyView", "known cell count", knownCellCount);
+      vector<int> cellIDVector(knownCellCount);
+      void* cellIDLocation = (cellIDVector.size() > 0) ? &cellIDVector[0] : NULL;
+      hdf5.Write("MeshTopologyView", "known cell IDs", H5T_NATIVE_INT, knownCellCount, cellIDLocation);
+      viewCells.insert(cellIDVector.begin(),cellIDVector.end());
+    }
+    meshTopoView = baseMeshTopo->getView(viewCells);
   }
 
-  int dimension, deltaP;
-  vector<int> vertexIndices(vertexIndicesSize);
-  vector<Camellia::CellTopologyKey> topoKeys(topoKeysSize);
+  int trialOrderEnhancementsSize, testOrderEnhancementsSize, H1OrderSize;
+  hdf5.Read("Mesh", "trialOrderEnhancementsSize", trialOrderEnhancementsSize);
+  hdf5.Read("Mesh", "testOrderEnhancementsSize", testOrderEnhancementsSize);
+  hdf5.Read("Mesh", "H1OrderSize", H1OrderSize);
+
   vector<int> trialOrderEnhancementsVec(trialOrderEnhancementsSize);
   vector<int> testOrderEnhancementsVec(testOrderEnhancementsSize);
-  vector<double> vertices(verticesSize);
-  vector<int> histArray(histArraySize);
   vector<int> H1Order(H1OrderSize);
   string GDARule;
-  hdf5.Read("Mesh", "dimension", dimension);
-  hdf5.Read("Mesh", "vertexIndices", H5T_NATIVE_INT, vertexIndicesSize, &vertexIndices[0]);
-  hdf5.Read("Mesh", "topoKeys", H5T_NATIVE_INT, topoKeysIntSize, &topoKeys[0]);
-  hdf5.Read("Mesh", "vertices", H5T_NATIVE_DOUBLE, verticesSize, &vertices[0]);
+  int deltaP;
   hdf5.Read("Mesh", "deltaP", deltaP);
   hdf5.Read("Mesh", "GDARule", GDARule);
   if (GDARule == "min")
@@ -105,59 +166,51 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
   }
   else if(GDARule == "max")
   {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "loadFromHDF5() does not currently supported maximum rule meshes");
   }
   else
+  {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid GDA");
-  hdf5.Read("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsSize, &trialOrderEnhancementsVec[0]);
-  hdf5.Read("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsSize, &testOrderEnhancementsVec[0]);
+  }
+  void* trialOrderEnhancementsLocation = (trialOrderEnhancementsSize > 0) ? &trialOrderEnhancementsVec[0] : NULL;
+  hdf5.Read("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsSize, trialOrderEnhancementsLocation);
+
+  void* testOrderEnhancementsLocation = (testOrderEnhancementsSize > 0) ? &testOrderEnhancementsVec[0] : NULL;
+  hdf5.Read("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsSize, testOrderEnhancementsLocation);
   hdf5.Read("Mesh", "H1Order", H5T_NATIVE_INT, H1OrderSize, &H1Order[0]);
 
-  if (histArraySize > 0) hdf5.Read("Mesh", "refinementHistory", H5T_NATIVE_INT, histArraySize, &histArray[0]);
+  vector<int> partitionCounts(numChunks);
+  hdf5.Read("Mesh", "partition counts", H5T_NATIVE_INT, numChunks, &partitionCounts[0]);
+  // we use the same assignments as above
+  int myCellCount = 0;
+  for (int myChunkRank : myChunkRanks)
+  {
+    myCellCount += partitionCounts[myChunkRank];
+  }
+  int globalActiveCellCount;
+  Comm()->SumAll(&myCellCount, &globalActiveCellCount, 1);
+  
+  vector<int> myCellsIntVector(myCellCount); // may contain duplicates
+  void* myCellsLocation = (myCellCount > 0) ? &myCellsIntVector[0] : NULL;
+  hdf5.Read("Mesh", "partitions", myCellCount, globalActiveCellCount, H5T_NATIVE_INT, myCellsLocation);
+  vector<GlobalIndexType> myCells(myCellsIntVector.begin(),myCellsIntVector.end());
+
+  int pRefinementsSize; // in int entries (2 per p-refinement)
+  hdf5.Read("Mesh", "p refinements size", pRefinementsSize);
+  vector<int> pRefinementsVector(pRefinementsSize);
+  if (pRefinementsSize > 0)
+  {
+    hdf5.Read("Mesh", "p refinements", H5T_NATIVE_INT, pRefinementsSize, &pRefinementsVector[0]);
+  }
+  map<GlobalIndexType,int> pRefinements;
+  for (int i=0; i<pRefinementsSize/2; i++)
+  {
+    GlobalIndexType cellID = pRefinementsVector[i+0];
+    int pRefinement = pRefinementsVector[i+1];
+    pRefinements[cellID] = pRefinement;
+  }
+
   hdf5.Close();
-
-  CellTopoPtr line_2 = Camellia::CellTopology::line();
-  CellTopoPtr quad_4 = Camellia::CellTopology::quad();
-  CellTopoPtr tri_3 = Camellia::CellTopology::triangle();
-  CellTopoPtr hex_8 = Camellia::CellTopology::hexahedron();
-
-  vector< CellTopoPtr > cellTopos;
-  vector< vector<unsigned> > elementVertices;
-  int vindx = 0;
-  for (unsigned cellNumber = 0; cellNumber < topoKeysSize; cellNumber++)
-  {
-    CellTopoPtr cellTopo = CamelliaCellTools::cellTopoForKey(topoKeys[cellNumber]);
-    cellTopos.push_back(cellTopo);
-    vector<unsigned> elemVertices;
-    for (int i=0; i < cellTopo->getVertexCount(); i++)
-    {
-      elemVertices.push_back(vertexIndices[vindx]);
-      vindx++;
-    }
-    elementVertices.push_back(elemVertices);
-  }
-
-//    cout << "Elements:\n";
-//    for (int i=0; i<elementVertices.size(); i++) {
-//      cout << "Element " << i << ":\n";
-//      Camellia::print("vertex indices", elementVertices[i]);
-//    }
-
-  vector< vector<double> > verticesList;
-  for (int i=0; i < vertices.size()/dimension; i++)
-  {
-    vector<double> vertex;
-    for (int d=0; d<dimension; d++)
-    {
-      vertex.push_back(vertices[dimension*i+d]);
-    }
-    verticesList.push_back(vertex);
-  }
-
-//    cout << "Vertices:\n";
-//    for (int i=0; i<verticesList.size(); i++) {
-//      cout << "Vertex " << i << ":\n";
-//      Camellia::print("vertex coordinates", verticesList[i]);
-//    }
 
   map<int, int> trialOrderEnhancements;
   map<int, int> testOrderEnhancements;
@@ -170,63 +223,14 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename)
     testOrderEnhancements[testOrderEnhancementsVec[2*i]] = testOrderEnhancementsVec[2*i+1];
   }
 
-  MeshGeometryPtr meshGeometry = Teuchos::rcp( new MeshGeometry(verticesList, elementVertices, cellTopos) );
-  MeshTopologyPtr meshTopology = Teuchos::rcp( new MeshTopology(meshGeometry) );
-  MeshPtr mesh = Teuchos::rcp( new Mesh (meshTopology, bf, H1Order, deltaP, trialOrderEnhancements, testOrderEnhancements) );
-
-  for (int i=0; i < histArraySize;)
-  {
-    RefinementType refType = RefinementType(histArray[i]);
-    i++;
-    int numCells = histArray[i];
-    i++;
-    CellTopoPtr cellTopo; // we assume all cells for the refinement have the same type
-    if (numCells > 0)
-    {
-      GlobalIndexType firstCellID = histArray[i];
-      cellTopo = mesh->getElementType(firstCellID)->cellTopoPtr;
-    }
-    set<GlobalIndexType> activeIDs = mesh->getActiveCellIDsGlobal();
-    set<GlobalIndexType> cellIDs;
-    for (int c=0; c < numCells; c++)
-    {
-      GlobalIndexType cellID = histArray[i];
-      i++;
-      cellIDs.insert(cellID);
-      // check that the cellIDs are all active nodes
-      if (refType != H_UNREFINEMENT)
-      {
-        if (activeIDs.find(cellID) == activeIDs.end())
-        {
-          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellID for refinement is not an active cell of the mesh");
-        }
-      }
-    }
-    bool repartitionAndRebuild = false; // we'll do this at the end: if partitions were set, we'll use those.  Otherwise, we'll just do a standard repartition
-
-    switch (refType)
-    {
-    case P_REFINEMENT:
-      mesh->pRefine(cellIDs);
-      break;
-    case H_UNREFINEMENT:
-      mesh->hUnrefine(cellIDs);
-      break;
-    default:
-      // if we get here, it should be an h-refinement with a ref pattern
-      mesh->hRefine(cellIDs, RefinementHistory::refPatternForRefType(refType, cellTopo), repartitionAndRebuild);
-    }
-  }
-  if (numPartitions > 0)
-  {
-    mesh->globalDofAssignment()->setPartitions(partitions);
-  }
-  else
-  {
-    mesh->globalDofAssignment()->repartitionAndMigrate(); // since no Solution registered, won't actually migrate anything
-  }
+  // for now, we actually neglect the "myCells" container, and let that information come through the MeshTopology, if it is
+  // distributed, or else through the usual default assignment from GlobalDofAssignment and the (default) partition policy.
+  MeshPtr mesh = Teuchos::rcp( new Mesh (meshTopoView, bf, H1Order, deltaP, trialOrderEnhancements, testOrderEnhancements,
+                                         Teuchos::null, Comm) );
+  mesh->globalDofAssignment()->setCellPRefinements(pRefinements);
   return mesh;
 }
+// end HAVE_EPETRAEXT_HDF5 include guard
 #endif
 
 MeshPtr MeshFactory::minRuleMesh(MeshTopologyPtr meshTopo, TBFPtr<double> bf, int H1Order, int delta_k,
