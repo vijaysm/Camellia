@@ -536,6 +536,42 @@ std::vector<IndexType> MeshTopologyView::getEntityVertexIndices(unsigned d, Inde
   return _meshTopo->getEntityVertexIndices(d,entityIndex);
 }
 
+
+set<IndexType> MeshTopologyView::getGatheredActiveCellsForTime(double t) const
+{
+  set<IndexType> localSidesForTime = getLocallyKnownSidesForTime(t);
+  set<IndexType> localActiveCellsForTime;
+  for (IndexType side : localSidesForTime)
+  {
+    vector<IndexType> cellsForSide = getCellsForSide(side);
+    for (IndexType cellIndex : cellsForSide)
+    {
+      if (_activeCells.find(cellIndex) != _activeCells.end())
+      {
+        localActiveCellsForTime.insert(cellIndex);
+      }
+    }
+  }
+  if (!isDistributed())
+  {
+    return localActiveCellsForTime;
+  }
+  const set<IndexType>* myCells = &getMyActiveCellIndices();
+  vector<GlobalIndexTypeToCast> myCellsForTime;
+  for (IndexType localActiveCellIndex : localActiveCellsForTime)
+  {
+    if (myCells->find(localActiveCellIndex) != myCells->end())
+    {
+      myCellsForTime.push_back(localActiveCellIndex);
+    }
+  }
+  vector<GlobalIndexTypeToCast> gatheredCellsForTime;
+  vector<int> offsets;
+  MPIWrapper::allGatherCompact(*Comm(), gatheredCellsForTime, myCellsForTime, offsets);
+  set<GlobalIndexType> gatheredCellSet(gatheredCellsForTime.begin(),gatheredCellsForTime.end());
+  return gatheredCellSet;
+}
+
 MeshTopologyPtr MeshTopologyView::getGatheredCopy() const
 {
   MeshGeometryInfo baseMeshGeometry;
@@ -584,6 +620,7 @@ MeshTopologyPtr MeshTopologyView::getGatheredCopy(const std::set<IndexType> &cel
   MeshTopologyViewPtr viewForCells = getView(cellsToInclude);
   return viewForCells->getGatheredCopy();
 }
+
 
 const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
 {
@@ -654,6 +691,38 @@ vector<IndexType> MeshTopologyView::getSidesContainingEntity(unsigned d, IndexTy
     }
   }
   return viewSides;
+}
+
+std::set<IndexType> MeshTopologyView::getLocallyKnownSidesForTime(double t) const
+{
+  // find all sides all of whose vertices match time t
+  
+  // find vertices that match t
+  vector<IndexType> matchingVertexIndices = _meshTopo->getVertexIndicesForTime(t);
+  // matchingVertexIndices is sorted; we use that fact below
+
+  set<IndexType> sidesThatMatch;
+  unsigned vertexDim = 0;
+  unsigned sideDim = getDimension() - 1;
+  for (IndexType vertexIndex : matchingVertexIndices)
+  {
+    vector<IndexType> sidesForVertex = getSidesContainingEntity(vertexDim, vertexIndex);
+    for (IndexType sideForVertex : sidesForVertex)
+    {
+      vector<IndexType> verticesForSide = _meshTopo->getEntityVertexIndices(sideDim, sideForVertex);
+      bool nonMatchFound = false;
+      for (IndexType vertexForSide : verticesForSide)
+      {
+        if (std::find(matchingVertexIndices.begin(), matchingVertexIndices.end(), vertexForSide) == matchingVertexIndices.end())
+        {
+          nonMatchFound = true;
+          break;
+        }
+      }
+      if (!nonMatchFound) sidesThatMatch.insert(sideForVertex);
+    }
+  }
+  return sidesThatMatch;
 }
 
 const std::vector<double>& MeshTopologyView::getVertex(IndexType vertexIndex) const
