@@ -146,7 +146,7 @@ public:
   vector<EntityHandle> getEntityHandlesForCell(IndexType cellIndex);
   
   // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs and the
-  Teuchos::RCP<MeshTopology> deepCopy();
+  Teuchos::RCP<MeshTopology> deepCopy() const;
 
   // ! This method only gets within a factor of 2 or so, but can give rough estimates
   void printApproximateMemoryReport();
@@ -210,7 +210,7 @@ public:
   unsigned getSubEntityPermutation(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal);
   bool getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14);
   std::vector<IndexType> getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol=1e-14);
-  const std::vector<double>& getVertex(IndexType vertexIndex);
+  const std::vector<double>& getVertex(IndexType vertexIndex) const;
   
   bool isBoundarySide(IndexType sideEntityIndex);
   bool isValidCellIndex(IndexType cellIndex) const;
@@ -219,10 +219,10 @@ public:
   void refineCell(IndexType cellIndex, RefinementPatternPtr refPattern, IndexType firstChildCellIndex);
   
   // ! Returns the global cell count.
-  IndexType cellCount();
+  IndexType cellCount() const;
 
   // ! Returns the global active cell count.
-  IndexType activeCellCount();
+  IndexType activeCellCount() const;
 
   //  pair<IndexType,IndexType> leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity(unsigned d, unsigned constrainingEntityIndex);
 
@@ -237,8 +237,8 @@ public:
   set< pair<IndexType, unsigned> > getActiveBoundaryCells(); // (cellIndex, sideOrdinal)
   vector<double> getCellCentroid(IndexType cellIndex);
   
-  const set<IndexType> &getRootCellIndicesLocal();
-  set<IndexType> getRootCellIndicesGlobal();
+  const set<IndexType> &getRootCellIndicesLocal() const;
+  set<IndexType> getRootCellIndicesGlobal() const;
   
   vector<EntitySetPtr> getEntitySetsForTagID(string tagName, int tagID);
   

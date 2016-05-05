@@ -35,11 +35,6 @@ private:
                                Intrepid::FieldContainer<Scalar> &gatheredValues,
                                Intrepid::FieldContainer<Scalar> &myValues,
                                Intrepid::FieldContainer<int> &offsets);
-  template<typename Scalar>
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               std::vector<Scalar> &gatheredValues,
-                               std::vector<Scalar> &myValues,
-                               std::vector<int> &offsets);
 public:
   // sum the contents of inValues across all processors, and stores the result in outValues
   // the rank of outValues determines the nature of the sum:
@@ -53,43 +48,49 @@ public:
                                    Intrepid::FieldContainer<int> &values,
                                    Intrepid::FieldContainer<int> &myValues); // assumes myValues is same size on every proc.
 
+  template<typename Scalar>
+  static void allGatherCompact(const Epetra_Comm &Comm,
+                               std::vector<Scalar> &gatheredValues,
+                               std::vector<Scalar> &myValues,
+                               std::vector<int> &offsets);
+  
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
                                Intrepid::FieldContainer<int> &gatheredValues,
                                Intrepid::FieldContainer<int> &myValues,
                                Intrepid::FieldContainer<int> &offsets);
   
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
                                std::vector<int> &gatheredValues,
                                std::vector<int> &myValues,
                                std::vector<int> &offsets);
   
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
                                std::vector<unsigned> &gatheredValues,
                                std::vector<unsigned> &myValues,
                                std::vector<int> &offsets);
   
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
                                std::vector<double> &gatheredValues,
                                std::vector<double> &myValues,
                                std::vector<int> &offsets);
 
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
                                std::vector<std::pair<std::pair<unsigned,unsigned>,int>> &gatheredValues,
                                std::vector<std::pair<std::pair<unsigned,unsigned>,int>> &myValues,
                                std::vector<int> &offsets);
   
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
   static void allGatherCompact(const Epetra_Comm &Comm,
                                Intrepid::FieldContainer<double> &gatheredValues,
                                Intrepid::FieldContainer<double> &myValues,
@@ -124,8 +125,32 @@ public:
   //! sum values entry-wise across all processors
   template<typename ScalarType>
   static void entryWiseSum(std::vector<ScalarType> &values);
-    
-  static void entryWiseSum(Intrepid::FieldContainer<double> &values); // sums values entry-wise across all processors
+  
+  //! sums values entry-wise across all processors
+  static void entryWiseSum(Intrepid::FieldContainer<double> &values);
+  
+  //! sum values entry-wise across all processors in Comm: char specialization because Epetra_Comm does not provide
+  static void entryWiseSum(const Epetra_Comm &Comm, std::vector<char> &values)
+  {
+#ifdef HAVE_MPI
+    // check whether Comm is MpiComm
+    const Epetra_MpiComm* mpiComm = dynamic_cast<const Epetra_MpiComm*>(&Comm);
+    if (mpiComm != NULL)
+    {
+      std::vector<char> valuesCopy = values; // it appears this copy is necessary
+      
+      MPI_Comm raw_MpiComm = mpiComm->Comm();
+      MPI_Allreduce(&valuesCopy[0], &values[0], values.size(), MPI_CHAR, MPI_SUM, raw_MpiComm);
+    }
+#else
+#endif
+  }
+  
+  static void entryWiseSum(const Epetra_Comm &Comm, std::vector<int> &values);
+  static void entryWiseSum(const Epetra_Comm &Comm, std::vector<long> &values);
+  static void entryWiseSum(const Epetra_Comm &Comm, std::vector<long long> &values);
+  static void entryWiseSum(const Epetra_Comm &Comm, std::vector<double> &values);
+  
   // sum the contents of valuesToSum across all processors, and returns the result:
   // (valuesToSum may vary in length across processors)
   static double sum(const Intrepid::FieldContainer<double> &valuesToSum);
@@ -159,7 +184,6 @@ public:
 #endif
   }
   
-  //! sum values entry-wise across all processors in Comm
   template<typename ScalarType>
   void MPIWrapper::entryWiseSum(const Epetra_Comm &Comm, std::vector<ScalarType> &values)
   {
@@ -207,7 +231,33 @@ public:
     Comm.SumAll(&valueCopy, &value, 1);
     return value;
   }
-  
+
+  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
+  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+  template<typename Scalar>
+  void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm, std::vector<Scalar> &gatheredValues,
+                                    std::vector<Scalar> &myValues, std::vector<int> &offsets)
+  {
+    int mySize = myValues.size();
+    int totalSize;
+    Comm.SumAll(&mySize, &totalSize, 1);
+    
+    int myOffset = 0;
+    Comm.ScanSum(&mySize,&myOffset,1);
+    myOffset -= mySize;
+    
+    gatheredValues.resize(totalSize);
+    for (int i=0; i<mySize; i++)
+    {
+      gatheredValues[myOffset+i] = myValues[i];
+    }
+//    MPIWrapper::entryWiseSum<Scalar>(Comm, gatheredValues);
+    MPIWrapper::entryWiseSum(Comm, gatheredValues);
+    
+    offsets.resize(Comm.NumProc());
+    offsets[Comm.MyPID()] = myOffset;
+    MPIWrapper::entryWiseSum(Comm, offsets);
+  }
 }
 
 #endif /* defined(__Camellia_debug__MPIWrapper__) */

@@ -68,7 +68,7 @@ public:
   IndexType cellIndex();
   const vector< Teuchos::RCP< Cell > > &children();
   void setChildren(const vector<GlobalIndexType> &childIndices);
-  vector<IndexType> getChildIndices(MeshTopologyViewPtr meshTopoViewForCellValidity);
+  vector<IndexType> getChildIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   vector< pair<IndexType, unsigned> > childrenForSide(unsigned sideOrdinal);
   // !! returns the ordinal of the specified child in the parent's children container (which matches the order in RefinementPattern).  Returns -1 if the cell has no child with the specified cellIndex.
   int findChildOrdinal(IndexType childCellIndex);
@@ -86,7 +86,7 @@ public:
 
   bool isBoundary(unsigned sideOrdinal);
   bool isInteriorChild();
-  bool isParent(MeshTopologyViewPtr meshTopoViewForCellValidity);
+  bool isParent(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
 
   unsigned childOrdinal(IndexType childIndex);
   unsigned findSubcellOrdinal(unsigned subcdim, IndexType subcEntityIndex); // this is pretty brute force right now

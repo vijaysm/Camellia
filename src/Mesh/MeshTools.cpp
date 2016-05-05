@@ -115,24 +115,38 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
 {
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(spaceTimeMesh->getTopology().get());
   TEUCHOS_TEST_FOR_EXCEPTION(!meshTopo, std::invalid_argument, "timeSliceMesh() called with spaceTimeMesh that appears to be pure MeshTopologyView.  This is not supported.");
+  
+  MeshTopologyViewPtr meshTopoLocal;
+  
+  if (! meshTopo->isDistributed())
+  {
+    meshTopoLocal = Teuchos::rcp(meshTopo,false);
+  }
+  else
+  {
+    // NOTE: for a large mesh, this could be an expensive operation!!
+    // If timeSliceMesh() sees significant use, we should rewrite to have it operate on the original distributed mesh.
+    meshTopoLocal = meshTopo->getGatheredViewCopy();
+    meshTopo = dynamic_cast<MeshTopology*>(meshTopoLocal.get());
+  }
+  
   set<IndexType> activeCellIDsForTime;
   
   // for now, throw an exception if trying to do this with a distributed MeshTopology
   // We need to think through the construction of sliceTopo more carefully in that case
-  bool isDistributedMeshTopo = (meshTopo->Comm() != Teuchos::null) && (meshTopo->Comm()->NumProc() > 1);
+  bool isDistributedMeshTopo = meshTopoLocal->isDistributed();
   TEUCHOS_TEST_FOR_EXCEPTION(isDistributedMeshTopo, std::invalid_argument, "timeSliceMesh() does not yet supported distributed MeshTopology");
   
-  set<GlobalIndexType> allActiveCellIDs = spaceTimeMesh->getActiveCellIDsGlobal();
+  set<IndexType> allActiveCellIDs = meshTopoLocal->getLocallyKnownActiveCellIndices();
 
-  int spaceDim = meshTopo->getDimension() - 1;  // # of true spatial dimensions
+  int spaceDim = meshTopoLocal->getDimension() - 1;  // # of true spatial dimensions
 
   MeshTopologyPtr sliceTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
-  set<IndexType> rootCellIDs = meshTopo->getRootCellIndicesLocal();
+  set<IndexType> rootCellIDs = meshTopoLocal->getRootCellIndicesLocal();
   set<IndexType> cellIDsToCheck = rootCellIDs;
-  for (set<IndexType>::iterator rootCellIt = rootCellIDs.begin(); rootCellIt != rootCellIDs.end(); rootCellIt++)
+  for (IndexType rootCellID : rootCellIDs)
   {
-    IndexType rootCellID = *rootCellIt;
-    FieldContainer<double> physicalNodes = spaceTimeMesh->physicalCellNodesForCell(rootCellID);
+    FieldContainer<double> physicalNodes = meshTopoLocal->physicalCellNodesForCell(rootCellID, true);
     if (cellMatches(physicalNodes, t))   // cell and some subset of its descendents should be included in slice mesh
     {
       vector< vector< double > > sliceNodes = timeSliceForCell(physicalNodes, t);
@@ -141,8 +155,11 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
       sliceCellIDToSpaceTimeCellID[sliceCell->cellIndex()] = rootCellID;
     }
   }
+  
+  MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(Teuchos::null, spaceTimeMesh, sliceCellIDToSpaceTimeCellID);
 
-  MeshPtr sliceMesh = Teuchos::rcp( new Mesh(sliceTopo, spaceTimeMesh->bilinearForm(), H1OrderForSlice, spaceDim) );
+  MeshPtr sliceMesh = Teuchos::rcp( new Mesh(sliceTopo, spaceTimeMesh->bilinearForm(), H1OrderForSlice, spaceDim,
+                                             map<int,int>(), map<int,int>(), partitionPolicy) );
 
   // process refinements.  For now, we assume isotropic refinements, which means that each refinement in spacetime induces a refinement in the spatial slice
   set<IndexType> sliceCellIDsToCheckForRefinement = sliceTopo->getLocallyKnownActiveCellIndices();
@@ -154,16 +171,16 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
 
     CellPtr sliceCell = sliceTopo->getCell(sliceCellID);
     CellPtr spaceTimeCell = meshTopo->getCell(sliceCellIDToSpaceTimeCellID[sliceCellID]);
-    if (spaceTimeCell->isParent(spaceTimeMesh->getTopology()))
+    if (spaceTimeCell->isParent(meshTopoLocal))
     {
       set<GlobalIndexType> cellsToRefine;
       cellsToRefine.insert(sliceCellID);
-      sliceMesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPattern(sliceCell->topology()));
-      vector<IndexType> spaceTimeChildren = spaceTimeCell->getChildIndices(spaceTimeMesh->getTopology());
+      sliceMesh->hRefine(cellsToRefine, RefinementPattern::regularRefinementPattern(sliceCell->topology()), false); // false: don't repartition and rebuild
+      vector<IndexType> spaceTimeChildren = spaceTimeCell->getChildIndices(meshTopoLocal);
       for (int childOrdinal=0; childOrdinal<spaceTimeChildren.size(); childOrdinal++)
       {
         IndexType childID = spaceTimeChildren[childOrdinal];
-        FieldContainer<double> childNodes = meshTopo->physicalCellNodesForCell(childID);
+        FieldContainer<double> childNodes = meshTopo->physicalCellNodesForCell(childID, true);
         if (cellMatches(childNodes, t))
         {
           vector< vector<double> > childSlice = timeSliceForCell(childNodes, t);
@@ -174,10 +191,7 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
       }
     }
   }
-
-  MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(sliceMesh, spaceTimeMesh, sliceCellIDToSpaceTimeCellID);
-
-  sliceMesh->setPartitionPolicy(partitionPolicy);
+  sliceMesh->repartitionAndRebuild(); // mostly to rebuild dof lookups
 
   return sliceMesh;
 }

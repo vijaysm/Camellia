@@ -133,7 +133,7 @@ MeshTopology::MeshTopology(Epetra_CommPtr Comm, const MeshGeometryInfo &meshGeom
   _ownedCellIndices.insert(meshGeometryInfo.myCellIDs.begin(), meshGeometryInfo.myCellIDs.end());
 }
 
-unsigned MeshTopology::activeCellCount()
+unsigned MeshTopology::activeCellCount() const
 {
   return _activeCellCount;
 }
@@ -1099,7 +1099,7 @@ bool MeshTopology::cellContainsPoint(GlobalIndexType cellID, const vector<double
   return result == 1;
 }
 
-IndexType MeshTopology::cellCount()
+IndexType MeshTopology::cellCount() const
 {
   return _nextCellIndex;
 }
@@ -1578,7 +1578,7 @@ void MeshTopology::deactivateCell(CellPtr cell)
   _activeCells.erase(cell->cellIndex());
 }
 
-MeshTopologyPtr MeshTopology::deepCopy()
+MeshTopologyPtr MeshTopology::deepCopy() const
 {
   MeshTopologyPtr meshTopoCopy = Teuchos::rcp( new MeshTopology(*this) );
   meshTopoCopy->deepCopyCells();
@@ -2000,7 +2000,7 @@ unsigned MeshTopology::getSubEntityIndex(unsigned int d, unsigned int entityInde
   return subEntityIndex;
 }
 
-const vector<double>& MeshTopology::getVertex(unsigned vertexIndex)
+const vector<double>& MeshTopology::getVertex(unsigned vertexIndex) const
 {
   return _vertices[vertexIndex];
 }
@@ -3736,12 +3736,12 @@ void MeshTopology::determineGeneralizedParentsForRefinement(CellPtr cell, Refine
   }
 }
 
-const set<unsigned> &MeshTopology::getRootCellIndicesLocal()
+const set<unsigned> &MeshTopology::getRootCellIndicesLocal() const
 {
   return _rootCells;
 }
 
-set<IndexType> MeshTopology::getRootCellIndicesGlobal()
+set<IndexType> MeshTopology::getRootCellIndicesGlobal() const
 {
   if (Comm() == Teuchos::null)
   {
@@ -3760,7 +3760,7 @@ set<IndexType> MeshTopology::getRootCellIndicesGlobal()
    */
   
   // which of my root cells do I own?
-  MeshTopologyPtr thisPtr = Teuchos::rcp(this,false);
+  ConstMeshTopologyPtr thisPtr = Teuchos::rcp(this,false);
   vector<GlobalIndexTypeToCast> ownedRootCells;
   for (IndexType rootCellIndex : _rootCells)
   {

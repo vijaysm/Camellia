@@ -58,16 +58,16 @@ namespace Camellia {
     virtual long long approximateMemoryFootprint();
     
     virtual std::vector<IndexType> cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints);
-    virtual IndexType cellCount();
+    virtual IndexType cellCount() const;
     
     // ! Returns the global active cell count.
-    virtual IndexType activeCellCount();
+    virtual IndexType activeCellCount() const;
     
     // ! If the base MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
     virtual Epetra_CommPtr Comm() const;
     
     // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs).  Not supported for MeshTopologyViews with _meshTopo defined (i.e. those that are themselves defined in terms of another MeshTopology object).
-    virtual Teuchos::RCP<MeshTopology> deepCopy();
+    virtual Teuchos::RCP<MeshTopology> deepCopy() const;
     
     virtual bool entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent);
     virtual bool entityIsGeneralizedAncestor(unsigned ancestorDimension, IndexType ancestor,
@@ -104,7 +104,7 @@ namespace Camellia {
     
     virtual bool isValidCellIndex(IndexType cellIndex) const;
     
-    virtual const std::vector<double>& getVertex(IndexType vertexIndex);
+    virtual const std::vector<double>& getVertex(IndexType vertexIndex) const;
     
     virtual bool getVertexIndex(const std::vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14);
     
@@ -121,6 +121,8 @@ namespace Camellia {
     virtual void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID);
     
     virtual MeshTopologyViewPtr getView(const std::set<IndexType> &activeCellIndices);
+    
+    virtual MeshTopologyViewPtr getGatheredViewCopy() const; // all-to-all gather MeshTopology info, and create a new non-distributed copy on each rank.
     
     void printAllEntitiesInBaseMeshTopology();
     

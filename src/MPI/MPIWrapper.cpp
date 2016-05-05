@@ -41,33 +41,7 @@ void MPIWrapper::allGatherHomogeneous(const Epetra_Comm &Comm, FieldContainer<in
 }
 
 // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-//        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-template<typename Scalar>
-void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm, std::vector<Scalar> &gatheredValues,
-                                  std::vector<Scalar> &myValues, std::vector<int> &offsets)
-{
-  int mySize = myValues.size();
-  int totalSize;
-  Comm.SumAll(&mySize, &totalSize, 1);
-  
-  int myOffset = 0;
-  Comm.ScanSum(&mySize,&myOffset,1);
-  myOffset -= mySize;
-  
-  gatheredValues.resize(totalSize);
-  for (int i=0; i<mySize; i++)
-  {
-    gatheredValues[myOffset+i] = myValues[i];
-  }
-  MPIWrapper::entryWiseSum(Comm, gatheredValues);
-  
-  offsets.resize(Comm.NumProc());
-  offsets[Comm.MyPID()] = myOffset;
-  MPIWrapper::entryWiseSum(Comm, offsets);
-}
-
-// \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-//        Not necessarily super-efficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
+//        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
 template<typename Scalar>
 void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm, FieldContainer<Scalar> &gatheredValues,
                                   FieldContainer<Scalar> &myValues, FieldContainer<int> &offsets)
@@ -225,6 +199,27 @@ void MPIWrapper::entryWiseSum(FieldContainer<double> &values)   // sums values e
 {
   entryWiseSum<double>(values);
 }
+
+void MPIWrapper::entryWiseSum(const Epetra_Comm &Comm, std::vector<int> &values)
+{
+  entryWiseSum<int>(Comm, values);
+}
+
+void MPIWrapper::entryWiseSum(const Epetra_Comm &Comm, std::vector<long> &values)
+{
+  entryWiseSum<long>(Comm, values);
+}
+
+void MPIWrapper::entryWiseSum(const Epetra_Comm &Comm, std::vector<long long> &values)
+{
+  entryWiseSum<long long>(Comm, values);
+}
+
+void MPIWrapper::entryWiseSum(const Epetra_Comm &Comm, std::vector<double> &values)
+{
+  entryWiseSum<double>(Comm, values);
+}
+
 
 Teuchos::RCP<Epetra_Distributor> MPIWrapper::getDistributor(const Epetra_Comm &Comm)
 {

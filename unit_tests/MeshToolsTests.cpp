@@ -17,6 +17,7 @@
 #include "Mesh.h"
 #include "MeshFactory.h"
 #include "MeshTools.h"
+#include "MPIWrapper.h"
 #include "RHS.h"
 #include "SimpleFunction.h"
 #include "SpatialFilter.h"
@@ -113,7 +114,8 @@ public:
 TEUCHOS_UNIT_TEST( MeshTools, MeshSlice_Polynomial )
 {
   // Mesh slicing test with exact polynomial data
-
+  MPIWrapper::CommWorld()->Barrier();
+  
   FunctionPtr x = Function::xn(1);
   FunctionPtr y2 = Function::yn(2);
   FunctionPtr t = Function::zn(1);

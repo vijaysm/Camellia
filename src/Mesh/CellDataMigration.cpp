@@ -570,7 +570,7 @@ void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, c
   }
 }
 
-void CellDataMigration::getGeometry(MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo)
+void CellDataMigration::getGeometry(const MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo)
 {
   const set<IndexType>* myRootCellIndices = &meshTopo->getRootCellIndicesLocal();
   geometryInfo.rootVertices.resize(myRootCellIndices->size());
@@ -600,7 +600,7 @@ void CellDataMigration::getGeometry(MeshTopology* meshTopo, MeshGeometryInfo &ge
     rootCellOrdinal++;
   }
   
-  MeshTopologyPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
+  ConstMeshTopologyPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
   geometryInfo.refinementLevels.clear();
   
   while (thisLevelParents.size() > 0)

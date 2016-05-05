@@ -9,7 +9,9 @@
 #include "MeshTopologyView.h"
 
 #include "CamelliaDebugUtility.h"
+#include "CellDataMigration.h"
 #include "MeshTopology.h"
+#include "MPIWrapper.h"
 
 using namespace Camellia;
 using namespace std;
@@ -45,7 +47,7 @@ MeshTopologyView::MeshTopologyView(MeshTopologyPtr meshTopoPtr, const std::set<I
   buildLookups();
 }
 
-IndexType MeshTopologyView::activeCellCount()
+IndexType MeshTopologyView::activeCellCount() const
 {
   return _globalActiveCellCount;
 }
@@ -67,7 +69,7 @@ MeshTopology* MeshTopologyView::baseMeshTopology()
   return _meshTopo.get();
 }
 
-IndexType MeshTopologyView::cellCount()
+IndexType MeshTopologyView::cellCount() const
 {
   return _globalCellCount;
 }
@@ -165,7 +167,7 @@ Epetra_CommPtr MeshTopologyView::Comm() const
 }
 
 // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs).  Not supported for MeshTopologyViews with _meshTopo defined (i.e. those that are themselves defined in terms of another MeshTopology object).
-Teuchos::RCP<MeshTopology> MeshTopologyView::deepCopy()
+Teuchos::RCP<MeshTopology> MeshTopologyView::deepCopy() const
 {
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "deepCopy() not supported by MeshTopologyView; this method is defined for potential subclass support.");
 }
@@ -534,6 +536,55 @@ std::vector<IndexType> MeshTopologyView::getEntityVertexIndices(unsigned d, Inde
   return _meshTopo->getEntityVertexIndices(d,entityIndex);
 }
 
+MeshTopologyViewPtr MeshTopologyView::getGatheredViewCopy() const
+{
+  if (!isDistributed()) return deepCopy();
+  
+  const MeshTopology* baseMeshTopology = dynamic_cast<const MeshTopology*>(this);
+  if (baseMeshTopology == NULL)
+  {
+    baseMeshTopology = _meshTopo.get();
+  }
+  
+  MeshGeometryInfo baseMeshGeometry;
+  CellDataMigration::getGeometry(baseMeshTopology, baseMeshGeometry);
+  int myGeometrySize = CellDataMigration::getGeometryDataSize(baseMeshGeometry);
+  vector<char> myGeometryData(myGeometrySize);
+  char *myWriteLocation = &myGeometryData[0];
+  CellDataMigration::writeGeometryData(baseMeshGeometry, myWriteLocation, myGeometrySize);
+  
+  vector<char> gatheredGeometryData;
+  vector<int> offsets;
+  MPIWrapper::allGatherCompact<char>(*Comm(),gatheredGeometryData,myGeometryData,offsets);
+  
+  MeshGeometryInfo gatheredBaseMeshGeometry;
+  const char* gatheredDataLocation = &gatheredGeometryData[0];
+  CellDataMigration::readGeometryData(gatheredDataLocation, gatheredGeometryData.size(), gatheredBaseMeshGeometry);
+  
+  MeshTopologyPtr gatheredMeshTopo = Teuchos::rcp( new MeshTopology(MPIWrapper::CommSerial(), gatheredBaseMeshGeometry) );
+  
+  // if this is a pure view, we apply that to the gatheredMeshTopo
+  bool isView = (dynamic_cast<const MeshTopology*>(this) == NULL);
+  if (!isView)
+  {
+    // if this is a MeshTopology, return gatheredMeshTopo
+    return gatheredMeshTopo;
+  }
+  else
+  {
+    set<IndexType> myActiveIndices = getMyActiveCellIndices();
+    vector<int> myActiveIndicesVector(myActiveIndices.begin(),myActiveIndices.end());
+    
+    vector<int> gatheredActiveIndicesVector;
+    vector<int> offsets;
+    MPIWrapper::allGatherCompact(*Comm(), gatheredActiveIndicesVector, myActiveIndicesVector, offsets);
+
+    set<IndexType> gatheredActiveIndices(gatheredActiveIndicesVector.begin(),gatheredActiveIndicesVector.end());
+    
+    return gatheredMeshTopo->getView(gatheredActiveIndices);
+  }
+}
+
 const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
 {
   if (_ownedCellIndicesPruningOrdinal != _meshTopo->pruningOrdinal())
@@ -605,7 +656,7 @@ vector<IndexType> MeshTopologyView::getSidesContainingEntity(unsigned d, IndexTy
   return viewSides;
 }
 
-const std::vector<double>& MeshTopologyView::getVertex(IndexType vertexIndex)
+const std::vector<double>& MeshTopologyView::getVertex(IndexType vertexIndex) const
 {
   return _meshTopo->getVertex(vertexIndex);
 }

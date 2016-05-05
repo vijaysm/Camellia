@@ -105,6 +105,10 @@ typedef Teuchos::RCP<RefinementPattern> RefinementPatternPtr;
 typedef Teuchos::RCP<SpatialFilter> SpatialFilterPtr;
 typedef Teuchos::RCP<Var> VarPtr;
 typedef Teuchos::RCP<VarFactory> VarFactoryPtr;
+  
+  typedef Teuchos::RCP<const MeshTopology> ConstMeshTopologyPtr;
+  typedef Teuchos::RCP<const MeshTopologyView> ConstMeshTopologyViewPtr;
+  
 // templates
 template <typename Scalar>
 using TBCPtr = Teuchos::RCP<TBC<Scalar> >;

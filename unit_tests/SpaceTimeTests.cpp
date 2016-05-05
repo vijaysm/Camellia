@@ -287,43 +287,63 @@ void testIntegrateSpaceVaryingFunctionSides(int spaceDim, Teuchos::FancyOStream 
     solution->importSolution();
     
     FunctionPtr solnFxn = Function::solution(spaceTimeTrace, solution);
+    const set<GlobalIndexType>* myCells = &mesh->cellIDsInPartition();
     for (GlobalIndexType cellIDTime0 : childrenTime0)
     {
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Need to check for rank-locality of cellIDs in this loop");
-      CellPtr cellTime0 = mesh->getTopology()->getCell(cellIDTime0);
-      CellPtr cellTime1 = cellTime0->getNeighbor(sideOrdinal_t1, mesh->getTopology());
-      GlobalIndexType cellIDTime1 = cellTime1->cellIndex();
+      CellPtr cellTime0, cellTime1;
+      BasisCachePtr basisCacheTime0, basisCacheTime1;
+      
+      GlobalIndexTypeToCast cellIDTime1;
+      int ownerRankTime0 = mesh->globalDofAssignment()->partitionForCellID(cellIDTime0);
+      int myRank = mesh->Comm()->MyPID();
+      if (myRank == ownerRankTime0)
+      {
+        cellTime0 = mesh->getTopology()->getCell(cellIDTime0);
+        cellTime1 = cellTime0->getNeighbor(sideOrdinal_t1, mesh->getTopology());
+        cellIDTime1 = cellTime1->cellIndex();
+      }
+      mesh->Comm()->Broadcast(&cellIDTime1, 1, ownerRankTime0);
+      
+      int ownerRankTime1 = mesh->globalDofAssignment()->partitionForCellID(cellIDTime1);
+      
       Intrepid::FieldContainer<double> refPointTime0(1,spaceDim); // spaceDim because spatial side x time
       Intrepid::FieldContainer<double> refPointTime1(1,spaceDim);
       // we don't really care what point we're talking about, so long as the time coordinate is right
       refPointTime0(0,spaceDim-1) = 1.0; // time 0 should get rightmost time (1.0 in ref space)
       refPointTime1(0,spaceDim-1) = -1.0; // time 1 should get leftmost time (-1.0 in ref space)
       
-      BasisCachePtr basisCacheTime0 = BasisCache::basisCacheForCell(mesh, cellIDTime0);
-      BasisCachePtr basisCacheTime1 = BasisCache::basisCacheForCell(mesh, cellIDTime1);
+      if (myRank == ownerRankTime0)
+      {
+        basisCacheTime0 = BasisCache::basisCacheForCell(mesh, cellIDTime0);
+      }
+      if (myRank == ownerRankTime1)
+      {
+        basisCacheTime1 = BasisCache::basisCacheForCell(mesh, cellIDTime1);
+      }
       
       for (unsigned sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
       {
         if (cellTopo->sideIsSpatial(sideOrdinal))
         {
-          BasisCachePtr sideBasisCacheTime0 = basisCacheTime0->getSideBasisCache(sideOrdinal);
-          BasisCachePtr sideBasisCacheTime1 = basisCacheTime1->getSideBasisCache(sideOrdinal);
-          sideBasisCacheTime0->setRefCellPoints(refPointTime0);
-          sideBasisCacheTime1->setRefCellPoints(refPointTime1);
           Intrepid::FieldContainer<double> valuesTime0(1,1), valuesTime1(1,1);
-          
-          if (rankLocalCells.find(cellIDTime0) != rankLocalCells.end())
+
+          double valueTime0, valueTime1;
+          if (myRank == ownerRankTime0)
           {
+            BasisCachePtr sideBasisCacheTime0 = basisCacheTime0->getSideBasisCache(sideOrdinal);
+            sideBasisCacheTime0->setRefCellPoints(refPointTime0);
             solnFxn->values(valuesTime0, sideBasisCacheTime0);
+            valueTime0 = valuesTime0[0];
           }
-          if (rankLocalCells.find(cellIDTime1) != rankLocalCells.end())
+          if (myRank == ownerRankTime1)
           {
+            BasisCachePtr sideBasisCacheTime1 = basisCacheTime1->getSideBasisCache(sideOrdinal);
+            sideBasisCacheTime1->setRefCellPoints(refPointTime1);
             solnFxn->values(valuesTime1, sideBasisCacheTime1);
+            valueTime1 = valuesTime1[0];
           }
-          
-          double valueTime0 = valuesTime0[0], valueTime1 = valuesTime1[0];
-          valueTime0 = MPIWrapper::sum(valueTime0);
-          valueTime1 = MPIWrapper::sum(valueTime1);
+          mesh->Comm()->Broadcast(&valueTime0, 1, ownerRankTime0);
+          mesh->Comm()->Broadcast(&valueTime1, 1, ownerRankTime1);
           
           double tol = 1e-15;
           TEUCHOS_TEST_FLOATING_EQUALITY(valueTime0, valueTime1, tol, out, success);

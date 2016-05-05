@@ -372,7 +372,7 @@ void Cell::setChildren(const vector<GlobalIndexType> &childIndices)
   }
 }
 
-vector<unsigned> Cell::getChildIndices(MeshTopologyViewPtr meshTopoViewForCellValidity)
+vector<unsigned> Cell::getChildIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
 {
   // if the mesh topo doesn't think we're a parent, then no children
   if (! isParent(meshTopoViewForCellValidity))
@@ -513,7 +513,7 @@ void Cell::setParent(Teuchos::RCP<Cell> parent)
   _parent = Teuchos::rcp(parent.get(),false); // make weak reference
 }
 
-bool Cell::isParent(MeshTopologyViewPtr meshTopoViewForCellValidity)
+bool Cell::isParent(ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
 {
   if (_childIndices.size() == 0) return false;
   

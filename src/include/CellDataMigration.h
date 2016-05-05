@@ -68,7 +68,7 @@ public:
   
   static void addMigratedGeometry(MeshTopology* meshTopo, const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches);
   
-  static void getGeometry(MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo);
+  static void getGeometry(const MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo);
   static int getGeometryDataSize(const MeshGeometryInfo &geometryInfo);
   static void writeGeometryData(const MeshGeometryInfo &geometryInfo, char* &dataLocation, int bufferSize);
   // ! Reads 0 or more serialized geometryInfo objects into the geometryInfo structure provided.  (Reads until end of buffer.)
