@@ -2222,6 +2222,22 @@ vector<IndexType> MeshTopology::getVertexIndices(const vector< vector<double> > 
   return localToGlobalVertexIndex;
 }
 
+std::vector<IndexType> MeshTopology::getVertexIndicesForTime(double t) const
+{
+  // we take time to be the last dimension
+  int d_time = getDimension() - 1;
+  vector<IndexType> verticesThatMatch;
+  int vertexCount = _vertices.size();
+  for (IndexType vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
+  {
+    if (_vertices[vertexIndex][d_time] == t)
+    {
+      verticesThatMatch.push_back(vertexIndex);
+    }
+  }
+  return verticesThatMatch;
+}
+
 vector<IndexType> MeshTopology::getChildEntities(unsigned int d, IndexType entityIndex) const
 {
   vector<IndexType> childIndices;

@@ -210,6 +210,7 @@ public:
   unsigned getSubEntityPermutation(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal) const;
   bool getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14) const;
   std::vector<IndexType> getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol=1e-14) const;
+  std::vector<IndexType> getVertexIndicesForTime(double t) const;
   const std::vector<double>& getVertex(IndexType vertexIndex) const;
   
   bool isBoundarySide(IndexType sideEntityIndex) const;
