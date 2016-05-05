@@ -68,8 +68,8 @@ _finePartitionMap(finePartitionMap), _br(true)
   
   // new 4/20/16: require that coarseMesh and fineMesh share a common base MeshTopology (ensures that distributed geometry does not interfere with the prolongation operator determination)
   
-  MeshTopology* coarseBaseTopo = coarseMesh->getTopology()->baseMeshTopology();
-  MeshTopology* fineBaseTopo = fineMesh->getTopology()->baseMeshTopology();
+  const MeshTopology* coarseBaseTopo = coarseMesh->getTopology()->baseMeshTopology();
+  const MeshTopology* fineBaseTopo = fineMesh->getTopology()->baseMeshTopology();
   TEUCHOS_TEST_FOR_EXCEPTION(fineBaseTopo != coarseBaseTopo, std::invalid_argument, "fine and coarse mesh must have a common base MeshTopology");
   
   _useStaticCondensation = useStaticCondensation;

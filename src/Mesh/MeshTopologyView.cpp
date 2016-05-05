@@ -17,7 +17,7 @@ using namespace Camellia;
 using namespace std;
 
 template<typename A>
-long long approximateSetSizeLLVM(set<A> &someSet)   // in bytes
+long long approximateSetSizeLLVM(const set<A> &someSet)   // in bytes
 {
   // 48 bytes for the set itself; nodes are 32 bytes + sizeof(pair<A,B>) each
   // if A and B are containers, this won't count their contents...
@@ -38,7 +38,7 @@ MeshTopologyView::MeshTopologyView()
 }
 
 // ! Constructor that defines a view in terms of an existing MeshTopology and a set of cells selected to be active.
-MeshTopologyView::MeshTopologyView(MeshTopologyPtr meshTopoPtr, const std::set<IndexType> &activeCellIDs)
+MeshTopologyView::MeshTopologyView(ConstMeshTopologyPtr meshTopoPtr, const std::set<IndexType> &activeCellIDs)
 {
   _meshTopo = meshTopoPtr;
   _activeCells = activeCellIDs;
@@ -53,7 +53,7 @@ IndexType MeshTopologyView::activeCellCount() const
 }
 
 // ! This method only gets within a factor of 2 or so, but can give a rough estimate
-long long MeshTopologyView::approximateMemoryFootprint()
+long long MeshTopologyView::approximateMemoryFootprint() const
 {
   // size of pointers plus size of sets:
   long long footprint = sizeof(_meshTopo);
@@ -64,7 +64,7 @@ long long MeshTopologyView::approximateMemoryFootprint()
   return  footprint;
 }
 
-MeshTopology* MeshTopologyView::baseMeshTopology()
+const MeshTopology* MeshTopologyView::baseMeshTopology() const
 {
   return _meshTopo.get();
 }
@@ -74,7 +74,7 @@ IndexType MeshTopologyView::cellCount() const
   return _globalCellCount;
 }
 
-std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints)
+std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const
 {
   std::vector<IndexType> descendentIDs = _meshTopo->cellIDsForPoints(physicalPoints);
   vector<IndexType> myIDs;
@@ -172,22 +172,22 @@ Teuchos::RCP<MeshTopology> MeshTopologyView::deepCopy() const
   TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "deepCopy() not supported by MeshTopologyView; this method is defined for potential subclass support.");
 }
 
-bool MeshTopologyView::entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent)
+bool MeshTopologyView::entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent) const
 {
   return _meshTopo->entityIsAncestor(d, ancestor, descendent);
 }
 
-bool MeshTopologyView::entityIsGeneralizedAncestor(unsigned int ancestorDimension, IndexType ancestor, unsigned int descendentDimension, IndexType descendent)
+bool MeshTopologyView::entityIsGeneralizedAncestor(unsigned int ancestorDimension, IndexType ancestor, unsigned int descendentDimension, IndexType descendent) const
 {
   return _meshTopo->entityIsGeneralizedAncestor(ancestorDimension, ancestor, descendentDimension, descendent);
 }
 
-const set<IndexType> &MeshTopologyView::getLocallyKnownActiveCellIndices()
+const set<IndexType> &MeshTopologyView::getLocallyKnownActiveCellIndices() const
 {
   return _activeCells;
 }
 
-IndexType MeshTopologyView::getActiveCellCount(unsigned d, IndexType entityIndex)
+IndexType MeshTopologyView::getActiveCellCount(unsigned d, IndexType entityIndex) const
 {
   // first entry in pair is the cellIndex, the second is the ordinal of the entity in that cell (the subcord).
   set<IndexType> activeCellIndices;
@@ -204,7 +204,7 @@ IndexType MeshTopologyView::getActiveCellCount(unsigned d, IndexType entityIndex
   return activeCellIndices.size();
 }
 
-vector< pair<IndexType,unsigned> > MeshTopologyView::getActiveCellIndices(unsigned d, IndexType entityIndex)
+vector< pair<IndexType,unsigned> > MeshTopologyView::getActiveCellIndices(unsigned d, IndexType entityIndex) const
 {
   // first entry in pair is the cellIndex, the second is the ordinal of the entity in that cell (the subcord).
   set<pair<IndexType,unsigned>> activeCellIndicesSet;
@@ -257,7 +257,7 @@ std::set<IndexType> MeshTopologyView::getActiveCellIndicesForAncestorsOfMyCellsI
   return ancestralActiveCellIndices;
 }
 
-vector<IndexType> MeshTopologyView::getActiveCellsForSide(IndexType sideEntityIndex)
+vector<IndexType> MeshTopologyView::getActiveCellsForSide(IndexType sideEntityIndex) const
 {
   vector<IndexType> cellsForSide = getCellsForSide(sideEntityIndex);
   
@@ -278,7 +278,7 @@ CellPtr MeshTopologyView::getCell(IndexType cellIndex) const
   return _meshTopo->getCell(cellIndex);
 }
 
-vector<double> MeshTopologyView::getCellCentroid(IndexType cellIndex)
+vector<double> MeshTopologyView::getCellCentroid(IndexType cellIndex) const
 {
   TEUCHOS_TEST_FOR_EXCEPTION(!isValidCellIndex(cellIndex), std::invalid_argument, "Invalid cellIndex!");
   return _meshTopo->getCellCentroid(cellIndex);
@@ -286,7 +286,7 @@ vector<double> MeshTopologyView::getCellCentroid(IndexType cellIndex)
 
 // getCellsContainingEntity() copied from MeshTopology; could possibly eliminate it in MeshTopology
 // ! pairs are (cellIndex, sideOrdinal) where the sideOrdinal is a side that contains the entity
-set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsigned d, unsigned entityIndex)   // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.
+set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsigned d, unsigned entityIndex) const  // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.
 {
   if (d==getDimension())
   {
@@ -315,7 +315,7 @@ set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsi
   return cells;
 }
 
-vector<IndexType> MeshTopologyView::getCellsForSide(IndexType sideEntityIndex)
+vector<IndexType> MeshTopologyView::getCellsForSide(IndexType sideEntityIndex) const
 {
   vector<IndexType> cells;
   for (int whichCell=0; whichCell<2; whichCell++)
@@ -349,7 +349,7 @@ vector<IndexType> MeshTopologyView::getCellsForSide(IndexType sideEntityIndex)
   return cells;
 }
 
-pair<IndexType, unsigned> MeshTopologyView::getConstrainingEntity(unsigned d, IndexType entityIndex)
+pair<IndexType, unsigned> MeshTopologyView::getConstrainingEntity(unsigned d, IndexType entityIndex) const
 {
   // copying from MeshTopology's implementation:
   unsigned sideDim = getDimension() - 1;
@@ -411,7 +411,7 @@ pair<IndexType, unsigned> MeshTopologyView::getConstrainingEntity(unsigned d, In
 }
 
 // copied from MeshTopology; once that's a subclass of MeshTopologyView, could possibly eliminate it in MeshTopology
-IndexType MeshTopologyView::getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex)
+IndexType MeshTopologyView::getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex) const
 {
   unsigned constrainingEntityIndex = entityIndex;
   
@@ -470,7 +470,7 @@ IndexType MeshTopologyView::getConstrainingEntityIndexOfLikeDimension(unsigned d
 
 // getConstrainingSideAncestry() copied from MeshTopology; once that's a subclass of MeshTopologyView, could possibly eliminate it in MeshTopology
 // pair: first is the sideEntityIndex of the ancestor; second is the refinementIndex of the refinement to get from parent to child (see _parentEntities and _childEntities)
-vector< pair<IndexType,unsigned> > MeshTopologyView::getConstrainingSideAncestry(unsigned int sideEntityIndex)
+vector< pair<IndexType,unsigned> > MeshTopologyView::getConstrainingSideAncestry(unsigned int sideEntityIndex) const
 {
   // three possibilities: 1) compatible side, 2) side is parent, 3) side is child
   // 1) and 2) mean unconstrained.  3) means constrained (by parent)
@@ -531,23 +531,15 @@ unsigned MeshTopologyView::getDimension() const
   return _meshTopo->getDimension();
 }
 
-std::vector<IndexType> MeshTopologyView::getEntityVertexIndices(unsigned d, IndexType entityIndex)
+std::vector<IndexType> MeshTopologyView::getEntityVertexIndices(unsigned d, IndexType entityIndex) const
 {
   return _meshTopo->getEntityVertexIndices(d,entityIndex);
 }
 
-MeshTopologyViewPtr MeshTopologyView::getGatheredViewCopy() const
+MeshTopologyPtr MeshTopologyView::getGatheredCopy() const
 {
-  if (!isDistributed()) return deepCopy();
-  
-  const MeshTopology* baseMeshTopology = dynamic_cast<const MeshTopology*>(this);
-  if (baseMeshTopology == NULL)
-  {
-    baseMeshTopology = _meshTopo.get();
-  }
-  
   MeshGeometryInfo baseMeshGeometry;
-  CellDataMigration::getGeometry(baseMeshTopology, baseMeshGeometry);
+  CellDataMigration::getGeometry(this, baseMeshGeometry);
   int myGeometrySize = CellDataMigration::getGeometryDataSize(baseMeshGeometry);
   vector<char> myGeometryData(myGeometrySize);
   char *myWriteLocation = &myGeometryData[0];
@@ -562,27 +554,35 @@ MeshTopologyViewPtr MeshTopologyView::getGatheredViewCopy() const
   CellDataMigration::readGeometryData(gatheredDataLocation, gatheredGeometryData.size(), gatheredBaseMeshGeometry);
   
   MeshTopologyPtr gatheredMeshTopo = Teuchos::rcp( new MeshTopology(MPIWrapper::CommSerial(), gatheredBaseMeshGeometry) );
+  return gatheredMeshTopo;
   
-  // if this is a pure view, we apply that to the gatheredMeshTopo
-  bool isView = (dynamic_cast<const MeshTopology*>(this) == NULL);
-  if (!isView)
-  {
-    // if this is a MeshTopology, return gatheredMeshTopo
-    return gatheredMeshTopo;
-  }
-  else
-  {
-    set<IndexType> myActiveIndices = getMyActiveCellIndices();
-    vector<int> myActiveIndicesVector(myActiveIndices.begin(),myActiveIndices.end());
-    
-    vector<int> gatheredActiveIndicesVector;
-    vector<int> offsets;
-    MPIWrapper::allGatherCompact(*Comm(), gatheredActiveIndicesVector, myActiveIndicesVector, offsets);
+//  // if this is a pure view, we apply that to the gatheredMeshTopo
+//  bool isView = (dynamic_cast<const MeshTopology*>(this) == NULL);
+//  if (!isView)
+//  {
+//    // if this is a MeshTopology, return gatheredMeshTopo
+//    return gatheredMeshTopo;
+//  }
+//  else
+//  {
+//    set<IndexType> myActiveIndices = getMyActiveCellIndices();
+//    vector<int> myActiveIndicesVector(myActiveIndices.begin(),myActiveIndices.end());
+//    
+//    vector<int> gatheredActiveIndicesVector;
+//    vector<int> offsets;
+//    MPIWrapper::allGatherCompact(*Comm(), gatheredActiveIndicesVector, myActiveIndicesVector, offsets);
+//
+//    set<IndexType> gatheredActiveIndices(gatheredActiveIndicesVector.begin(),gatheredActiveIndicesVector.end());
+//    
+//    return gatheredMeshTopo->getView(gatheredActiveIndices);
+//  }
+}
 
-    set<IndexType> gatheredActiveIndices(gatheredActiveIndicesVector.begin(),gatheredActiveIndicesVector.end());
-    
-    return gatheredMeshTopo->getView(gatheredActiveIndices);
-  }
+MeshTopologyPtr MeshTopologyView::getGatheredCopy(const std::set<IndexType> &cellsToInclude) const
+{
+  // first, create a (still-distributed) view for the indicated cells
+  MeshTopologyViewPtr viewForCells = getView(cellsToInclude);
+  return viewForCells->getGatheredCopy();
 }
 
 const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
@@ -633,12 +633,12 @@ const set<IndexType> &MeshTopologyView::getMyActiveCellIndices() const
   return _ownedCellIndices;
 }
 
-const set<IndexType> & MeshTopologyView::getRootCellIndicesLocal()
+const set<IndexType> & MeshTopologyView::getRootCellIndicesLocal() const
 {
   return _rootCells;
 }
 
-vector<IndexType> MeshTopologyView::getSidesContainingEntity(unsigned d, IndexType entityIndex)
+vector<IndexType> MeshTopologyView::getSidesContainingEntity(unsigned d, IndexType entityIndex) const
 {
   unsigned sideDim = getDimension() - 1;
   vector<IndexType> meshTopoSides;
@@ -661,12 +661,12 @@ const std::vector<double>& MeshTopologyView::getVertex(IndexType vertexIndex) co
   return _meshTopo->getVertex(vertexIndex);
 }
 
-bool MeshTopologyView::getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol)
+bool MeshTopologyView::getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol) const
 {
   return _meshTopo->getVertexIndex(vertex, vertexIndex, tol);
 }
 
-vector<IndexType> MeshTopologyView::getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol)
+vector<IndexType> MeshTopologyView::getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol) const
 {
   return _meshTopo->getVertexIndicesMatching(vertexInitialCoordinates, tol);
 }
@@ -676,7 +676,7 @@ bool MeshTopologyView::isDistributed() const
   return (_meshTopo->Comm() != Teuchos::null) && (_meshTopo->Comm()->NumProc() > 1);
 }
 
-bool MeshTopologyView::isParent(IndexType cellIndex)
+bool MeshTopologyView::isParent(IndexType cellIndex) const
 {
   TEUCHOS_TEST_FOR_EXCEPTION(!isValidCellIndex(cellIndex), std::invalid_argument, "cellIndex is invalid!");
   return _activeCells.find(cellIndex) == _activeCells.end();
@@ -687,12 +687,12 @@ bool MeshTopologyView::isValidCellIndex(IndexType cellIndex) const
   return _allKnownCells.find(cellIndex) != _allKnownCells.end();
 }
 
-Intrepid::FieldContainer<double> MeshTopologyView::physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension)
+Intrepid::FieldContainer<double> MeshTopologyView::physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension) const
 {
   return _meshTopo->physicalCellNodesForCell(cellIndex,includeCellDimension);
 }
 
-void MeshTopologyView::printActiveCellAncestors()
+void MeshTopologyView::printActiveCellAncestors() const
 {
   for (IndexType cellID : getLocallyKnownActiveCellIndices())
   {
@@ -700,7 +700,7 @@ void MeshTopologyView::printActiveCellAncestors()
   }
 }
 
-void MeshTopologyView::printAllEntitiesInBaseMeshTopology()
+void MeshTopologyView::printAllEntitiesInBaseMeshTopology() const
 {
   if (_meshTopo != Teuchos::null)
   {
@@ -709,12 +709,12 @@ void MeshTopologyView::printAllEntitiesInBaseMeshTopology()
   else
   {
     // this must be a MeshTopology object
-    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(this);
+    const MeshTopology* meshTopo = dynamic_cast<const MeshTopology*>(this);
     meshTopo->printAllEntities();
   }
 }
 
-void MeshTopologyView::printCellAncestors(IndexType cellID)
+void MeshTopologyView::printCellAncestors(IndexType cellID) const
 {
   vector<IndexType> cellAncestors;
   CellPtr cell = getCell(cellID);
@@ -727,13 +727,13 @@ void MeshTopologyView::printCellAncestors(IndexType cellID)
   print(cellLabel.str(),cellAncestors);
 }
 
-Teuchos::RCP<MeshTransformationFunction> MeshTopologyView::transformationFunction()
+Teuchos::RCP<MeshTransformationFunction> MeshTopologyView::transformationFunction() const
 {
-  return Teuchos::null; // pure MeshTopologyViews are defined to have straight-edge geometry only.
+  return Teuchos::null; // pure MeshTopologyViews are defined to have straight-edge geometry only, for now.  (Unclear whether this is actually the best thing...)
 }
 
 // owningCellIndexForConstrainingEntity() copied from MeshTopology; once that's a subclass of MeshTopologyView, could possibly eliminate it in MeshTopology
-std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex)
+std::pair<IndexType,IndexType> MeshTopologyView::owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const
 {
   // sorta like the old leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity, but now prefers larger cells
   // -- the first level of the entity refinement hierarchy that has an active cell containing an entity in that level is the one from
@@ -801,12 +801,12 @@ void MeshTopologyView::setGlobalDofAssignment(GlobalDofAssignment* gda)
   _gda = gda;
 }
 
-void MeshTopologyView::verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID)
+void MeshTopologyView::verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID) const
 {
   _meshTopo->verticesForCell(vertices, cellID);
 }
 
-MeshTopologyViewPtr MeshTopologyView::getView(const set<IndexType> &activeCells)
+MeshTopologyViewPtr MeshTopologyView::getView(const set<IndexType> &activeCells) const
 {
   return Teuchos::rcp( new MeshTopologyView(_meshTopo, activeCells) );
 }

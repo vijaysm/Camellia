@@ -29,7 +29,7 @@ namespace Camellia {
 
   class MeshTopologyView
   {
-    MeshTopologyPtr _meshTopo; // null when subclass constructor is used
+    ConstMeshTopologyPtr _meshTopo; // null when subclass constructor is used
     std::set<IndexType> _allKnownCells; // empty when subclass constructor is used
     mutable std::set<GlobalIndexType> _ownedCellIndices; // depends on base MeshTopology's _ownedCellIndices.
     mutable int _ownedCellIndicesPruningOrdinal = -1; // what the pruningOrdinal was when _ownedCellIndices was last determined.  If _meshTopo->pruningOrdinal is different, we need to rebuild.
@@ -43,21 +43,21 @@ namespace Camellia {
     std::set<IndexType> _rootCells; // filled during construction when meshTopoPtr is not null; otherwise responsibility belongs to subclass.
     GlobalDofAssignment* _gda; // for cubature degree lookups
     
-    std::vector<IndexType> getActiveCellsForSide(IndexType sideEntityIndex);
+    std::vector<IndexType> getActiveCellsForSide(IndexType sideEntityIndex) const;
   public:
     // ! Constructor for use by MeshTopology and any other subclasses
     MeshTopologyView();
     
     // ! Constructor that defines a view in terms of an existing MeshTopology and a set of cells selected to be active.
-    MeshTopologyView(MeshTopologyPtr meshTopoPtr, const std::set<IndexType> &activeCellIDs);
+    MeshTopologyView(ConstMeshTopologyPtr meshTopoPtr, const std::set<IndexType> &activeCellIDs);
     
     // ! Destructor
     virtual ~MeshTopologyView() {}
     
     // ! This method only gets within a factor of 2 or so, but can give a rough estimate
-    virtual long long approximateMemoryFootprint();
+    virtual long long approximateMemoryFootprint() const;
     
-    virtual std::vector<IndexType> cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints);
+    virtual std::vector<IndexType> cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const;
     virtual IndexType cellCount() const;
     
     // ! Returns the global active cell count.
@@ -69,65 +69,69 @@ namespace Camellia {
     // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs).  Not supported for MeshTopologyViews with _meshTopo defined (i.e. those that are themselves defined in terms of another MeshTopology object).
     virtual Teuchos::RCP<MeshTopology> deepCopy() const;
     
-    virtual bool entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent);
+    virtual bool entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent) const;
     virtual bool entityIsGeneralizedAncestor(unsigned ancestorDimension, IndexType ancestor,
-                                             unsigned descendentDimension, IndexType descendent);
+                                             unsigned descendentDimension, IndexType descendent) const;
     
-    virtual IndexType getActiveCellCount(unsigned d, IndexType entityIndex);
-    virtual const std::set<IndexType> &getLocallyKnownActiveCellIndices();
+    virtual IndexType getActiveCellCount(unsigned d, IndexType entityIndex) const;
+    virtual const std::set<IndexType> &getLocallyKnownActiveCellIndices() const;
     virtual const std::set<IndexType> &getMyActiveCellIndices() const;
     virtual std::set<IndexType> getActiveCellIndicesForAncestorsOfMyCellsInBaseMeshTopology() const;
-    virtual std::vector< std::pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex); // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
+    virtual std::vector< std::pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex) const; // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
     
-    virtual MeshTopology* baseMeshTopology();
+    virtual const MeshTopology* baseMeshTopology() const;
     
     virtual CellPtr getCell(IndexType cellIndex) const;
-    virtual std::vector<double> getCellCentroid(IndexType cellIndex);
-    virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, unsigned entityIndex);
-    virtual std::vector<IndexType> getCellsForSide(IndexType sideEntityIndex);
+    virtual std::vector<double> getCellCentroid(IndexType cellIndex) const;
+    virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, unsigned entityIndex) const;
+    virtual std::vector<IndexType> getCellsForSide(IndexType sideEntityIndex) const;
 
-    virtual std::pair<IndexType, unsigned> getConstrainingEntity(unsigned d, IndexType entityIndex);
-    virtual IndexType getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex);
-    virtual std::vector< std::pair<IndexType,unsigned> > getConstrainingSideAncestry(unsigned int sideEntityIndex);
+    virtual std::pair<IndexType, unsigned> getConstrainingEntity(unsigned d, IndexType entityIndex) const;
+    virtual IndexType getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex) const;
+    virtual std::vector< std::pair<IndexType,unsigned> > getConstrainingSideAncestry(unsigned int sideEntityIndex) const;
     
     virtual unsigned getDimension() const;
     
-    virtual std::vector<IndexType> getEntityVertexIndices(unsigned d, IndexType entityIndex);
+    virtual std::vector<IndexType> getEntityVertexIndices(unsigned d, IndexType entityIndex) const;
     
-    virtual const std::set<IndexType> &getRootCellIndicesLocal();
+    virtual const std::set<IndexType> &getRootCellIndicesLocal() const;
     
-    virtual std::vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex);
+    virtual std::vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex) const;
     
     virtual bool isDistributed() const;
     
-    virtual bool isParent(IndexType cellIndex);
+    virtual bool isParent(IndexType cellIndex) const;
     
     virtual bool isValidCellIndex(IndexType cellIndex) const;
     
     virtual const std::vector<double>& getVertex(IndexType vertexIndex) const;
     
-    virtual bool getVertexIndex(const std::vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14);
+    virtual bool getVertexIndex(const std::vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14) const;
     
-    virtual std::vector<IndexType> getVertexIndicesMatching(const std::vector<double> &vertexInitialCoordinates, double tol=1e-14);
+    virtual std::vector<IndexType> getVertexIndicesMatching(const std::vector<double> &vertexInitialCoordinates, double tol=1e-14) const;
 
-    virtual Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false);
+    virtual Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false) const;
     
-    virtual Teuchos::RCP<MeshTransformationFunction> transformationFunction();
+    virtual Teuchos::RCP<MeshTransformationFunction> transformationFunction() const;
     
-    virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, unsigned constrainingEntityIndex);
+    virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, unsigned constrainingEntityIndex) const;
     
     virtual void setGlobalDofAssignment(GlobalDofAssignment* gda); // for cubature degree lookups
     
-    virtual void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID);
+    virtual void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID) const;
     
-    virtual MeshTopologyViewPtr getView(const std::set<IndexType> &activeCellIndices);
+    virtual MeshTopologyViewPtr getView(const std::set<IndexType> &activeCellIndices) const;
     
-    virtual MeshTopologyViewPtr getGatheredViewCopy() const; // all-to-all gather MeshTopology info, and create a new non-distributed copy on each rank.
+    //! AllGather MeshTopology info, and create a new non-distributed copy on each rank.  May be expensive, particularly in terms of memory cost of the gathered object.
+    virtual MeshTopologyPtr getGatheredCopy() const;
     
-    void printAllEntitiesInBaseMeshTopology();
+    //! AllGather MeshTopology info, including only the cells indicated and their ancestors, and create a new non-distributed copy on each rank.
+    virtual MeshTopologyPtr getGatheredCopy(const std::set<IndexType> &cellsToInclude) const;
     
-    void printActiveCellAncestors();
-    void printCellAncestors(IndexType cellIndex);
+    void printAllEntitiesInBaseMeshTopology() const;
+    
+    void printActiveCellAncestors() const;
+    void printCellAncestors(IndexType cellIndex) const;
     
     // distributed read/write methods (for HDF5 support, e.g.)
     // ! returns the size, in bytes, of the serialization of this rank's view of the MeshTopologyView object.  Includes the base MeshTopology's serialization.  (While potentially inefficient, this makes exported MeshTopologyViews self-contained.)

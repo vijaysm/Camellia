@@ -256,7 +256,7 @@ public:
   static void mapToReferenceFrameInitGuess(      Intrepid::FieldContainer<double>  &        refPoints,
       const Intrepid::FieldContainer<double>  &        initGuess,
       const Intrepid::FieldContainer<double>  &        physPoints,
-      MeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree);
+      ConstMeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree);
 
   // copied from Intrepid's CellTools and specialized to allow use when we have curvilinear geometry and/or space-time elements
   static void mapToReferenceFrameInitGuess(      Intrepid::FieldContainer<double>  &        refPoints,
@@ -265,16 +265,16 @@ public:
       BasisCachePtr basisCache);
 
   // ! calls Intrepid's CellTools<double> when cellTopo is a non-tensorial topology
-  static void mapToPhysicalFrame(Intrepid::FieldContainer<double>       &         physPoints,
-                                 const Intrepid::FieldContainer<double> &         refPoints,
-                                 const Intrepid::FieldContainer<double> &         cellWorkset,
+  static void mapToPhysicalFrame(Intrepid::FieldContainer<double>       &physPoints,
+                                 const Intrepid::FieldContainer<double> &refPoints,
+                                 const Intrepid::FieldContainer<double> &cellWorkset,
                                  CellTopoPtr                            cellTopo,
                                  const int                    &         whichCell = -1);
 
   // copied from Intrepid's CellTools and specialized to allow use when we have curvilinear geometry
-  static void mapToReferenceFrame(      Intrepid::FieldContainer<double>      &        refPoints,
-                                        const Intrepid::FieldContainer<double>      &        physPoints,
-                                        MeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree);
+  static void mapToReferenceFrame(Intrepid::FieldContainer<double>       &refPoints,
+                                  const Intrepid::FieldContainer<double> &physPoints,
+                                  ConstMeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree);
 
   static void mapToReferenceSubcell(Intrepid::FieldContainer<double>       &refSubcellPoints,
                                     const Intrepid::FieldContainer<double> &paramPoints,

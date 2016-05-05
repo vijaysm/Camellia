@@ -10,6 +10,7 @@
 #include "Teuchos_UnitTestHelpers.hpp"
 
 #include "CamelliaDebugUtility.h"
+#include "GnuPlotUtil.h"
 #include "Mesh.h"
 #include "MeshFactory.h"
 #include "OverlappingRowMatrix.h"
@@ -45,6 +46,20 @@ namespace
       for (GlobalIndexType neighborID: neighbors)
       {
         adjacency(cellID,neighborID) = 1;
+        
+        // if neighbor is not owned by us, then determine *its* neighbor adjacencies (as seen by our cells) separately:
+        if (myCells.find(neighborID) == myCells.end())
+        {
+          CellPtr neighborCell = mesh->getTopology()->getCell(neighborID);
+          set<GlobalIndexType> neighborNeighbors = neighborCell->getActiveNeighborIndices(dimensionToUseForNeighbor, mesh->getTopology());
+          for (GlobalIndexType neighborNeighborID : neighborNeighbors)
+          {
+            if (myCells.find(neighborNeighborID) != myCells.end())
+            {
+              adjacency(neighborID,neighborNeighborID) = 1;
+            }
+          }
+        }
       }
     }
     
@@ -192,7 +207,17 @@ namespace
     SolutionPtr soln = Solution::solution(mesh, BC::bc(), RHS::rhs(), form.bf()->graphNorm());
     soln->setUseCondensedSolve(useStaticCondensation);
     
-    for (int overlap=0; overlap<3; overlap++)
+    int maxOverlapLevel;
+    if (mesh->getTopology()->isDistributed())
+    {
+      maxOverlapLevel = 1; // anything beyond immediate neighbors will be inaccessible
+    }
+    else
+    {
+      maxOverlapLevel = 2;
+    }
+    
+    for (int overlap=0; overlap<=maxOverlapLevel; overlap++)
     {
       set<GlobalIndexType> expectedCells = getOverlapCells(mesh, overlap, hierarchical);
       set<GlobalIndexType> actualCells;
@@ -228,7 +253,6 @@ namespace
       }
     }
   }
-  
   
   void testOverlapDofOrdinals(bool hierarchical, bool useStaticCondensation, Teuchos::FancyOStream &out, bool &success)
   {
@@ -285,7 +309,17 @@ namespace
     set<GlobalIndexType> myCells = mesh->cellIDsInPartition();
 //    print("myCells", myCells);
     
-    for (int overlap=0; overlap<3; overlap++)
+    int maxOverlapLevel;
+    if (mesh->getTopology()->isDistributed())
+    {
+      maxOverlapLevel = 1; // anything beyond immediate neighbors will be inaccessible
+    }
+    else
+    {
+      maxOverlapLevel = 2;
+    }
+    
+    for (int overlap=0; overlap<=maxOverlapLevel; overlap++)
     {
       set<GlobalIndexType> cells = getOverlapCells(mesh, overlap, hierarchical);
       
@@ -374,6 +408,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( OverlappingRowMatrix, OneNeighborsAreSymmetric )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int H1Order = 1;
     int delta_k = 2;
     int horizontalCells = 2;
@@ -409,7 +444,10 @@ namespace
     int overlapLevel = 1;
     int hierarchical = false;
     
+//    GnuPlotUtil::writeComputationalMeshSkeleton("/tmp/hangingNodeMesh", mesh, true, "black", "hanging node mesh");
+    
     // TODO: test some other cases...
+    // (Note, though, that overlapLevel > 1 will cause problems for distributed MeshTopology)
     testNeighborRelationshipIsSymmetric(mesh, d, overlapLevel, hierarchical, out, success);
   }
   
@@ -492,9 +530,8 @@ namespace
     }
     
     int maxOverlapLevel = 1;
-    for (vector< set<GlobalIndexType> >::iterator distributionIt = overlapDistributions.begin(); distributionIt != overlapDistributions.end(); distributionIt++)
+    for (set<GlobalIndexType> myRowIndices : overlapDistributions)
     {
-      set<GlobalIndexType> myRowIndices = *distributionIt;
       OverlappingRowMatrix overlapMatrix(matrix, maxOverlapLevel, myRowIndices);
       
       int expectedLocalRowCount = myRowIndices.size();

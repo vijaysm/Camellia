@@ -87,7 +87,7 @@ class MeshTopology : public MeshTopologyView
   IndexType addEntity(CellTopoPtr entityTopo, const vector<IndexType> &entityVertices, unsigned &entityPermutation); // returns the entityIndex
 
   void deactivateCell(CellPtr cell);
-  set<IndexType> descendants(unsigned d, IndexType entityIndex);
+  set<IndexType> descendants(unsigned d, IndexType entityIndex) const;
 
   //  pair< IndexType, set<IndexType> > determineEntityConstraints(unsigned d, IndexType entityIndex);
   void addChildren(IndexType firstChildCellIndex, CellPtr cell, const vector< CellTopoPtr > &childTopos,
@@ -99,16 +99,16 @@ class MeshTopology : public MeshTopologyView
   vector<IndexType> getVertexIndices(const Intrepid::FieldContainer<double> &vertices);
   vector<IndexType> getVertexIndices(const vector< vector<double> > &vertices);
   map<unsigned, IndexType> getVertexIndicesMap(const Intrepid::FieldContainer<double> &vertices);
-  set<IndexType> getEntitiesForSide(IndexType sideEntityIndex, unsigned d);
+  set<IndexType> getEntitiesForSide(IndexType sideEntityIndex, unsigned d) const;
   void init(unsigned spaceDim);
-  void printVertex(IndexType vertexIndex);
-  void printVertices(set<IndexType> vertexIndices);
+  void printVertex(IndexType vertexIndex) const;
+  void printVertices(set<IndexType> vertexIndices) const;
   void refineCellEntities(CellPtr cell, RefinementPatternPtr refPattern); // ensures that the appropriate child entities exist, and parental relationships are recorded in _parentEntities
   void setEntityGeneralizedParent(unsigned entityDim, IndexType entityIndex, unsigned parentDim, IndexType parentEntityIndex);
 
   GlobalDofAssignment* _gda; // for cubature degree lookups
 
-  map<string, long long> approximateMemoryCosts(); // for each private variable
+  map<string, long long> approximateMemoryCosts() const; // for each private variable
 
   void addSideForEntity(unsigned entityDim, IndexType entityIndex, IndexType sideEntityIndex); // maintains _sidesForEntities container
 
@@ -137,85 +137,85 @@ public:
   void applyTag(std::string tagName, int tagID, EntitySetPtr entitySet);
   
   // ! This method only gets within a factor of 2 or so, but can give a rough estimate (in bytes)
-  long long approximateMemoryFootprint();
+  long long approximateMemoryFootprint() const;
 
-  MeshTopology* baseMeshTopology(); // returns this
+  const MeshTopology* baseMeshTopology() const; // returns this
   
   EntitySetPtr createEntitySet();
   EntitySetPtr getEntitySet(EntityHandle entitySetHandle) const;
-  vector<EntityHandle> getEntityHandlesForCell(IndexType cellIndex);
+  vector<EntityHandle> getEntityHandlesForCell(IndexType cellIndex) const;
   
   // ! creates a copy of this, deep-copying each Cell and all lookup tables (but does not deep copy any other objects, e.g. PeriodicBCPtrs and the
   Teuchos::RCP<MeshTopology> deepCopy() const;
 
   // ! This method only gets within a factor of 2 or so, but can give rough estimates
-  void printApproximateMemoryReport();
+  void printApproximateMemoryReport() const;
 
-  bool entityHasParent(unsigned d, IndexType entityIndex);
-  bool entityHasGeneralizedParent(unsigned d, IndexType entityIndex);
-  bool entityHasChildren(unsigned d, IndexType entityIndex);
-  IndexType getActiveCellCount(unsigned d, IndexType entityIndex);
+  bool entityHasParent(unsigned d, IndexType entityIndex) const;
+  bool entityHasGeneralizedParent(unsigned d, IndexType entityIndex) const;
+  bool entityHasChildren(unsigned d, IndexType entityIndex) const;
+  IndexType getActiveCellCount(unsigned d, IndexType entityIndex) const;
 
-  vector< pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex); // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
+  vector< pair<IndexType,unsigned> > getActiveCellIndices(unsigned d, IndexType entityIndex) const; // first entry in pair is the cellIndex, the second is the index of the entity in that cell (the subcord).
   CellPtr getCell(IndexType cellIndex) const;
   //  vector< pair< unsigned, unsigned > > getCellNeighbors(unsigned cellIndex, unsigned sideIndex); // second entry in return is the sideIndex in neighbor (note that in context of h-refinements, one or both of the sides may be broken)
   //  pair< CellPtr, unsigned > getCellAncestralNeighbor(unsigned cellIndex, unsigned sideIndex);
-  bool cellHasCurvedEdges(IndexType cellIndex);
+  bool cellHasCurvedEdges(IndexType cellIndex) const;
 
-  bool cellContainsPoint(GlobalIndexType cellID, const std::vector<double> &point, int cubatureDegree);
-  std::vector<IndexType> cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints);
+  bool cellContainsPoint(GlobalIndexType cellID, const std::vector<double> &point, int cubatureDegree) const;
+  std::vector<IndexType> cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const;
 
-  bool entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent);
+  bool entityIsAncestor(unsigned d, IndexType ancestor, IndexType descendent) const;
   bool entityIsGeneralizedAncestor(unsigned ancestorDimension, IndexType ancestor,
-                                   unsigned descendentDimension, IndexType descendent);
+                                   unsigned descendentDimension, IndexType descendent) const;
 
   // ! If the MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
   Epetra_CommPtr Comm() const;
   
   virtual bool isDistributed() const;
   
-  CellPtr findCellWithVertices(const vector< vector<double> > &cellVertices);
+  CellPtr findCellWithVertices(const vector< vector<double> > &cellVertices) const;
 
-  vector<IndexType> getChildEntities(unsigned d, IndexType entityIndex);
-  set<IndexType> getChildEntitiesSet(unsigned d, IndexType entityIndex);
-  IndexType getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex);
-  pair<IndexType, unsigned> getConstrainingEntity(unsigned d, IndexType entityIndex);
-  IndexType getEntityIndex(unsigned d, const set<IndexType> &nodeSet);
-  IndexType getEntityCount(unsigned d);
+  vector<IndexType> getChildEntities(unsigned d, IndexType entityIndex) const;
+  set<IndexType> getChildEntitiesSet(unsigned d, IndexType entityIndex) const;
+  IndexType getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex) const;
+  pair<IndexType, unsigned> getConstrainingEntity(unsigned d, IndexType entityIndex) const;
+  IndexType getEntityIndex(unsigned d, const set<IndexType> &nodeSet) const;
+  IndexType getEntityCount(unsigned d) const;
 
-  pair<IndexType,unsigned> getEntityGeneralizedParent(unsigned d, IndexType entityIndex); // returns (parentEntityIndex, parentDimension)
+  pair<IndexType,unsigned> getEntityGeneralizedParent(unsigned d, IndexType entityIndex) const; // returns (parentEntityIndex, parentDimension)
 
-  IndexType getEntityParent(unsigned d, IndexType entityIndex, unsigned parentOrdinal=0);
-  unsigned getEntityParentCount(unsigned d, IndexType entityIndex);
-  IndexType getEntityParentForSide(unsigned d, IndexType entityIndex, IndexType parentSideEntityIndex);   // returns the entity index for the parent (which might be the entity itself) of entity (d,entityIndex) that is a subcell of side parentSideEntityIndex
-  vector<IndexType> getEntityVertexIndices(unsigned d, IndexType entityIndex);
-  CellTopoPtr getEntityTopology(unsigned d, IndexType entityIndex);
-  IndexType getFaceEdgeIndex(unsigned faceIndex, unsigned edgeOrdinalInFace);
+  IndexType getEntityParent(unsigned d, IndexType entityIndex, unsigned parentOrdinal=0) const;
+  unsigned getEntityParentCount(unsigned d, IndexType entityIndex) const;
+  IndexType getEntityParentForSide(unsigned d, IndexType entityIndex, IndexType parentSideEntityIndex) const;   // returns the entity index for the parent (which might be the entity itself) of entity (d,entityIndex) that is a subcell of side parentSideEntityIndex
+  vector<IndexType> getEntityVertexIndices(unsigned d, IndexType entityIndex) const;
+  CellTopoPtr getEntityTopology(unsigned d, IndexType entityIndex) const;
+  IndexType getFaceEdgeIndex(unsigned faceIndex, unsigned edgeOrdinalInFace) const;
 
-  unsigned getCellCountForSide(IndexType sideEntityIndex); // 1 or 2
-  pair<IndexType, unsigned> getFirstCellForSide(IndexType sideEntityIndex);
-  pair<IndexType, unsigned> getSecondCellForSide(IndexType sideEntityIndex);
+  unsigned getCellCountForSide(IndexType sideEntityIndex) const; // 1 or 2
+  pair<IndexType, unsigned> getFirstCellForSide(IndexType sideEntityIndex) const;
+  pair<IndexType, unsigned> getSecondCellForSide(IndexType sideEntityIndex) const;
 
-  vector<IndexType> getCanonicalEntityNodesViaPeriodicBCs(unsigned d, const vector<IndexType> &myEntityNodes); // if there are periodic BCs for this entity, this converts the provided nodes to the ones listed in the canonical ordering (allows permutation determination) -- this method is meant to be called internally, and from Cell.
+  vector<IndexType> getCanonicalEntityNodesViaPeriodicBCs(unsigned d, const vector<IndexType> &myEntityNodes) const; // if there are periodic BCs for this entity, this converts the provided nodes to the ones listed in the canonical ordering (allows permutation determination) -- this method is meant to be called internally, and from Cell.
 
-  set< pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, IndexType entityIndex);
-  vector<IndexType> getCellsForSide(IndexType sideEntityIndex);
-  vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex);
+  set< pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, IndexType entityIndex) const;
+  vector<IndexType> getCellsForSide(IndexType sideEntityIndex) const;
+  vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex) const;
 
 //  RefinementBranch getSideConstraintRefinementBranch(IndexType sideEntityIndex); // Returns a RefinementBranch that goes from the constraining side to the side indicated.
 
   unsigned getDimension() const;
-  unsigned getSubEntityCount(unsigned int d, IndexType entityIndex, unsigned subEntityDim);
-  IndexType getSubEntityIndex(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal);
-  unsigned getSubEntityPermutation(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal);
-  bool getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14);
-  std::vector<IndexType> getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol=1e-14);
+  unsigned getSubEntityCount(unsigned int d, IndexType entityIndex, unsigned subEntityDim) const;
+  IndexType getSubEntityIndex(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal) const;
+  unsigned getSubEntityPermutation(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal) const;
+  bool getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14) const;
+  std::vector<IndexType> getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol=1e-14) const;
   const std::vector<double>& getVertex(IndexType vertexIndex) const;
   
-  bool isBoundarySide(IndexType sideEntityIndex);
+  bool isBoundarySide(IndexType sideEntityIndex) const;
   bool isValidCellIndex(IndexType cellIndex) const;
   
-  Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false);
+  Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false) const;
   void refineCell(IndexType cellIndex, RefinementPatternPtr refPattern, IndexType firstChildCellIndex);
   
   // ! Returns the global cell count.
@@ -231,16 +231,16 @@ public:
   // ! MPI-collective method for distributed MeshTopology.  The vector returned is ordered by the MPI rank that owns the cell indices (i.e. cell indices belonging to a single rank will be contiguous in this container).
   vector<IndexType> getActiveCellIndicesGlobal() const;
   
-  const set<IndexType> &getLocallyKnownActiveCellIndices();
+  const set<IndexType> &getLocallyKnownActiveCellIndices() const;
   // for a distributed MeshTopology, returns the set of cell indices owned by this MPI rank.  For a replicated MeshTopology, returns an empty set.
   const set<IndexType> &getMyActiveCellIndices() const;
-  set< pair<IndexType, unsigned> > getActiveBoundaryCells(); // (cellIndex, sideOrdinal)
-  vector<double> getCellCentroid(IndexType cellIndex);
+  set< pair<IndexType, unsigned> > getActiveBoundaryCells() const; // (cellIndex, sideOrdinal)
+  vector<double> getCellCentroid(IndexType cellIndex) const;
   
   const set<IndexType> &getRootCellIndicesLocal() const;
   set<IndexType> getRootCellIndicesGlobal() const;
   
-  vector<EntitySetPtr> getEntitySetsForTagID(string tagName, int tagID);
+  vector<EntitySetPtr> getEntitySetsForTagID(string tagName, int tagID) const;
   
   // ! Returns an EntitySet corresponding to the initial time, for a space-time MeshTopology.  Requires that setEntitySetInitialTime() has been called previously.  (This is usually done in MeshFactory.)
   EntitySetPtr getEntitySetInitialTime() const;
@@ -252,18 +252,18 @@ public:
   vector<IndexType> getBoundarySidesThatMatch(SpatialFilterPtr spatialFilter) const;
   
   // ! maxConstraint made public for the sake of MeshTopologyView; not intended for general use
-  IndexType maxConstraint(unsigned d, IndexType entityIndex1, IndexType entityIndex2);
+  IndexType maxConstraint(unsigned d, IndexType entityIndex1, IndexType entityIndex2) const;
   
-  pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, unsigned constrainingEntityIndex);
+  pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, unsigned constrainingEntityIndex) const;
 
   // 2D only:
-  vector< ParametricCurvePtr > parametricEdgesForCell(IndexType cellID, bool neglectCurves);
+  vector< ParametricCurvePtr > parametricEdgesForCell(IndexType cellID, bool neglectCurves) const;
   void setEdgeToCurveMap(const map< pair<IndexType, IndexType>, ParametricCurvePtr > &edgeToCurveMap, MeshPtr mesh);
 
-  void printConstraintReport(unsigned d);
-  void printEntityVertices(unsigned d, IndexType entityIndex);
+  void printConstraintReport(unsigned d) const;
+  void printEntityVertices(unsigned d, IndexType entityIndex) const;
 
-  void printAllEntities();
+  void printAllEntities() const;
   
   // ! Removes all entities that do not belong to the "halo" of the cells indicated, stores ownedCellIndices, and sets the Comm object.
   void pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalIndexType> &ownedCellIndices,
@@ -276,18 +276,18 @@ public:
   
   // not sure this should ultimately be exposed -- using it now to allow correctly timed call to updateCells()
   // (will be transitioning from having MeshTransformationFunction talk to Mesh to having it talk to MeshTopology)
-  Teuchos::RCP<MeshTransformationFunction> transformationFunction();
+  Teuchos::RCP<MeshTransformationFunction> transformationFunction() const;
 
   // ! This method exposed for the sake of tests
-  vector< pair<IndexType,unsigned> > getConstrainingSideAncestry(IndexType sideEntityIndex);   // pair: first is the sideEntityIndex of the ancestor; second is the refinementIndex of the refinement to get from parent to child (see _parentEntities and _childEntities)
+  vector< pair<IndexType,unsigned> > getConstrainingSideAncestry(IndexType sideEntityIndex) const;   // pair: first is the sideEntityIndex of the ancestor; second is the refinementIndex of the refinement to get from parent to child (see _parentEntities and _childEntities)
 
   // ! Fills the provided container with the vertices for the requested cell
-  void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID);
+  void verticesForCell(Intrepid::FieldContainer<double>& vertices, IndexType cellID) const;
   
-  const map<EntityHandle, EntitySetPtr>& getEntitySets();
-  const map<string, vector<pair<EntityHandle, int>>>& getTagSetsInteger(); // tags with integer value, applied to EntitySets.
+  const map<EntityHandle, EntitySetPtr>& getEntitySets() const;
+  const map<string, vector<pair<EntityHandle, int>>>& getTagSetsInteger() const; // tags with integer value, applied to EntitySets.
   
-  MeshTopologyViewPtr getView(const std::set<IndexType> &activeCells);
+  MeshTopologyViewPtr getView(const std::set<IndexType> &activeCells) const;
   
   // distributed read/write methods (for HDF5 support, e.g.)
   // ! returns the size, in bytes, of the serialization of this rank's view of the MeshTopology object.

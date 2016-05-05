@@ -1545,7 +1545,7 @@ void CamelliaCellTools::mapToReferenceFrameInitGuess(      FieldContainer<double
 void CamelliaCellTools::mapToReferenceFrameInitGuess(       FieldContainer<double>  &        refPoints,
     const FieldContainer<double>  &        initGuess,
     const FieldContainer<double>  &        physPoints,
-    MeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree)
+    ConstMeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree)
 {
   CellPtr cell = meshTopo->getCell(cellID);
 
@@ -1567,7 +1567,7 @@ void CamelliaCellTools::mapToReferenceFrameInitGuess(       FieldContainer<doubl
 // copied from Intrepid's CellTools and specialized to allow use when we have curvilinear geometry
 void CamelliaCellTools::mapToReferenceFrame(      FieldContainer<double>      &        refPoints,
     const FieldContainer<double>      &        physPoints,
-    MeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree)
+    ConstMeshTopologyViewPtr meshTopo, IndexType cellID, int cubatureDegree)
 {
   CellPtr cell = meshTopo->getCell(cellID);
   CellTopoPtr cellTopo = cell->topology();

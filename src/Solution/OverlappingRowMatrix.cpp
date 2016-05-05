@@ -259,53 +259,19 @@ std::set<GlobalIndexType> OverlappingRowMatrix::overlappingCells(GlobalIndexType
 {
   set<GlobalIndexType> cells = {cellID};
   
-  // new version
   std::set<GlobalIndexType> lastNeighbors = cells;
   for (int overlap = 0 ; overlap < overlapLevel ; ++overlap)
   {
     std::set<GlobalIndexType> cellNeighbors;
-    for (std::set<GlobalIndexType>::iterator cellIDIt = lastNeighbors.begin(); cellIDIt != lastNeighbors.end(); cellIDIt++)
+    for (GlobalIndexType neighborCellID : lastNeighbors)
     {
-      CellPtr cell = mesh->getTopology()->getCell(*cellIDIt);
+      CellPtr cell = mesh->getTopology()->getCell(neighborCellID);
+      // if dimensionForNeighborRelation < 0, then use sideDim.
+      int sideDim = cell->topology()->getDimension() - 1;
+      if (dimensionForNeighborRelation < 0) dimensionForNeighborRelation = sideDim;
       
-//      bool useOldSideBasedNeighborRelation = false;
-//      
-//      if (useOldSideBasedNeighborRelation)
-//      {
-//        int numSides = cell->getSideCount();
-//        for (int sideOrdinal=0; sideOrdinal<numSides; sideOrdinal++)
-//        {
-//          pair<GlobalIndexType, unsigned> neighborInfo = cell->getNeighborInfo(sideOrdinal,mesh->getTopology());
-//          if (neighborInfo.first != -1)   // -1 indicates boundary/no neighbor
-//          {
-//            GlobalIndexType neighborCellID = neighborInfo.first;
-//            unsigned neighborSideOrdinal = neighborInfo.second;
-//            if (mesh->cellIsActive(neighborCellID))
-//            {
-//              cellNeighbors.insert(neighborCellID);
-//            }
-//            else
-//            {
-//              CellPtr neighborCell = mesh->getTopology()->getCell(neighborCellID);
-//              vector< pair< GlobalIndexType, unsigned> > activeDescendants = neighborCell->getDescendantsForSide(neighborSideOrdinal,
-//                                                                                                                 mesh->getTopology());
-//              for (auto descendantCellPair : activeDescendants)
-//              {
-//                cellNeighbors.insert(descendantCellPair.first);
-//              }
-//            }
-//          }
-//        }
-//      }
-//      else
-//      {
-        // if dimensionForNeighborRelation < 0, then use sideDim.
-        int sideDim = cell->topology()->getDimension() - 1;
-        if (dimensionForNeighborRelation < 0) dimensionForNeighborRelation = sideDim;
-        
-        set<GlobalIndexType> thisCellNeighbors = cell->getActiveNeighborIndices(dimensionForNeighborRelation, mesh->getTopology());
-        cellNeighbors.insert(thisCellNeighbors.begin(),thisCellNeighbors.end());
-//      }
+      set<GlobalIndexType> thisCellNeighbors = cell->getActiveNeighborIndices(dimensionForNeighborRelation, mesh->getTopology());
+      cellNeighbors.insert(thisCellNeighbors.begin(),thisCellNeighbors.end());
     }
     cells.insert(cellNeighbors.begin(), cellNeighbors.end());
     lastNeighbors = cellNeighbors;

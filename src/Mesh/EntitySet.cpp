@@ -45,7 +45,7 @@ void EntitySet::removeEntity(int d, IndexType entityIndex)
 }
 
 // ! Returns the cellIDs from the provided set that contain at least one entity in the set, according to the provided MeshTopologyView.
-set<IndexType> EntitySet::cellIDsThatMatch(const MeshTopologyViewPtr meshTopo, const set<IndexType> &cellIDs) const
+set<IndexType> EntitySet::cellIDsThatMatch(ConstMeshTopologyViewPtr meshTopo, const set<IndexType> &cellIDs) const
 {
   // When there are very few cellIDs in the provided set relative to the number of entities in our set,
   // then it would be better to iterate over their entities and take the intersection with our entities.
@@ -71,7 +71,7 @@ set<IndexType> EntitySet::cellIDsThatMatch(const MeshTopologyViewPtr meshTopo, c
   return matchingCellIDs;
 }
 
-vector<unsigned> EntitySet::subcellOrdinals(MeshTopologyViewPtr meshTopo, IndexType cellID, unsigned d) const
+vector<unsigned> EntitySet::subcellOrdinals(ConstMeshTopologyViewPtr meshTopo, IndexType cellID, unsigned d) const
 {
   if ((d >= _entities.size()) || (_entities[d].size() == 0)) return vector<unsigned>();
   
@@ -87,7 +87,7 @@ vector<unsigned> EntitySet::subcellOrdinals(MeshTopologyViewPtr meshTopo, IndexT
   return subcellOrdinals;
 }
 
-vector<unsigned> EntitySet::subcellOrdinalsOnSide(MeshTopologyViewPtr meshTopo, IndexType cellID, unsigned sideOrdinal, unsigned d) const
+vector<unsigned> EntitySet::subcellOrdinalsOnSide(ConstMeshTopologyViewPtr meshTopo, IndexType cellID, unsigned sideOrdinal, unsigned d) const
 {
   if ((d >= _entities.size()) || (_entities[d].size() == 0)) return vector<unsigned>();
   

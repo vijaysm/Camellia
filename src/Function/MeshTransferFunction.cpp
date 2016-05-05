@@ -165,9 +165,8 @@ void MeshTransferFunction::rebuildMaps()
   set<GlobalIndexType> myNewMeshCells = _newMesh->globalDofAssignment()->cellsInPartition(-1); // -1: this rank
   set<CellSide> newMeshActiveCellSides;
   double tol = 1e-15; // for matching on the interface
-  for (set<GlobalIndexType>::iterator cellIDIt = myNewMeshCells.begin(); cellIDIt != myNewMeshCells.end(); cellIDIt++)
+  for (GlobalIndexType cellID : myNewMeshCells)
   {
-    GlobalIndexType cellID = *cellIDIt;
     CellPtr cell = newMeshTopology->getCell(cellID);
     vector<unsigned> boundarySideOrdinals = cell->boundarySides();
 
@@ -219,18 +218,17 @@ void MeshTransferFunction::rebuildMaps()
 
   vector<GlobalIndexType> cellsToImport;
 
-  for ( set<CellSide>::iterator newMeshEntryIt = newMeshActiveCellSides.begin();
-        newMeshEntryIt != newMeshActiveCellSides.end(); newMeshEntryIt++)
+  for (CellSide newActiveCellSide : newMeshActiveCellSides)
   {
-    CellSide newActiveCellSide = *newMeshEntryIt;
     CellSide originalCellSide;
-
     CellSide newCellSide;
 
     unsigned permutation;
     bool matchFound = findAncestralPairForNewMeshCellSide(newActiveCellSide, newCellSide, originalCellSide, permutation);
     if (!matchFound)
     {
+      // repeat the call, for easier debugging:
+      findAncestralPairForNewMeshCellSide(newActiveCellSide, newCellSide, originalCellSide, permutation);
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "no match found during rebuildMaps()");
     }
 
@@ -250,9 +248,9 @@ void MeshTransferFunction::rebuildMaps()
       else
       {
         vector< pair< GlobalIndexType, unsigned> > descendants = originalCell->getDescendantsForSide(originalCellSide.second, _originalMesh->getTopology());
-        for (vector< pair< GlobalIndexType, unsigned> >::iterator entryIt = descendants.begin(); entryIt != descendants.end(); entryIt++)
+        for (pair<GlobalIndexType, unsigned> entry : descendants)
         {
-          cellsToImport.push_back(entryIt->first);
+          cellsToImport.push_back(entry.first);
         }
       }
     }

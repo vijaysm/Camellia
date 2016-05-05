@@ -371,13 +371,15 @@ void GlobalDofAssignment::repartitionAndMigrate()
 {
   _partitionPolicy->partitionMesh(_mesh.get(),_numPartitions);
   // if our MeshTopology is the base, then we can prune
-  if (_meshTopology->baseMeshTopology() == _meshTopology.get())
+  
+  MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(_meshTopology.get());
+  if (meshTopo != NULL)
   {
     if (_allowMeshTopologyPruning)
     {
       int dimForNeighborRelation = minimumSubcellDimensionForContinuityEnforcement(); // collective operation
       const set<GlobalIndexType>* myCells = &cellsInPartition(-1);
-      _meshTopology->baseMeshTopology()->pruneToInclude(_partitionPolicy->Comm(), *myCells, dimForNeighborRelation);
+      meshTopo->pruneToInclude(_partitionPolicy->Comm(), *myCells, dimForNeighborRelation);
     }
   }
   for (vector< TSolutionPtr<double> >::iterator solutionIt = _registeredSolutions.begin();

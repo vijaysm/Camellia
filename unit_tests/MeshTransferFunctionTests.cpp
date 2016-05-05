@@ -11,6 +11,7 @@
 #include "CamelliaDebugUtility.h"
 #include "MeshFactory.h"
 #include "MeshTransferFunction.h"
+#include "MPIWrapper.h"
 #include "PoissonFormulation.h"
 
 using namespace Camellia;
@@ -214,10 +215,8 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMap)
 
 TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
 {
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-  Comm.Barrier(); // set breakpoint here to allow debugger attachment to other MPI processes than the one you automatically attached to.
-#endif
+  MPIWrapper::CommWorld()->Barrier();
+
   // test to check that the cell mapping is correctly updated when the newMesh is refined
 
   // (may be worth checking that things are updated correctly when originalMesh is refined,
@@ -303,8 +302,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
 //    }
 
   // refine topMesh
-  set<GlobalIndexType> cellIDs;
-  cellIDs.insert(0);
+  set<GlobalIndexType> cellIDs = {0};
   topMesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternQuad());
 
   set<GlobalIndexType> myCellIDs_topMesh = topMesh->cellIDsInPartition();
@@ -321,6 +319,9 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
     GlobalIndexType cellID_bottom = cellIDs_bottomMesh[i];
     GlobalIndexType cellID_top = cellIDs_topMesh[i];
 
+    // if we don't see the top cell, then we should be able to skip...
+    if (! topMesh->getTopology()->isValidCellIndex(cellID_top)) continue;
+    
     CellPtr topCell = topMesh->getTopology()->getCell(cellID_top);
     vector< pair<GlobalIndexType, unsigned> > topCellSides;
     if (topCell->isParent(topMesh->getTopology()))
@@ -332,9 +333,8 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
       topCellSides.push_back(make_pair(cellID_top,topCellsSideOrdinal) );
     }
 
-    for (vector< pair<GlobalIndexType, unsigned> >::iterator topCellIDIt = topCellSides.begin(); topCellIDIt != topCellSides.end(); topCellIDIt++)
+    for (CellSide topCellSide : topCellSides)
     {
-      CellSide topCellSide = *topCellIDIt;
       CellSide topCellSideAncestor = make_pair(cellID_top, topCellsSideOrdinal); // may be identical to topCellSide, or may be its parent
       CellSide bottomCellSide = make_pair(cellID_bottom, bottomCellsSideOrdinal);
 

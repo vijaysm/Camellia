@@ -34,13 +34,13 @@ namespace Camellia {
     void removeEntity(int d, IndexType entityIndex);
     
     // ! Returns the cellIDs from the provided set that contain at least one entity in the set, according to the provided MeshTopologyView.
-    std::set<IndexType> cellIDsThatMatch(MeshTopologyViewPtr meshTopo, const std::set<IndexType> &cellIDs) const;
+    std::set<IndexType> cellIDsThatMatch(ConstMeshTopologyViewPtr meshTopo, const std::set<IndexType> &cellIDs) const;
     
     // ! Returns the subcell ordinals of the given dimension for entities that belong to the indicated cell.
-    std::vector<unsigned> subcellOrdinals(MeshTopologyViewPtr meshTopo, IndexType cellID, unsigned d) const;
+    std::vector<unsigned> subcellOrdinals(ConstMeshTopologyViewPtr meshTopo, IndexType cellID, unsigned d) const;
     
     // ! Returns the subcell ordinals of the given dimension for entities that belong to the indicated cell.
-    std::vector<unsigned> subcellOrdinalsOnSide(MeshTopologyViewPtr meshTopo, IndexType cellID, unsigned sideOrdinal, unsigned d) const;
+    std::vector<unsigned> subcellOrdinalsOnSide(ConstMeshTopologyViewPtr meshTopo, IndexType cellID, unsigned sideOrdinal, unsigned d) const;
     
     // ! updates entity indices according to the lookup table, which is indexed by [d][oldEntityIndex]
     void updateEntityIndices(const vector<map<IndexType,IndexType>> &reverseLookup);

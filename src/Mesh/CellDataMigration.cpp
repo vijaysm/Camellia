@@ -109,7 +109,7 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
 
   // entity sets
   int spaceDim = mesh->getDimension();
-  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  const MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
   vector<EntityHandle> entityHandles = meshTopo->getEntityHandlesForCell(cellID);
   int numHandles = entityHandles.size();
   size += sizeof(numHandles);
@@ -130,7 +130,7 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
   return size;
 }
 
-void CellDataMigration::getCellGeometry(MeshTopology* meshTopo, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
+void CellDataMigration::getCellGeometry(const MeshTopology* meshTopo, GlobalIndexType cellID, set<GlobalIndexType> &knownCells,
                                         RootedLabeledRefinementBranch &cellGeometry)
 {
   // clear cellGeometry
@@ -186,7 +186,7 @@ void CellDataMigration::getCellHaloGeometry(Mesh *mesh, GlobalIndexType cellID, 
   getCellHaloGeometry(mesh->getTopology()->baseMeshTopology(), dimForContinuity, cellID, cellHaloGeometry);
 }
 
-void CellDataMigration::getCellHaloGeometry(MeshTopology *meshTopo, unsigned dimForContinuity,
+void CellDataMigration::getCellHaloGeometry(const MeshTopology *meshTopo, unsigned dimForContinuity,
                                             GlobalIndexType cellID, vector<RootedLabeledRefinementBranch> &cellHaloGeometry)
 {
   cellHaloGeometry.resize(1);
@@ -195,7 +195,7 @@ void CellDataMigration::getCellHaloGeometry(MeshTopology *meshTopo, unsigned dim
   getCellGeometry(meshTopo, cellID, knownCells, cellHaloGeometry[0]);
   
   CellPtr cell = meshTopo->getCell(cellID);
-  MeshTopologyPtr meshTopoPtr = Teuchos::rcp(meshTopo,false);
+  ConstMeshTopologyPtr meshTopoPtr = Teuchos::rcp(meshTopo,false);
   set<GlobalIndexType> cellHaloIndices = cell->getActiveNeighborIndices(dimForContinuity, meshTopoPtr);
   
   for (GlobalIndexType neighborID : cellHaloIndices)
@@ -277,7 +277,7 @@ void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, cha
   
   int spaceDim = mesh->getDimension();
   // entity sets
-  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  const MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
   vector<EntityHandle> entityHandles = meshTopo->getEntityHandlesForCell(cellID);
   int numHandles = entityHandles.size();
   memcpy(dataLocation, &numHandles, sizeof(numHandles));
@@ -394,6 +394,9 @@ void CellDataMigration::unpackData(Mesh *mesh, GlobalIndexType cellID, const cha
 void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, const char* &dataLocation, int size,
                                            vector<RootedLabeledRefinementBranch> &cellHaloGeometry)
 {
+  MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+  TEUCHOS_TEST_FOR_EXCEPTION(meshTopo==NULL, std::invalid_argument, "unpackGeometryData() called on a Mesh that does not have a full MeshTopology as its MeshTopologyView");
+  
   cellHaloGeometry.clear();
   int numLabeledBranches;
   
@@ -453,8 +456,7 @@ void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, c
     RootedLabeledRefinementBranch rootedBranch = {{refBranch,labels},rootVertices};
     cellHaloGeometry.push_back(rootedBranch);
   }
-
-  MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
+  
   addMigratedGeometry(meshTopo, cellHaloGeometry);
   
   // entity sets
@@ -570,7 +572,7 @@ void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, c
   }
 }
 
-void CellDataMigration::getGeometry(const MeshTopology* meshTopo, MeshGeometryInfo &geometryInfo)
+void CellDataMigration::getGeometry(const MeshTopologyView* meshTopo, MeshGeometryInfo &geometryInfo)
 {
   const set<IndexType>* myRootCellIndices = &meshTopo->getRootCellIndicesLocal();
   geometryInfo.rootVertices.resize(myRootCellIndices->size());
@@ -600,7 +602,7 @@ void CellDataMigration::getGeometry(const MeshTopology* meshTopo, MeshGeometryIn
     rootCellOrdinal++;
   }
   
-  ConstMeshTopologyPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
+  ConstMeshTopologyViewPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
   geometryInfo.refinementLevels.clear();
   
   while (thisLevelParents.size() > 0)

@@ -1711,7 +1711,7 @@ void Mesh::saveToHDF5(string filename)
    */
   
   // get my view of the base mesh topology; write it to a byte array
-  MeshTopology* baseMeshTopology = getTopology()->baseMeshTopology();
+  const MeshTopology* baseMeshTopology = getTopology()->baseMeshTopology();
   MeshGeometryInfo baseMeshGeometry;
   CellDataMigration::getGeometry(baseMeshTopology, baseMeshGeometry);
   int myGeometrySize = CellDataMigration::getGeometryDataSize(baseMeshGeometry);

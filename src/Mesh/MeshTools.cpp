@@ -126,7 +126,7 @@ MeshPtr MeshTools::timeSliceMesh(MeshPtr spaceTimeMesh, double t,
   {
     // NOTE: for a large mesh, this could be an expensive operation!!
     // If timeSliceMesh() sees significant use, we should rewrite to have it operate on the original distributed mesh.
-    meshTopoLocal = meshTopo->getGatheredViewCopy();
+    meshTopoLocal = meshTopo->getGatheredCopy();
     meshTopo = dynamic_cast<MeshTopology*>(meshTopoLocal.get());
   }
   

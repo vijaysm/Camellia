@@ -777,7 +777,7 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
   
   MeshTopologyViewPtr rootMeshTopology = meshTopo->getView(meshTopo->getRootCellIndicesGlobal());
-  MeshTopology* originalMeshTopology = originalMesh->getTopology()->baseMeshTopology();
+  const MeshTopology* originalMeshTopology = originalMesh->getTopology()->baseMeshTopology();
 
   TEST_EQUALITY(rootMeshTopology->cellCount(), originalMeshTopology->cellCount());
 
