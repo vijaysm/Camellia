@@ -63,8 +63,6 @@ protected:
 
   vector< TSolutionPtr<double> > _registeredSolutions; // solutions that should be modified upon refinement (by subclasses--maximum rule has to worry about cell side upgrades, whereas minimum rule does not, so there's not a great way to do this in the abstract superclass.)
   
-  ElementTypePtr getElementTypeForKey(pair<CellTopologyKey,int> key);
-
   void constructActiveCellMap();
   void constructActiveCellMap2();
 
@@ -109,6 +107,12 @@ public:
   virtual vector< ElementTypePtr > elementTypes(PartitionIndexType partitionNumber);
 //  virtual void setElementType(GlobalIndexType cellID, ElementTypePtr elem);
 
+  ElementTypePtr getElementTypeForKey(pair<CellTopologyKey,int> key);
+  pair<CellTopologyKey,int> getElementTypeLookupKey(CellTopoPtr cellTopo, int deltaP)
+  {
+    return {cellTopo->getKey(),deltaP};
+  }
+  
   DofOrderingFactoryPtr getDofOrderingFactory();
   ElementTypeFactory & getElementTypeFactory();
   

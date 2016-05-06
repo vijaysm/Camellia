@@ -287,8 +287,14 @@ public:
   static BasisCachePtr parametricQuadCache(int cubatureDegree);
   static BasisCachePtr parametricQuadCache(int cubatureDegree, const Intrepid::FieldContainer<double> &refCellPoints, int sideCacheIndex=-1);
   static BasisCachePtr basisCache1D(double x0, double x1, int cubatureDegree); // x0 and x1: physical space endpoints
+  static BasisCachePtr basisCacheForCell(ConstMeshTopologyViewPtr meshTopology, GlobalIndexType cellID, ElementTypePtr elemType,
+                                         bool testVsTest = false, int cubatureDegreeEnrichment = 0,
+                                         bool tensorProductTopologyMeansSpaceTime=true);
   static BasisCachePtr basisCacheForCell(MeshPtr mesh, GlobalIndexType cellID, bool testVsTest = false,
                                          int cubatureDegreeEnrichment = 0, bool tensorProductTopologyMeansSpaceTime=true);
+  //! bottleneck basisCacheForCell method:
+  static BasisCachePtr basisCacheForCell(MeshPtr mesh, ConstMeshTopologyViewPtr meshTopology, GlobalIndexType cellID, ElementTypePtr elemType,
+                                         bool testVsTest, int cubatureDegreeEnrichment, bool tensorProductTopologyMeansSpaceTime);
   static BasisCachePtr basisCacheForCellType(MeshPtr mesh, ElementTypePtr elemType, bool testVsTest = false,
       int cubatureDegreeEnrichment = 0, bool tensorProductTopologyMeansSpaceTime=true); // for cells on the local MPI node
   static BasisCachePtr basisCacheForReferenceCell(shards::CellTopology &cellTopo, int cubatureDegree, bool createSideCacheToo=false);

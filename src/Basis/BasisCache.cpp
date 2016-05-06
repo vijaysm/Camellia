@@ -1564,14 +1564,29 @@ BasisCachePtr BasisCache::basisCache1D(double x0, double x1, int cubatureDegree)
   return Teuchos::rcp( new BasisCache(physicalCellNodes, line_2, cubatureDegree));
 }
 
-BasisCachePtr BasisCache::basisCacheForCell(MeshPtr mesh, GlobalIndexType cellID, bool testVsTest, int cubatureDegreeEnrichment, bool tensorProductTopologyMeansSpaceTime)
+BasisCachePtr BasisCache::basisCacheForCell(MeshPtr mesh, GlobalIndexType cellID,
+                                            bool testVsTest, int cubatureDegreeEnrichment, bool tensorProductTopologyMeansSpaceTime)
 {
   ElementTypePtr elemType = mesh->getElementType(cellID);
+  return basisCacheForCell(mesh,mesh->getTopology(),cellID,elemType,testVsTest,cubatureDegreeEnrichment,tensorProductTopologyMeansSpaceTime);
+}
+
+BasisCachePtr BasisCache::basisCacheForCell(ConstMeshTopologyViewPtr meshTopology, GlobalIndexType cellID, ElementTypePtr elemType,
+                                            bool testVsTest, int cubatureDegreeEnrichment, bool tensorProductTopologyMeansSpaceTime)
+{
+  return basisCacheForCell(Teuchos::null,meshTopology,cellID,elemType,testVsTest,cubatureDegreeEnrichment,tensorProductTopologyMeansSpaceTime);
+}
+
+BasisCachePtr BasisCache::basisCacheForCell(MeshPtr mesh, ConstMeshTopologyViewPtr meshTopology, GlobalIndexType cellID, ElementTypePtr elemType,
+                                            bool testVsTest, int cubatureDegreeEnrichment, bool tensorProductTopologyMeansSpaceTime)
+{
+  // mesh is allowed to be null
   vector<GlobalIndexType> cellIDs(1,cellID);
+  bool includeCellDimension = true;
+  FieldContainer<double> physicalCellNodes = meshTopology->physicalCellNodesForCell(cellID, includeCellDimension);
   if (tensorProductTopologyMeansSpaceTime && (elemType->cellTopoPtr->getTensorialDegree() > 0))
   {
     CellTopoPtr spaceTimeTopo = elemType->cellTopoPtr;
-    FieldContainer<double> physicalCellNodes = mesh->physicalCellNodesForCell(cellID);
     // check that the physical nodes are in fact in a tensor product structure:
     CellTopoPtr spaceTopo = elemType->cellTopoPtr->getTensorialComponent();
     CellTopoPtr timeTopo = CellTopology::line();
@@ -1632,8 +1647,11 @@ BasisCachePtr BasisCache::basisCacheForCell(MeshPtr mesh, GlobalIndexType cellID
 
   BasisCachePtr basisCache = Teuchos::rcp( new BasisCache(elemType, mesh, testVsTest, cubatureDegreeEnrichment, tensorProductTopologyMeansSpaceTime) );
   bool createSideCache = true;
-  basisCache->setPhysicalCellNodes(mesh->physicalCellNodesForCell(cellID), cellIDs, createSideCache);
-  basisCache->setCellSideParities(mesh->cellSideParitiesForCell(cellID));
+  basisCache->setPhysicalCellNodes(physicalCellNodes, cellIDs, createSideCache);
+  if (mesh != Teuchos::null)
+  {
+    basisCache->setCellSideParities(mesh->cellSideParitiesForCell(cellID));
+  }
 
   return basisCache;
 }

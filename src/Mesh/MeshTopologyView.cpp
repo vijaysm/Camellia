@@ -696,9 +696,14 @@ vector<IndexType> MeshTopologyView::getSidesContainingEntity(unsigned d, IndexTy
 std::set<IndexType> MeshTopologyView::getLocallyKnownSidesForTime(double t) const
 {
   // find all sides all of whose vertices match time t
+  const MeshTopology* meshTopo = dynamic_cast<const MeshTopology*>(this);
+  if (meshTopo == NULL)
+  {
+    meshTopo = _meshTopo.get();
+  }
   
   // find vertices that match t
-  vector<IndexType> matchingVertexIndices = _meshTopo->getVertexIndicesForTime(t);
+  vector<IndexType> matchingVertexIndices = meshTopo->getVertexIndicesForTime(t);
   // matchingVertexIndices is sorted; we use that fact below
 
   set<IndexType> sidesThatMatch;
@@ -709,7 +714,7 @@ std::set<IndexType> MeshTopologyView::getLocallyKnownSidesForTime(double t) cons
     vector<IndexType> sidesForVertex = getSidesContainingEntity(vertexDim, vertexIndex);
     for (IndexType sideForVertex : sidesForVertex)
     {
-      vector<IndexType> verticesForSide = _meshTopo->getEntityVertexIndices(sideDim, sideForVertex);
+      vector<IndexType> verticesForSide = meshTopo->getEntityVertexIndices(sideDim, sideForVertex);
       bool nonMatchFound = false;
       for (IndexType vertexForSide : verticesForSide)
       {

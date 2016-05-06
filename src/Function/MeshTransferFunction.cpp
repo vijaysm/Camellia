@@ -55,7 +55,7 @@ bool MeshTransferFunction::findAncestralPairForNewMeshCellSide(const CellSide &n
     unsigned &newMeshCellSideAncestorPermutation)
 {
   MeshTopologyViewPtr newMeshTopology = _newMesh->getTopology();
-  MeshTopologyViewPtr originalMeshTopology = _originalMesh->getTopology();
+  MeshTopologyViewPtr originalMeshTopology = _gatheredOriginalMeshTopologyOnInterface;
 
   newMeshCellSideAncestor = newMeshCellSide;
 
@@ -153,6 +153,12 @@ bool MeshTransferFunction::findAncestralPairForNewMeshCellSide(const CellSide &n
 void MeshTransferFunction::rebuildMaps()
 {
   MeshTopologyViewPtr newMeshTopology = _newMesh->getTopology();
+  
+  // NOTE: the following is potentially expensive for large meshes.  There are better ways to do this; this is reasonable
+  // until and unless MeshTransferFunction is used in large computations with a significant number of cells on the temporal
+  // interface.
+  set<IndexType> originalMeshCellsOnInterface = _originalMesh->getTopology()->getGatheredActiveCellsForTime(_interface_t);
+  _gatheredOriginalMeshTopologyOnInterface = _originalMesh->getTopology()->getGatheredCopy(originalMeshCellsOnInterface);
 
   int sideDim = newMeshTopology->getDimension() - 1;
   int timeDimOrdinal = sideDim; // time is the last dimension
@@ -162,10 +168,10 @@ void MeshTransferFunction::rebuildMaps()
   // initial strategy: examine the vertices that belong to cells owned by this rank. Sides that are wholly
   //                   comprised of vertices on the interface are the sides of interest
 
-  set<GlobalIndexType> myNewMeshCells = _newMesh->globalDofAssignment()->cellsInPartition(-1); // -1: this rank
+  const set<GlobalIndexType>* myNewMeshCells = &_newMesh->cellIDsInPartition();
   set<CellSide> newMeshActiveCellSides;
   double tol = 1e-15; // for matching on the interface
-  for (GlobalIndexType cellID : myNewMeshCells)
+  for (GlobalIndexType cellID : *myNewMeshCells)
   {
     CellPtr cell = newMeshTopology->getCell(cellID);
     vector<unsigned> boundarySideOrdinals = cell->boundarySides();
@@ -209,12 +215,10 @@ void MeshTransferFunction::rebuildMaps()
   // 3. Create a map in each direction.  This should be a bijection, but not all cells will be active;
   //    some will be inactive parent cells.
 
-  MeshTopologyViewPtr originalMeshTopology = _originalMesh->getTopology();
-
   _newToOriginalMap.clear();
   _originalToNewMap.clear();
 
-  const set<GlobalIndexType>* originalMeshActiveRankLocalCells = &_originalMesh->globalDofAssignment()->cellsInPartition(-1);
+  const set<GlobalIndexType>* originalMeshActiveRankLocalCells = &_originalMesh->cellIDsInPartition();
 
   vector<GlobalIndexType> cellsToImport;
 
@@ -240,14 +244,15 @@ void MeshTransferFunction::rebuildMaps()
     if (originalMeshActiveRankLocalCells->find(originalCellSide.first) == originalMeshActiveRankLocalCells->end())
     {
       // off-rank or parent; record for import:
-      CellPtr originalCell = _originalMesh->getTopology()->getCell(originalCellSide.first);
-      if (!originalCell->isParent(_originalMesh->getTopology()))
+      CellPtr originalCell = _gatheredOriginalMeshTopologyOnInterface->getCell(originalCellSide.first);
+      if (!originalCell->isParent(_gatheredOriginalMeshTopologyOnInterface))
       {
         cellsToImport.push_back(originalCellSide.first);
       }
       else
       {
-        vector< pair< GlobalIndexType, unsigned> > descendants = originalCell->getDescendantsForSide(originalCellSide.second, _originalMesh->getTopology());
+        vector<pair<GlobalIndexType,unsigned>> descendants = originalCell->getDescendantsForSide(originalCellSide.second,
+                                                                                                 _gatheredOriginalMeshTopologyOnInterface);
         for (pair<GlobalIndexType, unsigned> entry : descendants)
         {
           cellsToImport.push_back(entry.first);
@@ -382,19 +387,21 @@ void MeshTransferFunction::values(FieldContainer<double> &values, BasisCachePtr 
     // permute newMeshCellReferencePoints according to newMeshAncestralCellSidePermutation
 
     unsigned sideDim = _originalMesh->getDimension() - 1;
-    CellPtr originalMeshAncestralCell = _originalMesh->getTopology()->getCell(originalMeshAncestralCellSide.first);
+    CellPtr originalMeshAncestralCell = _gatheredOriginalMeshTopologyOnInterface->getCell(originalMeshAncestralCellSide.first);
     CellTopoPtr sideTopo = originalMeshAncestralCell->topology()->getSide(originalMeshAncestralCellSide.second);
-//    IndexType originalSideEntityIndex = originalMeshAncenstralCell->entityIndex(sideDim,originalMeshAncestralCellSide.second);
-//    CellTopoPtr sideTopo = _originalMesh->getTopology()->getEntityTopology(sideDim, originalSideEntityIndex);
 
     FieldContainer<double> originalMeshCellReferencePoints(newMeshCellReferencePoints.dimension(0), newMeshCellReferencePoints.dimension(1));
     CamelliaCellTools::permutedReferenceCellPoints(sideTopo, newMeshAncestralCellSidePermutation, newMeshCellReferencePoints, originalMeshCellReferencePoints);
 
     // in originalMesh, may have to map downward to descendants
-    CellPtr cell = _originalMesh->getTopology()->getCell(originalMeshAncestralCellSide.first);
-    if (! cell->isParent(_originalMesh->getTopology()))
+    CellPtr cell = _gatheredOriginalMeshTopologyOnInterface->getCell(originalMeshAncestralCellSide.first);
+    if (! cell->isParent(_gatheredOriginalMeshTopologyOnInterface))
     {
-      BasisCachePtr originalBasisCache = BasisCache::basisCacheForCell(_originalMesh, originalMeshAncestralCellSide.first);
+      int deltaP = _originalMesh->globalDofAssignment()->getPRefinementDegree(cell->cellIndex());
+      auto elemTypeKey = _originalMesh->globalDofAssignment()->getElementTypeLookupKey(cell->topology(),deltaP);
+      ElementTypePtr elemType = _originalMesh->globalDofAssignment()->getElementTypeForKey(elemTypeKey);
+      BasisCachePtr originalBasisCache = BasisCache::basisCacheForCell(_gatheredOriginalMeshTopologyOnInterface, originalMeshAncestralCellSide.first,
+                                                                       elemType);
       BasisCachePtr originalBasisCacheSide = originalBasisCache->getSideBasisCache(originalMeshAncestralCellSide.second);
       originalBasisCacheSide->setRefCellPoints(originalMeshCellReferencePoints);
       int enumeration = values.getEnumeration(valuesLocation);
@@ -424,7 +431,7 @@ void MeshTransferFunction::values(FieldContainer<double> &values, BasisCachePtr 
         vector<unsigned> branch;
         unsigned sideOrdinal = originalMeshAncestralCellSide.second;
 
-        while (descendantCell->isParent(_originalMesh->getTopology()))
+        while (descendantCell->isParent(_gatheredOriginalMeshTopologyOnInterface))
         {
           RefinementPatternPtr refPattern = descendantCell->refinementPattern();
           RefinementPatternPtr sideRefPattern = refPattern->sideRefinementPatterns()[sideOrdinal];
@@ -456,7 +463,13 @@ void MeshTransferFunction::values(FieldContainer<double> &values, BasisCachePtr 
         valuesLocation[1] = 0; // clear
 
         FieldContainer<double> pointValues(valuesDimOneCellOnePoint, &values[enumeration]);
-        BasisCachePtr originalMeshBasisCache = BasisCache::basisCacheForCell(_originalMesh, originalMeshAncestralCellSide.first);
+        
+        int deltaP = _originalMesh->globalDofAssignment()->getPRefinementDegree(originalMeshAncestralCellSide.first);
+        auto elemTypeKey = _originalMesh->globalDofAssignment()->getElementTypeLookupKey(cell->topology(),deltaP);
+        ElementTypePtr elemType = _originalMesh->globalDofAssignment()->getElementTypeForKey(elemTypeKey);
+        BasisCachePtr originalBasisCache = BasisCache::basisCacheForCell(_gatheredOriginalMeshTopologyOnInterface, originalMeshAncestralCellSide.first,
+                                                                         elemType);
+        
         BasisCachePtr originalMeshBasisCacheSide = basisCache->getSideBasisCache(sideOrdinal);
         originalMeshBasisCacheSide->setRefCellPoints(parentPointFC);
 

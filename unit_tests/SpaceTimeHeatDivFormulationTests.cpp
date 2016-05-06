@@ -263,43 +263,46 @@ namespace
     DofInterpreter* dofInterpreter = form.solution()->getDofInterpreter().get();
     std::map<GlobalIndexType, double> globalDofIndicesAndValues;
     GlobalIndexType cellID = 0;
-    boundary.bcsToImpose<double>(globalDofIndicesAndValues, *bc, cellID, dofInterpreter);
-
-    // use our knowledge that we have a one-element mesh: every last dof for uhat should be present, and have coefficient CONST_VALUE
-    DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
-    CellTopoPtr cellTopo = mesh->getElementType(cellID)->cellTopoPtr;
-
-    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
-
-    double tol = 1e-13;
-    for (int sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
+    if (mesh->getTopology()->isValidCellIndex(cellID))
     {
-      out << "******** SIDE " << sideOrdinal << " ********" << endl;
-      BasisPtr basis = trialOrder->getBasis(tc->ID(),sideOrdinal);
-      Intrepid::FieldContainer<double> fluxValues(basis->getCardinality());
-      fluxValues.initialize(CONST_VALUE);
-      Intrepid::FieldContainer<double> globalData;
-      Intrepid::FieldContainer<GlobalIndexType> globalDofIndices;
-      dofInterpreter->interpretLocalBasisCoefficients(cellID, tc->ID(), sideOrdinal, fluxValues, globalData, globalDofIndices);
-      // sanity check on the interpreted global values
-      for (int basisOrdinal=0; basisOrdinal<globalData.size(); basisOrdinal++)
-      {
-        TEST_FLOATING_EQUALITY(CONST_VALUE, globalData(basisOrdinal), tol);
-      }
+      boundary.bcsToImpose<double>(globalDofIndicesAndValues, *bc, cellID, dofInterpreter);
 
-      for (int basisOrdinal=0; basisOrdinal<globalData.size(); basisOrdinal++)
+      // use our knowledge that we have a one-element mesh: every last dof for uhat should be present, and have coefficient CONST_VALUE
+      DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
+      CellTopoPtr cellTopo = mesh->getElementType(cellID)->cellTopoPtr;
+
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+
+      double tol = 1e-13;
+      for (int sideOrdinal=0; sideOrdinal < cellTopo->getSideCount(); sideOrdinal++)
       {
-        GlobalIndexType globalDofIndex = globalDofIndices(basisOrdinal);
-        if (globalDofIndicesAndValues.find(globalDofIndex) != globalDofIndicesAndValues.end())
+        out << "******** SIDE " << sideOrdinal << " ********" << endl;
+        BasisPtr basis = trialOrder->getBasis(tc->ID(),sideOrdinal);
+        Intrepid::FieldContainer<double> fluxValues(basis->getCardinality());
+        fluxValues.initialize(CONST_VALUE);
+        Intrepid::FieldContainer<double> globalData;
+        Intrepid::FieldContainer<GlobalIndexType> globalDofIndices;
+        dofInterpreter->interpretLocalBasisCoefficients(cellID, tc->ID(), sideOrdinal, fluxValues, globalData, globalDofIndices);
+        // sanity check on the interpreted global values
+        for (int basisOrdinal=0; basisOrdinal<globalData.size(); basisOrdinal++)
         {
-          double expectedValue = globalData(basisOrdinal);
-          double actualValue = globalDofIndicesAndValues[globalDofIndex];
-          TEST_FLOATING_EQUALITY(expectedValue, actualValue, tol);
+          TEST_FLOATING_EQUALITY(CONST_VALUE, globalData(basisOrdinal), tol);
         }
-        else
+
+        for (int basisOrdinal=0; basisOrdinal<globalData.size(); basisOrdinal++)
         {
-          out << "On side " << sideOrdinal << ", did not find globalDofIndex " << globalDofIndex << endl;
-          success = false;
+          GlobalIndexType globalDofIndex = globalDofIndices(basisOrdinal);
+          if (globalDofIndicesAndValues.find(globalDofIndex) != globalDofIndicesAndValues.end())
+          {
+            double expectedValue = globalData(basisOrdinal);
+            double actualValue = globalDofIndicesAndValues[globalDofIndex];
+            TEST_FLOATING_EQUALITY(expectedValue, actualValue, tol);
+          }
+          else
+          {
+            out << "On side " << sideOrdinal << ", did not find globalDofIndex " << globalDofIndex << endl;
+            success = false;
+          }
         }
       }
     }

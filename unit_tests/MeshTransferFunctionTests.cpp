@@ -291,8 +291,14 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
     xCenter += elemWidth;
   }
 
-  vector<GlobalIndexType> cellIDs_bottomMesh = bottomMesh->cellIDsForPoints(midPointsBottomMesh, false);
-  vector<GlobalIndexType> cellIDs_topMesh = topMesh->cellIDsForPoints(midPointsTopMesh, false);
+  set<IndexType> bottomCellsOnInterface = bottomMesh->getTopology()->getGatheredActiveCellsForTime(y_interface);
+  MeshTopologyPtr bottomMeshTopologyGathered = bottomMesh->getTopology()->getGatheredCopy(bottomCellsOnInterface);
+  
+  set<IndexType> topCellsOnInterface = topMesh->getTopology()->getGatheredActiveCellsForTime(y_interface);
+  MeshTopologyPtr topMeshTopologyGathered = topMesh->getTopology()->getGatheredCopy(topCellsOnInterface);
+  
+  vector<GlobalIndexType> cellIDs_bottomMesh = bottomMeshTopologyGathered->cellIDsForPoints(midPointsBottomMesh);
+  vector<GlobalIndexType> cellIDs_topMesh = topMeshTopologyGathered->cellIDsForPoints(midPointsTopMesh);
 
 //    { //DEBUGGING
 //      int rank = Teuchos::GlobalMPISession::getRank();
@@ -304,9 +310,11 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
   // refine topMesh
   set<GlobalIndexType> cellIDs = {0};
   topMesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternQuad());
-
   set<GlobalIndexType> myCellIDs_topMesh = topMesh->cellIDsInPartition();
 
+  topCellsOnInterface = topMesh->getTopology()->getGatheredActiveCellsForTime(y_interface);
+  topMeshTopologyGathered = topMesh->getTopology()->getGatheredCopy(topCellsOnInterface);
+  
   // hard-coded notion of which sides meet the interface.  Would be a cleaner test if we determined these
   // programmatically...
   unsigned topCellsSideOrdinal = 0;
@@ -318,11 +326,8 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
   {
     GlobalIndexType cellID_bottom = cellIDs_bottomMesh[i];
     GlobalIndexType cellID_top = cellIDs_topMesh[i];
-
-    // if we don't see the top cell, then we should be able to skip...
-    if (! topMesh->getTopology()->isValidCellIndex(cellID_top)) continue;
     
-    CellPtr topCell = topMesh->getTopology()->getCell(cellID_top);
+    CellPtr topCell = topMeshTopologyGathered->getCell(cellID_top);
     vector< pair<GlobalIndexType, unsigned> > topCellSides;
     if (topCell->isParent(topMesh->getTopology()))
     {
@@ -347,7 +352,6 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
   }
 
   const map< pair<GlobalIndexType, unsigned>, pair<GlobalIndexType, unsigned> >* actualMapToOriginal = &transferFunction.mapToOriginalMesh();
-
   const map< pair<GlobalIndexType, unsigned>, pair<GlobalIndexType, unsigned> >* actualMapToNew = &transferFunction.mapToNewMesh();
 
   TEST_EQUALITY(actualMapToNew->size(), expectedMappingToNew.size());
@@ -407,6 +411,8 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, CellMapUnderRefinement)
 
 TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesPiecewiseConstant)
 {
+  MPIWrapper::CommWorld()->Barrier();
+  
   // test to check that functions are correctly valued
 
   // try with some functions that simply return the cellID
@@ -416,10 +422,6 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesPiecewiseConstant)
 
   // then try with some arbitrarily permuted cell numberings
 
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-  Comm.Barrier(); // set breakpoint here to allow debugger attachment to other MPI processes than the one you automatically attached to.
-#endif
   // test to check that the cell mapping is correctly updated when the newMesh is refined
 
   // (may be worth checking that things are updated correctly when originalMesh is refined,
@@ -547,6 +549,7 @@ TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesPiecewiseConstant)
 
 TEUCHOS_UNIT_TEST( MeshTransferFunction, FunctionValuesWithoutHangingNodes)
 {
+  MPIWrapper::CommWorld()->Barrier();
   // test to check that functions are correctly valued
 
   // try with some functions that vary on the interface

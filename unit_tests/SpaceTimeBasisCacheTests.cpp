@@ -10,6 +10,7 @@
 
 #include "BasisFactory.h"
 #include "CellTopology.h"
+#include "MPIWrapper.h"
 #include "SpaceTimeBasisCache.h"
 #include "PoissonFormulation.h"
 #include "TensorBasis.h"
@@ -277,39 +278,46 @@ void testSpaceTimeSideMeasure(CellTopoPtr spaceTopo, Teuchos::FancyOStream &out,
 
   MeshPtr singleCellSpaceTimeMesh = getSpaceTimeMesh(spaceTopo,H1Order,refCellExpansionFactor,refCellTranslation,t0,t1); // reference spatial topo x (0,1) in time
   IndexType cellIndex = 0;
-  CellPtr cell = singleCellSpaceTimeMesh->getTopology()->getCell(cellIndex);
-
-  BasisCachePtr spaceTimeBasisCache = BasisCache::basisCacheForCell(singleCellSpaceTimeMesh, cellIndex);
-
-  CellTopoPtr cellTopo = cell->topology();
-  for (int sideOrdinal=0; sideOrdinal<cellTopo->getSideCount(); sideOrdinal++)
+  if (singleCellSpaceTimeMesh->getTopology()->isValidCellIndex(cellIndex))
   {
-    double expectedMeasure;
-    if (cellTopo->sideIsSpatial(sideOrdinal))
+    CellPtr cell = singleCellSpaceTimeMesh->getTopology()->getCell(cellIndex);
+
+    BasisCachePtr spaceTimeBasisCache = BasisCache::basisCacheForCell(singleCellSpaceTimeMesh, cellIndex);
+
+    CellTopoPtr cellTopo = cell->topology();
+    for (int sideOrdinal=0; sideOrdinal<cellTopo->getSideCount(); sideOrdinal++)
     {
-      int spatialSideOrdinal = cellTopo->getSpatialComponentSideOrdinal(sideOrdinal);
-      expectedMeasure = spatialSideMeasures[spatialSideOrdinal] * temporalExtent;
-//        cout << "spatial weights:\n" << spatialBasisCache->getSideBasisCache(spatialSideOrdinal)->getWeightedMeasures();
-//        cout << "spatial cubature weights:\n" << spatialBasisCache->getSideBasisCache(spatialSideOrdinal)->getCubatureWeights();
+      double expectedMeasure;
+      if (cellTopo->sideIsSpatial(sideOrdinal))
+      {
+        int spatialSideOrdinal = cellTopo->getSpatialComponentSideOrdinal(sideOrdinal);
+        expectedMeasure = spatialSideMeasures[spatialSideOrdinal] * temporalExtent;
+  //        cout << "spatial weights:\n" << spatialBasisCache->getSideBasisCache(spatialSideOrdinal)->getWeightedMeasures();
+  //        cout << "spatial cubature weights:\n" << spatialBasisCache->getSideBasisCache(spatialSideOrdinal)->getCubatureWeights();
+      }
+      else
+      {
+        expectedMeasure = spatialMeasure;
+  //        cout << "spatial cubature weights:\n" << spatialBasisCache->getCubatureWeights();
+  //        cout << "spatial weights:\n" << spatialBasisCache->getWeightedMeasures();
+      }
+  //      cout << "sideOrdinal " << sideOrdinal << ", space-time cubature weights: \n" << spaceTimeBasisCache->getSideBasisCache(sideOrdinal)->getCubatureWeights();
+  //      cout << "sideOrdinal " << sideOrdinal << ", space-time weights: \n" << spaceTimeBasisCache->getSideBasisCache(sideOrdinal)->getWeightedMeasures();
+      double actualMeasure = spaceTimeBasisCache->getSideBasisCache(sideOrdinal)->getCellMeasures()(0);
+      TEST_FLOATING_EQUALITY(actualMeasure, expectedMeasure, 1e-14);
     }
-    else
-    {
-      expectedMeasure = spatialMeasure;
-//        cout << "spatial cubature weights:\n" << spatialBasisCache->getCubatureWeights();
-//        cout << "spatial weights:\n" << spatialBasisCache->getWeightedMeasures();
-    }
-//      cout << "sideOrdinal " << sideOrdinal << ", space-time cubature weights: \n" << spaceTimeBasisCache->getSideBasisCache(sideOrdinal)->getCubatureWeights();
-//      cout << "sideOrdinal " << sideOrdinal << ", space-time weights: \n" << spaceTimeBasisCache->getSideBasisCache(sideOrdinal)->getWeightedMeasures();
-    double actualMeasure = spaceTimeBasisCache->getSideBasisCache(sideOrdinal)->getCellMeasures()(0);
-    TEST_FLOATING_EQUALITY(actualMeasure, expectedMeasure, 1e-14);
   }
 }
 
 void testPhysicalPointsForSpaceTimeBasisCache(int H1Order, CellTopoPtr spaceTopo,
     Teuchos::FancyOStream &out, bool &success)
 {
+  MPIWrapper::CommWorld()->Barrier();
   MeshPtr mesh = getSpaceTimeMesh(spaceTopo, H1Order);
 
+  GlobalIndexType cellID = 0;
+  if (!mesh->getTopology()->isValidCellIndex(cellID)) return; // no MPI-dependent stuff below...
+  
   TensorBasis<>* tensorBasis;
   BasisPtr spaceTimeBasis;
   {
@@ -336,7 +344,6 @@ void testPhysicalPointsForSpaceTimeBasisCache(int H1Order, CellTopoPtr spaceTopo
     spaceTimeBasis = basisFactory->getBasis(H1Order, spaceTimeTopo, spatialFS,
                                             timePolyOrder + 1, temporalFS);
 
-    GlobalIndexType cellID = 0;
     BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
 
     SpaceTimeBasisCache* spaceTimeBasisCache = dynamic_cast<SpaceTimeBasisCache*>(basisCache.get());
@@ -351,8 +358,7 @@ void testPhysicalPointsForSpaceTimeBasisCache(int H1Order, CellTopoPtr spaceTopo
 
     tensorBasis = dynamic_cast<TensorBasis<>*>(spaceTimeBasis.get());
   }
-
-  GlobalIndexType cellID = 0;
+  
   BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
   CellTopoPtr spaceTimeTopo = mesh->getElementType(cellID)->cellTopoPtr;
 
@@ -427,26 +433,29 @@ TEUCHOS_UNIT_TEST( SpaceTimeBasisCache, BasisCacheForSpaceTimeCell )
   MeshPtr mesh = getSpaceTimeMesh(CellTopology::triangle());
 
   GlobalIndexType cellID = 0;
-  BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
-
-  SpaceTimeBasisCache* spaceTimeBasisCache = dynamic_cast<SpaceTimeBasisCache*>(basisCache.get());
-  TEST_ASSERT(spaceTimeBasisCache != NULL);
-
-  // test that the side caches are created and are also space-time caches
-  CellTopoPtr spaceTimeTopo = spaceTimeBasisCache->cellTopology();
-  int sideCount = spaceTimeTopo->getSideCount();
-  for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
+  if (mesh->getTopology()->isValidCellIndex(cellID))
   {
-    // should be that we have a space-time cache on every spatial side:
-    if (spaceTimeTopo->sideIsSpatial(sideOrdinal))
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+
+    SpaceTimeBasisCache* spaceTimeBasisCache = dynamic_cast<SpaceTimeBasisCache*>(basisCache.get());
+    TEST_ASSERT(spaceTimeBasisCache != NULL);
+
+    // test that the side caches are created and are also space-time caches
+    CellTopoPtr spaceTimeTopo = spaceTimeBasisCache->cellTopology();
+    int sideCount = spaceTimeTopo->getSideCount();
+    for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
     {
-      BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
-      SpaceTimeBasisCache* spaceTimeSideCache = dynamic_cast<SpaceTimeBasisCache*>(sideCache.get());
-      TEST_ASSERT(spaceTimeSideCache != NULL);
-    }
-    else
-    {
-      // we don't here commit to whether the side cache is SpaceTime or not (right now, it is, but it needn't be)
+      // should be that we have a space-time cache on every spatial side:
+      if (spaceTimeTopo->sideIsSpatial(sideOrdinal))
+      {
+        BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+        SpaceTimeBasisCache* spaceTimeSideCache = dynamic_cast<SpaceTimeBasisCache*>(sideCache.get());
+        TEST_ASSERT(spaceTimeSideCache != NULL);
+      }
+      else
+      {
+        // we don't here commit to whether the side cache is SpaceTime or not (right now, it is, but it needn't be)
+      }
     }
   }
 }
@@ -497,26 +506,29 @@ TEUCHOS_UNIT_TEST( SpaceTimeBasisCache, GetValues )
                             timeH1Order, temporalFS);
 
   GlobalIndexType cellID = 0;
-  BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+  if (mesh->getTopology()->isValidCellIndex(cellID))
+  {
+    BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
 
-  SpaceTimeBasisCache* spaceTimeBasisCache = dynamic_cast<SpaceTimeBasisCache*>(basisCache.get());
+    SpaceTimeBasisCache* spaceTimeBasisCache = dynamic_cast<SpaceTimeBasisCache*>(basisCache.get());
 
-  BasisCachePtr spatialCache = spaceTimeBasisCache->getSpatialBasisCache();
-  BasisCachePtr temporalCache = spaceTimeBasisCache->getTemporalBasisCache();
+    BasisCachePtr spatialCache = spaceTimeBasisCache->getSpatialBasisCache();
+    BasisCachePtr temporalCache = spaceTimeBasisCache->getTemporalBasisCache();
 
-  FC transformedSpatialValues = *spatialCache->getTransformedValues(spatialBasis, spatialOp);
-  FC transformedTemporalValues = *temporalCache->getTransformedValues(temporalBasis, temporalOp);
+    FC transformedSpatialValues = *spatialCache->getTransformedValues(spatialBasis, spatialOp);
+    FC transformedTemporalValues = *temporalCache->getTransformedValues(temporalBasis, temporalOp);
 
-  FC transformedSpaceTimeValues = *spaceTimeBasisCache->getTransformedValues(spaceTimeBasis, spaceTimeOp);
+    FC transformedSpaceTimeValues = *spaceTimeBasisCache->getTransformedValues(spaceTimeBasis, spaceTimeOp);
 
-  TensorBasis<>* tensorBasis = dynamic_cast<TensorBasis<>*>(spaceTimeBasis.get());
+    TensorBasis<>* tensorBasis = dynamic_cast<TensorBasis<>*>(spaceTimeBasis.get());
 
-  vector<FC> componentValues(2);
-  componentValues[0] = transformedSpatialValues;
-  componentValues[1] = transformedTemporalValues;
-  FC transformedSpaceTimeValuesExpected = transformedSpaceTimeValues;
-  transformedSpaceTimeValuesExpected.initialize(0.0);
-  tensorBasis->getTensorValues(transformedSpaceTimeValuesExpected, componentValues, intrepidOperatorTypes);
+    vector<FC> componentValues(2);
+    componentValues[0] = transformedSpatialValues;
+    componentValues[1] = transformedTemporalValues;
+    FC transformedSpaceTimeValuesExpected = transformedSpaceTimeValues;
+    transformedSpaceTimeValuesExpected.initialize(0.0);
+    tensorBasis->getTensorValues(transformedSpaceTimeValuesExpected, componentValues, intrepidOperatorTypes);
+  }
 }
 
 TEUCHOS_UNIT_TEST( SpaceTimeBasisCache, TransformedBasisValuesLine )
@@ -587,13 +599,16 @@ TEUCHOS_UNIT_TEST( SpaceTimeBasisCache, VolumeMeasureLine )
   double refCellExpansionFactor = 1.0;
   MeshPtr singleCellSpaceTimeMesh = getSpaceTimeMesh(spaceTopo,H1Order,refCellExpansionFactor); // reference spatial topo x (0,1) in time
   IndexType cellIndex = 0;
-  CellPtr cell = singleCellSpaceTimeMesh->getTopology()->getCell(cellIndex);
+  if (singleCellSpaceTimeMesh->getTopology()->isValidCellIndex(cellIndex))
+  {
+    CellPtr cell = singleCellSpaceTimeMesh->getTopology()->getCell(cellIndex);
 
-  BasisCachePtr spaceTimeBasisCache = BasisCache::basisCacheForCell(singleCellSpaceTimeMesh, cellIndex);
-  double expectedMeasure = spatialMeasure * temporalExtent;
-  double actualMeasure = spaceTimeBasisCache->getCellMeasures()(0);
+    BasisCachePtr spaceTimeBasisCache = BasisCache::basisCacheForCell(singleCellSpaceTimeMesh, cellIndex);
+    double expectedMeasure = spatialMeasure * temporalExtent;
+    double actualMeasure = spaceTimeBasisCache->getCellMeasures()(0);
 
-  TEST_FLOATING_EQUALITY(actualMeasure, expectedMeasure, 1e-15);
+    TEST_FLOATING_EQUALITY(actualMeasure, expectedMeasure, 1e-15);
+  }
 }
 
 
