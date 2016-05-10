@@ -12,8 +12,10 @@
 
 #include "CamelliaDebugUtility.h"
 #include "GDAMinimumRule.h"
+#include "GnuPlotUtil.h"
 #include "GMGSolver.h"
 #include "MeshFactory.h"
+#include "MPIWrapper.h"
 #include "PoissonFormulation.h"
 #include "RHS.h"
 #include "SerialDenseWrapper.h"
@@ -521,16 +523,18 @@ namespace
   
   TEUCHOS_UNIT_TEST( GMGSolver, UniformIdentity_1D_Slow)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 1;
     bool useConformingTraces = false;
 
+//    // DEBUGGING: single choices
+//    vector<bool> staticCondensationChoices = {false};
+//    vector<GMGOperator::SmootherApplicationType> smootherApplicationTypes = {GMGOperator::MULTIPLICATIVE};
+//    vector<int> meshWidths = {2};
+    
     vector<bool> staticCondensationChoices = {false, true};
     vector<GMGOperator::SmootherApplicationType> smootherApplicationTypes = {GMGOperator::ADDITIVE, GMGOperator::MULTIPLICATIVE};
     vector<int> meshWidths = {1,2};
-//    vector<bool> staticCondensationChoices = {false};
-//    vector<bool> applySmootherBeforeCoarseSolveChoices = {false};
-//    vector<bool> applySmootherAfterCoarseSolveChoices = {true};
-//    vector<int> meshWidths = {1};
 
     for (bool useStaticCondensation : staticCondensationChoices)
     {
@@ -732,6 +736,9 @@ namespace
     double tol = 1e-6;
     gmgSolver = Teuchos::rcp( new GMGSolver(fineSolution,{coarseMesh, fineMesh},maxIters,tol) );
     turnOffSuperLUDistOutput(gmgSolver);
+    
+//    GnuPlotUtil::writeComputationalMeshSkeleton("/tmp/coarseMesh", coarseMesh, true); // true: label cells
+//    GnuPlotUtil::writeComputationalMeshSkeleton("/tmp/fineMesh", fineMesh, true); // true: label cells
   }
   
   void setupPoissonGMGSolver_TwoGridTriangles_p(Teuchos::RCP<GMGSolver> &gmgSolver, SolutionPtr &fineSolution,
@@ -985,6 +992,7 @@ void testOperatorIsSPD(int spaceDim, GridType gridType, GMGOperator::SmootherApp
   
   TEUCHOS_UNIT_TEST( GMGSolver, PoissonTwoGridOperatorIsSPD_Triangles_h_multiplicative )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     GMGOperator::SmootherApplicationType smootherApplicationType = GMGOperator::MULTIPLICATIVE;
     GridType gridType = TwoGridTriangles_h;

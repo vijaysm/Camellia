@@ -46,6 +46,7 @@ protected:
   DofOrderingFactoryPtr _dofOrderingFactory;
   MeshPartitionPolicyPtr _partitionPolicy;
   std::vector<int> _initialH1OrderTrial;
+  int _minContinuityDimension; // 0 for vertex continuity; (d-1) for "face" continuity
   int _testOrderEnhancement;
 
 //  std::map<GlobalIndexType, std::vector<int> > _cellH1Orders;
@@ -166,6 +167,11 @@ public:
   
   virtual IndexType localDofCount() = 0; // local to the MPI node
 
+  // ! Returns the smallest dimension along which continuity will be enforced.  GlobalDofAssignment's implementation
+  // ! assumes that the function spaces for the bases defined on cells determine this (e.g. H^1-conforming basis --> 0).
+  // ! MPI-collective method.
+  virtual void determineMinimumSubcellDimensionForContinuityEnforcement();
+  
   // ! Returns the smallest dimension along which continuity will be enforced.  GlobalDofAssignment's implementation
   // ! assumes that the function spaces for the bases defined on cells determine this (e.g. H^1-conforming basis --> 0).
   virtual int minimumSubcellDimensionForContinuityEnforcement() const;

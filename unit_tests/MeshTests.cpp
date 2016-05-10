@@ -10,6 +10,7 @@
 #include "BasisCache.h"
 #include "GlobalDofAssignment.h"
 #include "MeshFactory.h"
+#include "MPIWrapper.h"
 #include "PoissonFormulation.h"
 #include "StokesVGPFormulation.h"
 
@@ -141,6 +142,8 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     vector<int> elemCounts = {2,2,1}; // just big enough that we can have some refinements that an element only sees along an edge
     vector<double> dims(spaceDim,1.0);
     
+    bool repartitionAndRebuild = false; // since we'll have 2-irregular meshes at some point, defer repartitioning until 1-irregularity is enforced
+    
     bool conformingTraces = true;
     PoissonFormulation form(spaceDim,conformingTraces);
     MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
@@ -170,7 +173,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     TEST_INEQUALITY(centralEdgeEntityIndex, -1);
     
     // now, refine cell 0
-    mesh->hRefine(vector<GlobalIndexType>{0});
+    mesh->hRefine(vector<GlobalIndexType>{0}, repartitionAndRebuild);
     
     // that should add 7 new active elements
     numActiveElementsExpected += 7;
@@ -186,7 +189,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     // test that there is just one such cell
     TEST_EQUALITY(cellsForChildEdge.size(), 1);
     IndexType cellIDForCentralChildEdge = (*cellsForChildEdge.begin()).first;
-    mesh->hRefine(vector<GlobalIndexType>{cellIDForCentralChildEdge});
+    mesh->hRefine(vector<GlobalIndexType>{cellIDForCentralChildEdge}, repartitionAndRebuild);
     
     // should have another 7 new active elements:
     numActiveElementsExpected += 7;
@@ -529,6 +532,7 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
 
 TEUCHOS_UNIT_TEST( Mesh, SaveAndLoadPoissonConforming )
 {
+  MPIWrapper::CommWorld()->Barrier();
   int spaceDim = 2;
   bool conformingTraces = true;
   PoissonFormulation form(spaceDim,conformingTraces);

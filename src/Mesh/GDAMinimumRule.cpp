@@ -129,14 +129,17 @@ void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
 {
   // 1. Which parents am I interested in?
   // This is exactly the constraining cells which are inactive
+  
   map<GlobalIndexType,GlobalIndexType> parentToOwningChild; // the ones I'm interested in
   const set<GlobalIndexType>* myCellIDs = &_mesh->cellIDsInPartition();
+  int d_min = minimumSubcellDimensionForContinuityEnforcement();
+  
   for (GlobalIndexType myCellID : *myCellIDs)
   {
     CellPtr cell = _meshTopology->getCell(myCellID);
     CellTopoPtr cellTopo = cell->topology();
     int cellDim = cellTopo->getDimension();
-    for (int d=0; d<cellDim; d++)
+    for (int d=d_min; d<cellDim; d++)
     {
       int scCount = cellTopo->getSubcellCount(d);
       for (int scord=0; scord<scCount; scord++)
@@ -2955,9 +2958,10 @@ SubcellDofIndices& GDAMinimumRule::getGlobalDofIndices(GlobalIndexType cellID)
     CellTopoPtr topo = cell->topology();
     
     int spaceDim = topo->getDimension();
+    int d_min = minimumSubcellDimensionForContinuityEnforcement();
     
     // fill in the other global dof indices (the ones not owned by this cell):
-    for (int d=0; d<=spaceDim; d++)
+    for (int d=d_min; d<=spaceDim; d++)
     {
       int scCount = topo->getSubcellCount(d);
       for (int scord=0; scord<scCount; scord++)
@@ -2987,6 +2991,7 @@ set<GlobalIndexType> GDAMinimumRule::getGlobalDofIndicesForIntegralContribution(
 
   CellPtr cell = _meshTopology->getCell(cellID);
   bool ownsSide = cell->ownsSide(sideOrdinal, _meshTopology);
+  int d_min = minimumSubcellDimensionForContinuityEnforcement();
 
   if (ownsSide)
   {
@@ -2996,7 +3001,7 @@ set<GlobalIndexType> GDAMinimumRule::getGlobalDofIndicesForIntegralContribution(
     CellTopoPtr cellTopo = cell->topology();
     CellTopoPtr sideTopo = cellTopo->getSubcell(spaceDim-1, sideOrdinal);
 
-    for (int d=0; d<spaceDim; d++)
+    for (int d=d_min; d<spaceDim; d++)
     {
       int scCount = sideTopo->getSubcellCount(d);
       for (int scordSide=0; scordSide<scCount; scordSide++)
@@ -3347,7 +3352,14 @@ void GDAMinimumRule::rebuildLookups()
   _ownedGlobalDofIndicesCache.clear();
   _globalDofIndicesForCellCache.clear();
   _fittableGlobalIndicesCache.clear();
+  determineMinimumSubcellDimensionForContinuityEnforcement();
+  
+  int spaceDim = _meshTopology->getDimension();
+  int d_min = minimumSubcellDimensionForContinuityEnforcement();
 
+  // determine polynomial order for parent cells, as required
+  determinePolynomialOrderForConstrainingParents();
+  
   _partitionFieldDofCount = 0;
   _partitionFluxDofCount = 0;
   _partitionTraceDofCount = 0;
@@ -3362,20 +3374,20 @@ void GDAMinimumRule::rebuildLookups()
 
   // TODO: add some sort of check here, and warning if mesh must be 1-irregular but isn't.
   // (Need to examine variables to see if there are any that require reconciliation for d < sideDim; otherwise we can do without 1-irregularity.)
-//  int irregularity = _mesh->irregularity();
-//  if (irregularity > 1)
-//  {
-//    cout << "WARNING: mesh is " << irregularity << "-irregular.\n";
-//  }
-//  else
-//  {
+  int irregularity = _mesh->irregularity();
+  if (irregularity > 1)
+  {
+    // this is only supported if only face continuity is required -- i.e. d_min == spaceDim - 1
+    if (d_min != spaceDim - 1)
+    {
+      cout << "ERROR: " << spaceDim << "D mesh is " << irregularity << "-irregular, but min continuity dimension is " << d_min << ".\n";
+      TEUCHOS_TEST_FOR_EXCEPTION(d_min != spaceDim - 1, std::invalid_argument, "Mesh irregularity > 1 is only supported when only face continuity is required");
+    }
+  }
+  else
+  {
 //    cout << "Mesh is " << irregularity << "-irregular.\n";
-//  }
-  
-  int spaceDim = _meshTopology->getDimension();
-
-  // determine polynomial order for parent cells, as required
-  determinePolynomialOrderForConstrainingParents();
+  }
   
   map<GlobalIndexType, SubcellDofIndices> myCellDofIndices;
   set<GlobalIndexType> nonLocalCellNeighbors; // cells whose dofs I need to label, but aren't in myCells
@@ -3390,7 +3402,7 @@ void GDAMinimumRule::rebuildLookups()
 
     // determine cell's non-local neighbors, and construct the container for cell's owned subcells
 //    SubcellList ownedSubcells;
-    for (int d=0; d<=spaceDim; d++)
+    for (int d=d_min; d<=spaceDim; d++)
     {
       int scCount = topo->getSubcellCount(d);
       for (int scord=0; scord<scCount; scord++)
@@ -3434,7 +3446,7 @@ void GDAMinimumRule::rebuildLookups()
   bool isPureView = (NULL == dynamic_cast<MeshTopology*>(_meshTopology.get()));
   if (isPureView)
   {
-    // then we should also get dof info for ancestors of the fine cells owned by _meshTopology
+    // then we should also get dof info for ancestors of the fine cells owned by _meshTopology->baseMeshTopology()
     // add these to nonLocalCellNeighbors
     set<IndexType> ancestorsOfInterest = _meshTopology->getActiveCellIndicesForAncestorsOfMyCellsInBaseMeshTopology();
     for (IndexType cellID : ancestorsOfInterest)
@@ -3504,10 +3516,10 @@ void GDAMinimumRule::rebuildLookups()
 
     GlobalIndexType globalCellDofOffset = _globalCellDofOffsets[cellID];
     
-    for (map<int, VarPtr>::iterator varIt = trialVars.begin(); varIt != trialVars.end(); varIt++)
+    for (auto varEntry : trialVars)
     {
-      VarPtr var = varIt->second;
-      for (int d=0; d<=spaceDim; d++)
+      VarPtr var = varEntry.second;
+      for (int d=d_min; d<=spaceDim; d++)
       {
         int scCount = topo->getSubcellCount(d);
         for (int scord=0; scord<scCount; scord++)

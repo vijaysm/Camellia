@@ -105,6 +105,7 @@ GlobalDofAssignment::GlobalDofAssignment(MeshPtr mesh, VarFactoryPtr varFactory,
   }
 
   constructActiveCellMap();
+  determineMinimumSubcellDimensionForContinuityEnforcement();
 }
 
 GlobalDofAssignment::GlobalDofAssignment( GlobalDofAssignment &otherGDA ) : DofInterpreter(Teuchos::null)    // subclass deepCopy() is responsible for filling this in post-construction
@@ -145,7 +146,7 @@ GlobalIndexType GlobalDofAssignment::activeCellOffset()
 
 void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
 {
-  CellPtr cell = _meshTopology->getCell(cellID);
+  CellPtr cell = _mesh->getTopology()->getCell(cellID);
 
   unsigned sideCount = cell->getSideCount();
 
@@ -320,26 +321,20 @@ FieldContainer<double> GlobalDofAssignment::cellSideParitiesForCell( GlobalIndex
 
 void GlobalDofAssignment::constructActiveCellMap()
 {
-  const set<GlobalIndexType>* cellIDs = &cellsInPartition(-1);
-  FieldContainer<GlobalIndexTypeToCast> myCellIDsFC(cellIDs->size());
-
-  int localIndex = 0;
-  for (set<GlobalIndexType>::const_iterator cellIDIt = cellIDs->begin(); cellIDIt != cellIDs->end(); cellIDIt++, localIndex++)
-  {
-    myCellIDsFC(localIndex) = *cellIDIt;
-  }
+  const set<GlobalIndexType>* myCellIDs = &cellsInPartition(-1);
+  vector<GlobalIndexTypeToCast> myCellIDsVector(myCellIDs->begin(), myCellIDs->end());
 
   int indexBase = 0;
-  if (myCellIDsFC.size()==0)
-    _activeCellMap = Teuchos::rcp( new Epetra_Map(-1, myCellIDsFC.size(), NULL, indexBase, *_partitionPolicy->Comm()) );
+  if (myCellIDsVector.size()==0)
+    _activeCellMap = Teuchos::rcp( new Epetra_Map(-1, myCellIDsVector.size(), NULL, indexBase, *_partitionPolicy->Comm()) );
   else
-    _activeCellMap = Teuchos::rcp( new Epetra_Map(-1, myCellIDsFC.size(), &myCellIDsFC[0], indexBase, *_partitionPolicy->Comm()) );
+    _activeCellMap = Teuchos::rcp( new Epetra_Map(-1, myCellIDsVector.size(), &myCellIDsVector[0], indexBase, *_partitionPolicy->Comm()) );
 }
 
 void GlobalDofAssignment::constructActiveCellMap2()
 {
-  const set<GlobalIndexType> cellIDs = cellsInPartition(-1);
-  const vector<GlobalIndexType> myCellIDsVector(cellIDs.begin(), cellIDs.end());
+  const set<GlobalIndexType>* cellIDs = &cellsInPartition(-1);
+  const vector<GlobalIndexType> myCellIDsVector(cellIDs->begin(), cellIDs->end());
   Teuchos::ArrayView< const GlobalIndexType > myCellIDsAV(myCellIDsVector);
 
   int indexBase = 0;
@@ -349,6 +344,27 @@ void GlobalDofAssignment::constructActiveCellMap2()
   else
     _activeCellMap2 = Teuchos::rcp( new Tpetra::Map<IndexType,GlobalIndexType>(Teuchos::OrdinalTraits<Tpetra::global_size_t>::invalid(),
                                     myCellIDsAV, indexBase, _partitionPolicy->TeuchosComm()) );
+}
+
+void GlobalDofAssignment::determineMinimumSubcellDimensionForContinuityEnforcement()
+{
+  int myMinimumSubcellDimension = _meshTopology->getDimension();
+  set<pair<CellTopologyKey,int>> myCellKeys;
+  const set<GlobalIndexType>* myCellIDs = &cellsInPartition(-1);
+  for (GlobalIndexType myCellID : *myCellIDs)
+  {
+    myCellKeys.insert(this->getElementTypeLookupKey(myCellID));
+  }
+  for (auto myCellKey : myCellKeys)
+  {
+    ElementTypePtr elemType = this->getElementTypeForKey(myCellKey);
+    int elemMin = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
+    myMinimumSubcellDimension = min(myMinimumSubcellDimension,elemMin);
+    if (myMinimumSubcellDimension == 0) break; // can't go lower than 0
+  }
+  int globalMinimumSubcellDimension;
+  _partitionPolicy->Comm()->MinAll(&myMinimumSubcellDimension, &globalMinimumSubcellDimension, 1);
+  _minContinuityDimension = globalMinimumSubcellDimension;
 }
 
 ElementTypePtr GlobalDofAssignment::elementType(GlobalIndexType cellID)
@@ -723,22 +739,7 @@ template void GlobalDofAssignment::interpretLocalCoefficients(GlobalIndexType ce
 // ! assumes that the function spaces for the bases defined on cells determine this (e.g. H^1-conforming basis --> 0).
 int GlobalDofAssignment::minimumSubcellDimensionForContinuityEnforcement() const
 {
-  int myMinimumSubcellDimension = _meshTopology->getDimension();
-  set<ElementType*> processedTypes;
-  for (auto entry : _elementTypesForCellTopology)
-  {
-    ElementType* elemType = entry.second.get();
-    if (processedTypes.find(elemType) == processedTypes.end())
-    {
-      int elemMin = elemType->trialOrderPtr->minimumSubcellDimensionForContinuity();
-      myMinimumSubcellDimension = min(myMinimumSubcellDimension,elemMin);
-      if (myMinimumSubcellDimension == 0) break; // can't go lower than 0
-      processedTypes.insert(elemType);
-    }
-  }
-  int globalMinimumSubcellDimension;
-  _mesh->Comm()->MinAll(&myMinimumSubcellDimension, &globalMinimumSubcellDimension, 1);
-  return globalMinimumSubcellDimension;
+  return _minContinuityDimension;
 }
 
 void GlobalDofAssignment::projectParentCoefficientsOntoUnsetChildren()
@@ -828,6 +829,7 @@ void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partiti
   constructActiveCellMap();
   if (rebuildDofLookups)
   {
+    determineMinimumSubcellDimensionForContinuityEnforcement();
     projectParentCoefficientsOntoUnsetChildren();
     rebuildLookups();
   }
@@ -862,6 +864,7 @@ void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > 
   constructActiveCellMap();
   if (rebuildDofLookups)
   {
+    determineMinimumSubcellDimensionForContinuityEnforcement();
     projectParentCoefficientsOntoUnsetChildren();
     rebuildLookups();
   }

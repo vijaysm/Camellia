@@ -8,6 +8,7 @@
 
 #include "Teuchos_UnitTestHarness.hpp"
 
+#include "GlobalDofAssignment.h"
 #include "MeshFactory.h"
 #include "MeshTopologyView.h"
 #include "MPIWrapper.h"
@@ -39,23 +40,29 @@ namespace
   
   MeshPtr poissonIrregularMesh(int spaceDim, int irregularity, int H1Order)
   {
-    bool useConformingTraces = true;
+    bool useConformingTraces = (irregularity <= 1); // use conforming traces where GDAMinimumRule supports that.
     
     int elementWidth = 2;
     MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
     
     int meshIrregularity = 0;
     vector<GlobalIndexType> cellsToRefine = {1};
-    CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
-    unsigned sharedSideOrdinal = -1;
-    for (int sideOrdinal=0; sideOrdinal<cellToRefine->getSideCount(); sideOrdinal++)
+    PartitionIndexType cellOwner = mesh->globalDofAssignment()->partitionForCellID(cellsToRefine[0]);
+    PartitionIndexType myRank = mesh->Comm()->MyPID();
+    int sharedSideOrdinal;
+    if (myRank == cellOwner)
     {
-      if (cellToRefine->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+      CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+      for (int sideOrdinal=0; sideOrdinal<cellToRefine->getSideCount(); sideOrdinal++)
       {
-        sharedSideOrdinal = sideOrdinal;
-        break;
+        if (cellToRefine->getNeighbor(sideOrdinal, mesh->getTopology()) != Teuchos::null)
+        {
+          sharedSideOrdinal = sideOrdinal;
+          break;
+        }
       }
     }
+    mesh->Comm()->Broadcast(&sharedSideOrdinal, 1, cellOwner);
     
     while (meshIrregularity < irregularity)
     {
@@ -64,11 +71,23 @@ namespace
       meshIrregularity++;
       
       // setup for the next refinement, if any:
-      auto childEntry = cellToRefine->childrenForSide(sharedSideOrdinal)[0];
-      GlobalIndexType childWithNeighborCellID = childEntry.first;
-      sharedSideOrdinal = childEntry.second;
-      cellsToRefine = {childWithNeighborCellID};
-      cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+      int potentialBroadcaster = mesh->Comm()->NumProc(); // max value for broadcasting rank.
+      if (mesh->getTopology()->isValidCellIndex(cellsToRefine[0]))
+      {
+        CellPtr cellToRefine = mesh->getTopology()->getCell(cellsToRefine[0]);
+        auto childEntry = cellToRefine->childrenForSide(sharedSideOrdinal)[0];
+        GlobalIndexType childWithNeighborCellID = childEntry.first;
+        sharedSideOrdinal = childEntry.second;
+        cellsToRefine = {childWithNeighborCellID};
+        potentialBroadcaster = myRank;
+      }
+      // take global minimum to find out who broadcasts the cell ID to refine and side ordinal:
+      int globalBroadcaster;
+      mesh->Comm()->MinAll(&potentialBroadcaster, &globalBroadcaster, 1);
+      vector<int> values = {(int)cellsToRefine[0],sharedSideOrdinal};
+      mesh->Comm()->Broadcast(&values[0], 2, globalBroadcaster);
+      cellsToRefine[0] = values[0];
+      sharedSideOrdinal = values[1];
     }
     return mesh;
   }
@@ -393,7 +412,7 @@ namespace
     int spaceDim = 2;
     int elementWidth = 2;
     int H1Order = 2;
-    bool useConformingTraces = true;
+    bool useConformingTraces = false; // not actually concerned with dof continuity here, and we will have a 2-irregular mesh below, which makes non-conformity easier to deal with.
     MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
     
     GlobalIndexType cellIndex = 0;

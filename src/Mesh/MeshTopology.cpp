@@ -600,20 +600,20 @@ unsigned MeshTopology::addCell(IndexType cellIndex, CellTopoPtr cellTopo, const 
       if (firstCell->isParent(thisPtr))
       {
         vector< pair< GlobalIndexType, unsigned> > firstCellDescendants = firstCell->getDescendantsForSide(firstNeighbor.second, thisPtr);
-        for (vector< pair< GlobalIndexType, unsigned> >::iterator descIt = firstCellDescendants.begin(); descIt != firstCellDescendants.end(); descIt++)
+        for (pair< GlobalIndexType, unsigned> descendantEntry : firstCellDescendants)
         {
-          unsigned childCellIndex = descIt->first;
-          unsigned childSideIndex = descIt->second;
-          getCell(childCellIndex)->setNeighbor(childSideIndex, secondNeighbor.first, secondNeighbor.second);
+          GlobalIndexType childCellIndex = descendantEntry.first;
+          unsigned childSideOrdinal = descendantEntry.second;
+          getCell(childCellIndex)->setNeighbor(childSideOrdinal, secondNeighbor.first, secondNeighbor.second);
         }
       }
       if (secondCell->isParent(thisPtr))
       {
-        vector< pair< GlobalIndexType, unsigned> > secondCellDescendants = secondCell->getDescendantsForSide(secondNeighbor.first, thisPtr);
-        for (vector< pair< GlobalIndexType, unsigned> >::iterator descIt = secondCellDescendants.begin(); descIt != secondCellDescendants.end(); descIt++)
+        vector< pair< GlobalIndexType, unsigned> > secondCellDescendants = secondCell->getDescendantsForSide(secondNeighbor.second, thisPtr);
+        for (pair< GlobalIndexType, unsigned> descendantEntry : secondCellDescendants)
         {
-          GlobalIndexType childCellIndex = descIt->first;
-          unsigned childSideOrdinal = descIt->second;
+          GlobalIndexType childCellIndex = descendantEntry.first;
+          unsigned childSideOrdinal = descendantEntry.second;
           getCell(childCellIndex)->setNeighbor(childSideOrdinal, firstNeighbor.first, firstNeighbor.second);
         }
       }
@@ -1762,6 +1762,7 @@ CellPtr MeshTopology::getCell(unsigned cellIndex) const
       validIndices.push_back(cellEntry.first);
     }
     print("valid cells", validIndices);
+    print("owned cells", _ownedCellIndices);
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "cellIndex is invalid.\n");
   }
   return entry->second;
@@ -2939,6 +2940,7 @@ void MeshTopology::printAllEntities() const
       for (int subcord=0; subcord<subcellCount; subcord++)
       {
         ostringstream labelStream;
+        labelStream << subcord << ". ";
         if (d==1)
         {
           labelStream << "Edge";
@@ -2951,10 +2953,35 @@ void MeshTopology::printAllEntities() const
         {
           labelStream << "Solid";
         }
-        labelStream << " " << subcord << " nodes";
+//        labelStream << " " << subcord << " nodes";
+        labelStream << " " << cell->entityIndex(d, subcord) << " nodes";
         Camellia::print(labelStream.str(), cell->getEntityVertexIndices(d, subcord));
       }
     }
+  }
+  cout << "****************************      ";
+  cout << "Refinement Hierarchy:";
+  cout << "      ****************************\n";
+  set<IndexType> levelCells = _rootCells;
+  int level = 0;
+  ConstMeshTopologyPtr thisPtr = Teuchos::rcp(this,false);
+  while (levelCells.size() > 0)
+  {
+    ostringstream labelStream;
+    labelStream << "level " << level;
+    Camellia::print(labelStream.str(),levelCells);
+    set<IndexType> nextLevelCells;
+    for (IndexType cellIndex : levelCells)
+    {
+      if (isValidCellIndex(cellIndex))
+      {
+        CellPtr cell = getCell(cellIndex);
+        auto childIndices = cell->getChildIndices(thisPtr);
+        nextLevelCells.insert(childIndices.begin(), childIndices.end());
+      }
+    }
+    level++;
+    levelCells = nextLevelCells;
   }
 }
 
@@ -2978,6 +3005,70 @@ FieldContainer<double> MeshTopology::physicalCellNodesForCell(unsigned int cellI
   return nodes;
 }
 
+void MeshTopology::pruningHalo(std::set<GlobalIndexType> &haloCellIndices, const std::set<GlobalIndexType> &ownedCellIndices,
+                               unsigned dimForNeighborRelation) const
+{
+  // TODO: Can we move this to MeshTopologyView?  I think we can, and should...
+  
+  // the cells passed in are the ones the user wants to include -- e.g. those owned by the MPI rank.
+  // we keep more than that; we keep all ancestors and siblings of the cells, as well as all cells that share
+  // dimForNeighborRelation-dimensional entities with the cells or their ancestors.
+
+  this->cellHalo(haloCellIndices, ownedCellIndices, dimForNeighborRelation);
+  
+//  ConstMeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
+//  
+//  // first, let's find all the entities that our cells touch
+//  set<pair<unsigned,IndexType>> entitiesToMatch;
+//  for (GlobalIndexType cellID : ownedCellIndices)
+//  {
+//    CellPtr cell = getCell(cellID);
+//    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
+//    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
+//  }
+//  
+//  // now, determine which cells match those entities
+//  set<GlobalIndexType> cellsThatMatch;
+//  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+//  {
+//    unsigned entityDim = entityInfo.first;
+//    IndexType entityIndex = entityInfo.second;
+//    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
+//    for (pair<IndexType, unsigned> cellPair : cellPairs)
+//    {
+//      IndexType cellID = cellPair.first;
+//      cellsThatMatch.insert(cellID);
+//    }
+//  }
+//  
+//  // for all the original cells, also add the peer neighbors of their ancestors
+//  // (these need to be included here so that, for example, geometric multigrid can work properly.)
+//  for (GlobalIndexType cellID : ownedCellIndices)
+//  {
+//    CellPtr cell = getCell(cellID);
+//    while (cell->getParent() != Teuchos::null)
+//    {
+//      cell = cell->getParent();
+//      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
+//      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
+//    }
+//  }
+  
+  // for now, manually prevent pruning cells with curved edges
+  // (we don't support pruning these yet)
+  // we add these and their ancestors
+  for (GlobalIndexType cellID : _cellIDsWithCurves)
+  {
+    CellPtr cell = getCell(cellID);
+    haloCellIndices.insert(cellID);
+    while (cell->getParent() != Teuchos::null)
+    {
+      cell = cell->getParent();
+      haloCellIndices.insert(cell->cellIndex());
+    }
+  }
+}
+
 void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalIndexType> &ownedCellIndices,
                                   unsigned dimForNeighborRelation)
 {
@@ -2992,45 +3083,61 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   _Comm = Comm;
   _ownedCellIndices = ownedCellIndices;
   
-  // first, let's find all the entities that our cells touch
-  set<pair<unsigned,IndexType>> entitiesToMatch;
-  for (GlobalIndexType cellID : ownedCellIndices)
-  {
-    CellPtr cell = getCell(cellID);
-    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
-    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
-  }
-  
-  // now, determine which cells match those entities
-  set<GlobalIndexType> cellsThatMatch;
-  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
-  {
-    unsigned entityDim = entityInfo.first;
-    IndexType entityIndex = entityInfo.second;
-    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
-    for (pair<IndexType, unsigned> cellPair : cellPairs)
-    {
-      IndexType cellID = cellPair.first;
-      cellsThatMatch.insert(cellID);
-    }
-  }
-  
-  // for now, manually prevent pruning cells with curved edges
-  // (we don't support pruning these yet)
-  cellsThatMatch.insert(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
-  
-  // now, for each cell, ascend the refinement hierarchy, adding ancestors
   set<GlobalIndexType> cellsToInclude;
-  for (GlobalIndexType cellID : cellsThatMatch)
-  {
-    CellPtr cell = getCell(cellID);
-    cellsToInclude.insert(cellID);
-    while (cell->getParent() != Teuchos::null)
-    {
-      cell = cell->getParent();
-      cellsToInclude.insert(cell->cellIndex());
-    }
-  }
+  pruningHalo(cellsToInclude, ownedCellIndices, dimForNeighborRelation);
+
+//  // first, let's find all the entities that our cells touch
+//  set<pair<unsigned,IndexType>> entitiesToMatch;
+//  for (GlobalIndexType cellID : ownedCellIndices)
+//  {
+//    CellPtr cell = getCell(cellID);
+//    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
+//    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
+//  }
+//  
+//  // now, determine which cells match those entities
+//  set<GlobalIndexType> cellsThatMatch;
+//  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+//  {
+//    unsigned entityDim = entityInfo.first;
+//    IndexType entityIndex = entityInfo.second;
+//    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
+//    for (pair<IndexType, unsigned> cellPair : cellPairs)
+//    {
+//      IndexType cellID = cellPair.first;
+//      cellsThatMatch.insert(cellID);
+//    }
+//  }
+//  
+//  // for all the original cells, also add the peer neighbors of their ancestors
+//  // (these need to be included here so that, for example, geometric multigrid can work properly.)
+//  for (GlobalIndexType cellID : ownedCellIndices)
+//  {
+//    CellPtr cell = getCell(cellID);
+//    while (cell->getParent() != Teuchos::null)
+//    {
+//      cell = cell->getParent();
+//      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
+//      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
+//    }
+//  }
+//  
+//  // for now, manually prevent pruning cells with curved edges
+//  // (we don't support pruning these yet)
+//  cellsThatMatch.insert(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
+//  
+//  // now, for each cell, ascend the refinement hierarchy, adding ancestors
+//  set<GlobalIndexType> cellsToInclude;
+//  for (GlobalIndexType cellID : cellsThatMatch)
+//  {
+//    CellPtr cell = getCell(cellID);
+//    cellsToInclude.insert(cellID);
+//    while (cell->getParent() != Teuchos::null)
+//    {
+//      cell = cell->getParent();
+//      cellsToInclude.insert(cell->cellIndex());
+//    }
+//  }
   
   // now, collect all the entities that belong to the cells
   vector<set<IndexType>> entitiesToKeep(_spaceDim);

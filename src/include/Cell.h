@@ -27,6 +27,7 @@ typedef Teuchos::RCP<shards::CellTopology> CellTopoPtrLegacy;
 class Cell
 {
   unsigned _cellIndex;
+  int _level;
   CellTopoPtr _cellTopo;
   vector< unsigned > _vertices;
   vector< vector< unsigned > > _subcellPermutations; // permutation to get from local ordering to the canonical one
@@ -88,6 +89,8 @@ public:
   bool isInteriorChild();
   bool isParent(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
 
+  int level() const;
+  
   unsigned childOrdinal(IndexType childIndex);
   unsigned findSubcellOrdinal(unsigned subcdim, IndexType subcEntityIndex); // this is pretty brute force right now
   unsigned findSubcellOrdinalInSide(unsigned subcdim, IndexType subcEntityIndex, unsigned sideOrdinal); // this is pretty brute force right now
@@ -128,6 +131,7 @@ public:
   
   std::set<GlobalIndexType> getActiveNeighborIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   std::set<GlobalIndexType> getActiveNeighborIndices(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
+  std::set<GlobalIndexType> getPeerNeighborIndices(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   std::set<pair<unsigned, IndexType>> entitiesOnNeighborInterfaces(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   
   void printApproximateMemoryReport(); // in bytes

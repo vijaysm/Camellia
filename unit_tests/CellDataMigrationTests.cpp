@@ -66,6 +66,13 @@ namespace
   bool labeledRefBranchEquals(LabeledRefinementBranch &refBranch1, LabeledRefinementBranch &refBranch2)
   {
     bool refBranchesMatch = refBranchEquals(refBranch1.first, refBranch2.first);
+    {
+      // DEBUGGING: repeat the call
+      if (!refBranchesMatch)
+      {
+        refBranchEquals(refBranch1.first, refBranch2.first);
+      }
+    }
     bool labelsMatch = labelsEquals(refBranch1.second, refBranch2.second);
     return refBranchesMatch && labelsMatch;
   }
@@ -73,6 +80,13 @@ namespace
   bool rootedRefBranchEquals(RootedLabeledRefinementBranch &refBranch1, RootedLabeledRefinementBranch &refBranch2)
   {
     bool labeledRefBranchesMatch = labeledRefBranchEquals(refBranch1.first, refBranch2.first);
+    {
+      // DEBUGGING: repeat the call if it's false so we can see why it's false
+      if (!labeledRefBranchesMatch)
+      {
+        labeledRefBranchEquals(refBranch1.first, refBranch2.first);
+      }
+    }
     bool verticesMatch = verticesEquals(refBranch1.second, refBranch2.second);
     return verticesMatch && labeledRefBranchesMatch;
   }
@@ -83,8 +97,12 @@ namespace
     
     for (int i=0; i<refBranches1.size(); i++)
     {
-      if (! rootedRefBranchEquals(refBranches1[i], refBranches2[i]))
+      if ( !rootedRefBranchEquals(refBranches1[i], refBranches2[i]) )
       {
+        {
+          // DEBUGGING: repeat the call so we can see why it's false
+          rootedRefBranchEquals(refBranches1[i], refBranches2[i]);
+        }
         return false;
       }
     }
@@ -122,9 +140,63 @@ namespace
       TEST_EQUALITY(sizeRead, size);
       vector<RootedLabeledRefinementBranch> expectedBranch;
       CellDataMigration::getCellHaloGeometry(mesh.get(), cellID, expectedBranch);
+      
+      {
+        // DEBUGGING
+        if (!rootedRefBranchVectorEquals(unpackedBranch, expectedBranch))
+        {
+          // repeat the call so we can see why it's false...
+          rootedRefBranchVectorEquals(unpackedBranch, expectedBranch);
+        }
+      }
+      
       TEST_ASSERT(rootedRefBranchVectorEquals(unpackedBranch, expectedBranch));
     }
   }
+
+  // test commented out because it seems to me it should be revised to make it more thorough.
+//  TEUCHOS_UNIT_TEST( CellDataMigration, CellGeometryAvoidsRedundancy_1D )
+//  {
+//    // a simple test to see that we don't have redundant refinement branches for
+//    // a particular cell and its ancestors.  (This is not a very thorough test yet.)
+//    MPIWrapper::CommWorld()->Barrier();
+//    int spaceDim = 1;
+//    bool useConformingTraces = true;
+//    int H1Order = 2;
+//    int meshWidth = 2;
+//    PoissonFormulation form(spaceDim,useConformingTraces,PoissonFormulation::ULTRAWEAK);
+//    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0}, {meshWidth}, H1Order);
+//    
+//    // do a few refinements:
+//    // start with a non-uniform one, then refine uniformly from there
+//    set<GlobalIndexType> cellsToRefine = {0};
+//    mesh->hRefine(cellsToRefine);
+//    
+//    cellsToRefine = mesh->getActiveCellIDsGlobal(); // {1,2,3} -- 1 is on the right
+//    mesh->hRefine(cellsToRefine);
+//    
+//    GlobalIndexType cellID = 6; // the leftmost cell
+//    set<GlobalIndexType> myCells = mesh->cellIDsInPartition();
+//    if (myCells.find(cellID) != myCells.end())
+//    {
+//      vector<RootedLabeledRefinementBranch> rootedBranches;
+//      CellDataMigration::getCellHaloGeometry(mesh.get(), cellID, rootedBranches);
+//      CellPtr cell = mesh->getTopology()->getCell(cellID);
+//      set<IndexType> cellAncestors;
+//      while (cell->getParent() != Teuchos::null)
+//      {
+//        cell = cell->getParent();
+//        cellAncestors.insert(cell->cellIndex());
+//      }
+//      for (auto rootedBranch : rootedBranches)
+//      {
+//        LabeledRefinementBranch labeledBranch = rootedBranch.first;
+//        auto labels = labeledBranch.second;
+//        IndexType firstLeafIndex = labels[labels.size() - 1];
+//        TEST_ASSERT(cellAncestors.find(firstLeafIndex) == cellAncestors.end());
+//      }
+//    }
+//  }
   
   TEUCHOS_UNIT_TEST( CellDataMigration, PackAndUnpackPureGeometry_1D )
   {
@@ -144,8 +216,8 @@ namespace
     cellsToRefine = mesh->getActiveCellIDsGlobal();
     mesh->hRefine(cellsToRefine);
     
-    cellsToRefine = mesh->getActiveCellIDsGlobal();
-    mesh->hRefine(cellsToRefine);
+//    cellsToRefine = mesh->getActiveCellIDsGlobal();
+//    mesh->hRefine(cellsToRefine);
     
     testPackAndUnpackGeometry(mesh, out, success);
   }

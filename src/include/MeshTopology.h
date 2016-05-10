@@ -118,7 +118,6 @@ class MeshTopology : public MeshTopologyView
   CellPtr addCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector< vector<double> > &cellVertices);
   CellPtr addCell(IndexType cellIndex, CellTopoPtr cellTopo, const Intrepid::FieldContainer<double> &cellVertices);
   CellPtr addCell(IndexType cellIndex, CellTopoPtrLegacy cellTopo, const vector< vector<double> > &cellVertices);
-  
 public:
   MeshTopology(unsigned spaceDim, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
   MeshTopology(MeshGeometryPtr meshGeometry, vector<PeriodicBCPtr> periodicBCs=vector<PeriodicBCPtr>());
@@ -266,6 +265,10 @@ public:
 
   void printAllEntities() const;
   
+  // ! adds the cells in the halo of the ownedCellIndices (the halo is the set of cells retained during pruneToInclude)
+  // ! to the haloCellIndices container.
+  void pruningHalo(std::set<GlobalIndexType> &haloCellIndices, const std::set<GlobalIndexType> &ownedCellIndices,
+                   unsigned dimForNeighborRelation) const;
   // ! Removes all entities that do not belong to the "halo" of the cells indicated, stores ownedCellIndices, and sets the Comm object.
   void pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalIndexType> &ownedCellIndices,
                       unsigned dimForNeighborRelation);

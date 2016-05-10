@@ -63,7 +63,10 @@ std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned 
   for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
   {
     IndexType subcellEntityIndex = entityIndex(dimensionForNeighborRelation, subcellOrdinal);
-    entitiesToMatch.insert({dimensionForNeighborRelation,subcellEntityIndex});
+    if (subcellEntityIndex != -1)
+      entitiesToMatch.insert({dimensionForNeighborRelation,subcellEntityIndex});
+    else
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
     
     CellPtr ancestor = ancestralCellForSubcell(dimensionForNeighborRelation, subcellOrdinal, meshTopoViewForCellValidity);
     if (ancestor->cellIndex() != _cellIndex)
@@ -73,7 +76,13 @@ std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned 
       unsigned ancestorDim = ancestralInfo.second;
       unsigned ancestorSubcellOrdinal = ancestralInfo.first;
       IndexType ancestralEntityIndex = ancestor->entityIndex(ancestorDim, ancestorSubcellOrdinal);
-      entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
+      if (ancestralEntityIndex != -1)
+        entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
+      else
+      {
+        // this may be just fine, but I want to understand when it's happening...
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
+      }
     }
   }
   
@@ -91,6 +100,7 @@ std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned 
   {
     unsigned entityDim = entityInfo.first;
     IndexType entityIndex = entityInfo.second;
+    TEUCHOS_TEST_FOR_EXCEPTION(entityIndex == -1, std::invalid_argument, "entityIndex out of bounds");
     
     set< pair<unsigned, IndexType> > newEntitiesToMatch = {{entityDim,entityIndex}};
     
@@ -111,6 +121,7 @@ std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned 
           vector<IndexType> childEntities = baseMeshTopology->getChildEntities(newEntityDim,newEntityIndex);
           for (IndexType childEntityIndex : childEntities)
           {
+            if (childEntityIndex == -1) continue;
             pair<unsigned,IndexType> childEntityInfo = {newEntityDim,childEntityIndex};
             if (entityIsNew(childEntityInfo))
             {
@@ -179,6 +190,49 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighbo
   }
 }
 
+set<GlobalIndexType> Cell::getPeerNeighborIndices(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
+{
+  set< pair<unsigned, IndexType> > entitiesToMatch = entitiesOnNeighborInterfaces(dimensionForNeighborRelation, meshTopoViewForCellValidity); // dim, entityIndex
+  
+  // We find all the most-refined cells containing those entities.
+  // When such a cell
+  
+  set<GlobalIndexType> neighborIndices;
+  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+  {
+    unsigned entityDim = entityInfo.first;
+    IndexType entityIndex = entityInfo.second;
+    set< pair<IndexType, unsigned> > cellPairs = meshTopoViewForCellValidity->getCellsContainingEntity(entityDim, entityIndex);
+    for (pair<IndexType, unsigned> cellPair : cellPairs)
+    {
+      IndexType neighborCellID = cellPair.first;
+      CellPtr neighborCell = meshTopoViewForCellValidity->getCell(neighborCellID);
+      if (neighborCell->level() == _level)
+      {
+        neighborIndices.insert(neighborCell->cellIndex());
+      }
+      else if (neighborCell->level() >= _level) // if not, there's no peer with this entity
+      {
+        int levelDiff = neighborCell->level() - _level;
+        for (int i=0; i<levelDiff; i++)
+        {
+          neighborCell = neighborCell->getParent();
+        }
+        // check to make sure the peer is actually a neighbor (contains the entity)
+        if (neighborCell->findSubcellOrdinal(entityDim, entityIndex) != -1) {
+          neighborIndices.insert(neighborCell->cellIndex());
+        }
+      }
+    }
+  }
+  // don't include this cell among its neighbors...
+  if (neighborIndices.find(_cellIndex) != neighborIndices.end())
+  {
+    neighborIndices.erase(_cellIndex);
+  }
+  return neighborIndices;
+}
+
 set<IndexType> Cell::getDescendants(ConstMeshTopologyViewPtr meshTopoViewForCellValidity, bool leafNodesOnly)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(!meshTopoViewForCellValidity->isValidCellIndex(_cellIndex), std::invalid_argument, "_cellIndex is not valid");
@@ -223,7 +277,7 @@ set<IndexType> Cell::getDescendants(ConstMeshTopologyViewPtr meshTopoViewForCell
   return descendants;
 }
 
-vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideIndex, ConstMeshTopologyViewPtr meshTopoViewForCellValidity, bool leafNodesOnly)
+vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideOrdinal, ConstMeshTopologyViewPtr meshTopoViewForCellValidity, bool leafNodesOnly)
 {
   // if leafNodesOnly == true,  returns a flat list of leaf nodes (descendants that are not themselves parents)
   // if leafNodesOnly == false, returns a list in descending order: immediate children, then their children, and so on.
@@ -233,36 +287,37 @@ vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideI
   // for distributed MeshTopology, list is only guaranteed to be complete for cells that are owned by the MeshTopology.
 
   TEUCHOS_TEST_FOR_EXCEPTION(!meshTopoViewForCellValidity->isValidCellIndex(_cellIndex), std::invalid_argument, "_cellIndex is not valid");
+  TEUCHOS_TEST_FOR_EXCEPTION(sideOrdinal >= _cellTopo->getSideCount(), std::invalid_argument, "sideOrdinal is out of bounds!");
   
   // pair (descendantCellIndex, descendantSideIndex)
   vector< pair< GlobalIndexType, unsigned> > descendantsForSide;
   if ( ! meshTopoViewForCellValidity->isParent(_cellIndex) )
   {
-    descendantsForSide.push_back( {_cellIndex, sideIndex} );
+    descendantsForSide.push_back( {_cellIndex, sideOrdinal} );
     return descendantsForSide;
   }
 
-  vector< pair<unsigned,unsigned> > childIndices = _refPattern->childrenForSides()[sideIndex];
+  vector< pair<unsigned,unsigned> > childIndices = _refPattern->childrenForSides()[sideOrdinal];
   vector< pair<unsigned,unsigned> >::iterator entryIt;
 
-  for (entryIt=childIndices.begin(); entryIt != childIndices.end(); entryIt++)
+  for (pair<unsigned,unsigned> entry : childIndices)
   {
-    unsigned childOrdinal = (*entryIt).first;
-    unsigned childSideOrdinal = (*entryIt).second;
+    unsigned childOrdinal = entry.first;
+    unsigned childSideOrdinal = entry.second;
+    TEUCHOS_TEST_FOR_EXCEPTION(childOrdinal >= _childIndices.size(), std::invalid_argument, "Internal error: childOrdinal is out of bounds!");
     IndexType childCellIndex = _childIndices[childOrdinal];
     if ( (meshTopoViewForCellValidity->isValidCellIndex(childCellIndex) && !meshTopoViewForCellValidity->isParent(childCellIndex)) || (! leafNodesOnly ) )
     {
       // (            leaf node              ) || ...
       descendantsForSide.push_back( {_childIndices[childOrdinal], childSideOrdinal} );
     }
-    if ( (_children[childOrdinal] != Teuchos::null) && _children[childOrdinal]->isParent(meshTopoViewForCellValidity) )
+    if ( (meshTopoViewForCellValidity->isValidCellIndex(_childIndices[childOrdinal])) && _children[childOrdinal]->isParent(meshTopoViewForCellValidity) )
     {
+      TEUCHOS_TEST_FOR_EXCEPTION(_children[childOrdinal] == Teuchos::null, std::invalid_argument, "Internal error: although MeshTopologyView claims child has a valid cell index, its parent doesn't have a Cell object for it.");
       vector< pair<GlobalIndexType,unsigned> > childDescendants = _children[childOrdinal]->getDescendantsForSide(childSideOrdinal,meshTopoViewForCellValidity,leafNodesOnly);
-//      descendantsForSide.insert(descendantsForSide.end(), childDescendants.begin(), childDescendants.end());
-      vector< pair<GlobalIndexType,unsigned> >::iterator childEntryIt;
-      for (childEntryIt=childDescendants.begin(); childEntryIt != childDescendants.end(); childEntryIt++)
+      for (pair<GlobalIndexType,unsigned> childEntry : childDescendants)
       {
-        descendantsForSide.push_back(*childEntryIt);
+        descendantsForSide.push_back(childEntry);
       }
     }
   }
@@ -278,6 +333,7 @@ Cell::Cell(CellTopoPtr cellTopo, const vector<unsigned> &vertices, const vector<
   _cellIndex = cellIndex;
   _meshTopo = meshTopo;
   int sideCount = cellTopo->getSideCount();
+  _level = 0;
   _neighbors = vector< pair<GlobalIndexType, unsigned> >(sideCount,{-1,-1});
 }
 
@@ -508,30 +564,40 @@ Teuchos::RCP<Cell> Cell::getParent()
   return _parent;
 }
 
+int Cell::level() const
+{
+  return _level;
+}
+
 void Cell::setParent(Teuchos::RCP<Cell> parent)
 {
   _parent = Teuchos::rcp(parent.get(),false); // make weak reference
+  if (_parent != Teuchos::null)
+  {
+    _level = _parent->level() + 1;
+  }
 }
 
 bool Cell::isParent(ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
 {
-  if (_childIndices.size() == 0) return false;
-  
-  /*
-   With distributed MeshTopology, isValidCellIndex() returns false for 
-   Cells that are not locally known.  It can happen that a parent is
-   known but not all of its children are.  But this should only happen
-   if there is *some* child that is locally known.  Therefore, we need
-   to check all children.  If some child is valid, then this is a parent.
-   */
-  
-  for (GlobalIndexType childCellIndex : _childIndices)
-  {
-    if (meshTopoViewForCellValidity->isValidCellIndex(childCellIndex))
-      return true;
-  }
-  // no valid child found: return false
-  return false;
+  return meshTopoViewForCellValidity->isParent(_cellIndex);
+//  if (_childIndices.size() == 0) return false;
+//  
+//  /*
+//   With distributed MeshTopology, isValidCellIndex() returns false for 
+//   Cells that are not locally known.  It can happen that a parent is
+//   known but not all of its children are.  But this should only happen
+//   if there is *some* child that is locally known.  Therefore, we need
+//   to check all children.  If some child is valid, then this is a parent.
+//   */
+//  
+//  for (GlobalIndexType childCellIndex : _childIndices)
+//  {
+//    if (meshTopoViewForCellValidity->isValidCellIndex(childCellIndex))
+//      return true;
+//  }
+//  // no valid child found: return false
+//  return false;
 }
 
 RefinementBranch Cell::refinementBranch()

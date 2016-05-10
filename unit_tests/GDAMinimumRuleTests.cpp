@@ -367,6 +367,7 @@ namespace
       return;
     }
     auto activeCellIDs = mesh->cellIDsInPartition();
+    int minSubcellDim = mesh->globalDofAssignment()->minimumSubcellDimensionForContinuityEnforcement();
     MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
     int sideDim = meshTopo->getDimension() - 1;
     for (auto cellID : activeCellIDs)
@@ -374,7 +375,7 @@ namespace
       CellPtr cell = meshTopo->getCell(cellID);
       CellConstraints cellConstraints = gda->getCellConstraints(cellID);
       CellTopoPtr cellTopo = cell->topology();
-      for (int subcdim=0; subcdim<cellTopo->getDimension(); subcdim++)
+      for (int subcdim=minSubcellDim; subcdim<cellTopo->getDimension(); subcdim++)
       {
         int subcellCount = cellTopo->getSubcellCount(subcdim);
         for (int subcord=0; subcord<subcellCount; subcord++)
@@ -1015,9 +1016,11 @@ namespace
     TEUCHOS_TEST_FOR_EXCEPTION(commonCellIDToRefine == INT_MAX, std::invalid_argument, "did not find a cell to refine");
     
     cellIDs = {(GlobalIndexType)commonCellIDToRefine};
-    mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternHexahedron());
+    // this refinement will result in a 2-irregular mesh.
+    // to avoid exceptions, we *must* defer rebuilding lookups.
+    bool rebuildLookups = false;
+    mesh->hRefine(cellIDs, RefinementPattern::regularRefinementPatternHexahedron(), rebuildLookups);
     
-    //if (irregularity==2)
     return soln;
   }
   
@@ -1103,6 +1106,8 @@ namespace
       myCellIDs = &mesh->cellIDsInPartition();
       ownRefinedCell = (myCellIDs->find(cellToRefine) != myCellIDs->end());
     }
+    
+//    mesh->getTopology()->baseMeshTopology()->printAllEntities();
     
     return mesh;
   }
@@ -1217,6 +1222,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson2DHangingNode2Irregular_Slow)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     int H1Order = 2;
     int irregularity = 2;
@@ -1263,6 +1269,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson3DHangingNode2Irregular_Slow)
   {
+    MPIWrapper::CommWorld()->Barrier();
     int irregularity = 2;
     int spaceDim = 3;
     int H1Order = 1;
@@ -1294,6 +1301,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, CheckConstraintsPoisson3DHangingNode2Irregular )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int irregularity = 2;
     int spaceDim = 3;
     int H1Order = 1;

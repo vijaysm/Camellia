@@ -16,6 +16,7 @@
 #include "GMGOperator.h"
 #include "MeshFactory.h"
 #include "MeshTools.h"
+#include "MPIWrapper.h"
 #include "NavierStokesVGPFormulation.h"
 #include "PoissonFormulation.h"
 #include "RHS.h"
@@ -571,7 +572,7 @@ namespace
     MeshPtr fineMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0, trialOrderEnhancements);
     auto originalCells = fineMesh->getActiveCellIDsGlobal();
     
-    GlobalIndexType lastRefinedCellID = -1;
+    GlobalIndexTypeToCast lastRefinedCellID = -1;
     for (int i=0; i<levels; i++)
     {
       set<GlobalIndexType> cellsToRefine;
@@ -589,8 +590,16 @@ namespace
         }
         else if (testHMultigrid)
         {
-          CellPtr lastRefinedCell = fineMesh->getTopology()->getCell(lastRefinedCellID);
-          lastRefinedCellID = lastRefinedCell->getChildIndices(fineMesh->getTopology())[0];
+          int potentialBroadcaster = fineMesh->Comm()->NumProc();
+          if (fineMesh->getTopology()->isValidCellIndex(lastRefinedCellID))
+          {
+            CellPtr lastRefinedCell = fineMesh->getTopology()->getCell(lastRefinedCellID);
+            lastRefinedCellID = lastRefinedCell->getChildIndices(fineMesh->getTopology())[0];
+            potentialBroadcaster = fineMesh->Comm()->MyPID();
+          }
+          int globalBroadcaster;
+          fineMesh->Comm()->MinAll(&potentialBroadcaster, &globalBroadcaster, 1);
+          fineMesh->Comm()->Broadcast(&lastRefinedCellID, 1, globalBroadcaster);
         }
         cellsToRefine.insert(lastRefinedCellID);
       }
@@ -1135,6 +1144,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GMGOperator, ProlongationOperatorQuad_SimpleStandardSolveTwoLevelNonconforming )
   {
+    MPIWrapper::CommWorld()->Barrier();
     bool simple = true;
     bool useStaticCondensation = false;
     bool useConformingTraces = false;
@@ -1147,6 +1157,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GMGOperator, ProlongationOperatorQuad_SimpleStandardSolveTwoLevelHangingNodesNonconforming )
   {
+    MPIWrapper::CommWorld()->Barrier();
     bool simple = true;
     bool useStaticCondensation = false;
     bool useConformingTraces = false;

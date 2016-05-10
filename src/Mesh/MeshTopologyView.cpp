@@ -74,6 +74,64 @@ IndexType MeshTopologyView::cellCount() const
   return _globalCellCount;
 }
 
+void MeshTopologyView::cellHalo(std::set<GlobalIndexType> &haloCellIndices, const std::set<GlobalIndexType> &cellIndices,
+                                unsigned dimForNeighborRelation) const
+{
+  // the cells passed in are the ones the user wants to include -- e.g. those owned by the MPI rank.
+  // we keep more than that; we keep all ancestors and siblings of the cells, as well as all cells that share
+  // dimForNeighborRelation-dimensional entities with the cells or their ancestors.
+  
+  ConstMeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
+  
+  // for all the original cells, also add the peer neighbors of their ancestors
+  // (these need to be included here so that, for example, geometric multigrid can work properly.)
+  set<GlobalIndexType> cellsThatMatch = cellIndices;
+  for (GlobalIndexType cellID : cellIndices)
+  {
+    CellPtr cell = getCell(cellID);
+    while (cell->getParent() != Teuchos::null)
+    {
+      cell = cell->getParent();
+      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
+      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
+    }
+  }
+  
+  // now, let's find all the entities that these cells touch
+  set<pair<unsigned,IndexType>> entitiesToMatch;
+  for (GlobalIndexType cellID : cellsThatMatch)
+  {
+    CellPtr cell = getCell(cellID);
+    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
+    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
+  }
+  
+  // now, determine which cells match those entities
+  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+  {
+    unsigned entityDim = entityInfo.first;
+    IndexType entityIndex = entityInfo.second;
+    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
+    for (pair<IndexType, unsigned> cellPair : cellPairs)
+    {
+      IndexType cellID = cellPair.first;
+      cellsThatMatch.insert(cellID);
+    }
+  }
+  
+  // now, for each cell, ascend the refinement hierarchy, adding ancestors
+  for (GlobalIndexType cellID : cellsThatMatch)
+  {
+    CellPtr cell = getCell(cellID);
+    haloCellIndices.insert(cellID);
+    while (cell->getParent() != Teuchos::null)
+    {
+      cell = cell->getParent();
+      haloCellIndices.insert(cell->cellIndex());
+    }
+  }
+}
+
 std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const
 {
   std::vector<IndexType> descendentIDs = _meshTopo->cellIDsForPoints(physicalPoints);

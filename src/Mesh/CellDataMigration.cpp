@@ -196,10 +196,15 @@ void CellDataMigration::getCellHaloGeometry(const MeshTopology *meshTopo, unsign
   
   CellPtr cell = meshTopo->getCell(cellID);
   ConstMeshTopologyPtr meshTopoPtr = Teuchos::rcp(meshTopo,false);
-  set<GlobalIndexType> cellHaloIndices = cell->getActiveNeighborIndices(dimForContinuity, meshTopoPtr);
+//  set<GlobalIndexType> cellHaloIndices = cell->getActiveNeighborIndices(dimForContinuity, meshTopoPtr);
+  set<GlobalIndexType> cellHaloIndices;
+  meshTopo->cellHalo(cellHaloIndices, {cellID}, dimForContinuity);
   
-  for (GlobalIndexType neighborID : cellHaloIndices)
+  // since children have cell indices greater than their parents, we get a more compact structure if we
+  // iterate in reverse order
+  for (auto neighborIDIt = cellHaloIndices.rbegin(); neighborIDIt != cellHaloIndices.rend(); neighborIDIt++)
   {
+    GlobalIndexType neighborID = *neighborIDIt;
     if (knownCells.find(neighborID) == knownCells.end())
     {
       RootedLabeledRefinementBranch neighborCellGeometry;
@@ -613,6 +618,14 @@ void CellDataMigration::getGeometry(const MeshTopologyView* meshTopo, MeshGeomet
     {
       CellPtr parentCell = meshTopo->getCell(parentCellID);
       vector<IndexType> childCellIndices = parentCell->getChildIndices(meshTopoRCP);
+      {
+        // DEBUGGING
+        if (childCellIndices.size() == 0)
+        {
+          // repeat the call for debugging
+          childCellIndices = parentCell->getChildIndices(meshTopoRCP);
+        }
+      }
       GlobalIndexType firstChildID = childCellIndices[0];
       RefinementPatternKey refPatternKey = parentCell->refinementPattern()->getKey();
       refinementLevel[refPatternKey].push_back({parentCellID,firstChildID});
