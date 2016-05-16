@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
   HDF5Exporter energyErrorExporter(form.solution()->mesh(), exportName.str(), outputDir);
   
   exporter.exportSolution(form.solution(), 0);
-  energyErrorExporter.exportFunction({energyErrorFunction}, {"energy error"}, 0);
+  energyErrorExporter.exportFunction(vector<FunctionPtr>{energyErrorFunction}, vector<string>{"energy error"}, 0);
   
   double energyError = form.solutionIncrement()->energyErrorTotal();
   int globalDofs = mesh->globalDofCount();
