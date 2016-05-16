@@ -298,7 +298,7 @@ int main(int argc, char *argv[])
     }
 
     exporter.exportSolution(form.solution(), refNumber);
-    energyErrorExporter.exportFunction({energyErrorFunction}, {"energy error"}, refNumber);
+    energyErrorExporter.exportFunction(vector<FunctionPtr>{energyErrorFunction}, vector<string>{"energy error"}, refNumber);
 
     energyError = form.solutionIncrement()->energyErrorTotal();
     globalDofs = mesh->globalDofCount();
