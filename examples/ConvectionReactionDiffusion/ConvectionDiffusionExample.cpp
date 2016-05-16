@@ -157,6 +157,7 @@ int main(int argc, char *argv[])
   int numRefinements = 0;
   double energyThreshold = 0.2; // for refinements
   string formulationChoice = "Ultraweak";
+  bool conditionNumberEstimate = false;
   
   cmdp.setOption("meshWidth", &meshWidth );
   cmdp.setOption("polyOrder", &polyOrder );
@@ -169,6 +170,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("numRefinements", &numRefinements);
   cmdp.setOption("energyThreshold", &energyThreshold);
   cmdp.setOption("formulationChoice", &formulationChoice);
+  cmdp.setOption("reportConditionNumber", "dontReportConditionNumber", &conditionNumberEstimate);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -270,6 +272,11 @@ int main(int argc, char *argv[])
   bool useCondensedSolve = false;
   solution->setUseCondensedSolve(useCondensedSolve);
   solution->solve();
+  if (conditionNumberEstimate)
+  {
+    double conditionNumber = solution->conditionNumberEstimate();
+    if (rank==0) cout << "Condition Number estimate initial mesh: " << conditionNumber << endl;
+  }
   LinearTermPtr residual = form.residual(solution);
   if (ipForResidual == Teuchos::null) ipForResidual = ip;
   RefinementStrategy refStrategy(mesh, residual, ipForResidual, energyThreshold);
@@ -297,7 +304,7 @@ int main(int argc, char *argv[])
   functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
   functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
   
-  HDF5Exporter exporter(mesh, "ConvectionDiffusionExample");
+  HDF5Exporter exporter(mesh, "ConvectionDiffusionExampleSolution");
   exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
   
   while (refinementNumber < numRefinements)
@@ -309,20 +316,20 @@ int main(int argc, char *argv[])
    
     vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(mesh, 1, delta_k);
     
-    int maxIters = 500;
-    double cgTol = 1e-6;
-    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, maxIters, cgTol,
-                                                                   GMGOperator::MultigridStrategy::V_CYCLE,
-                                                                   Solver::getDirectSolver(),
-                                                                   useCondensedSolve));
-    
-    if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
-    {
-      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
-      gmgSolver->setUseConjugateGradient(false); // won't be SPD
-    }
-    
-    gmgSolver->setAztecOutput(25);
+//    int maxIters = 500;
+//    double cgTol = 1e-6;
+//    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, maxIters, cgTol,
+//                                                                   GMGOperator::MultigridStrategy::V_CYCLE,
+//                                                                   Solver::getDirectSolver(),
+//                                                                   useCondensedSolve));
+//    
+//    if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
+//    {
+//      gmgSolver->setSmootherType(GMGOperator::POINT_JACOBI);
+//      gmgSolver->setUseConjugateGradient(false); // won't be SPD
+//    }
+//    
+//    gmgSolver->setAztecOutput(25);
     
     double energyError = refStrategy.getEnergyError(refinementNumber);
 
@@ -332,10 +339,17 @@ int main(int argc, char *argv[])
       cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
     }
     
-    solution->solve(gmgSolver);
+//    solution->solve(gmgSolver);
+    solution->solve();
     refinementNumber++;
     
     exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
+    
+    if (conditionNumberEstimate)
+    {
+      double conditionNumber = solution->conditionNumberEstimate();
+      if (rank==0) cout << "Condition Number estimate refinement " << refinementNumber << ": " << conditionNumber << endl;
+    }
     
     refStrategy.getRieszRep()->computeRieszRep();
     functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
