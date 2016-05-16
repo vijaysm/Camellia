@@ -199,6 +199,9 @@ public:
 
   void clear();
 
+  // ! After a problem has been set up (stiffness matrix, rhs assembled; BCs imposed), this method will compute and return a condition number estimate using AztecOO.
+  double conditionNumberEstimate() const;
+  
   int cubatureEnrichmentDegree() const;
   void setCubatureEnrichmentDegree(int value);
 

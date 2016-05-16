@@ -953,6 +953,17 @@ void TSolution<Scalar>::applyDGJumpTerms()
   err = timeApplyJumpTermsVector.MaxValue( &_maxTimeApplyJumpTerms );
 }
 
+// ! After a problem has been set up (stiffness matrix, rhs assembled; BCs imposed), this method will compute and return a condition number estimate using AztecOO.
+template <typename Scalar>
+double TSolution<Scalar>::conditionNumberEstimate() const
+{
+  // if a problem has not been set up, return -1
+  if (_globalStiffMatrix == Teuchos::null) return -1;
+  
+  Epetra_LinearProblem linearProblem(&*_globalStiffMatrix, &*_lhsVector, &*_rhsVector);
+  return conditionNumberEstimate(linearProblem);
+}
+
 template <typename Scalar>
 int TSolution<Scalar>::solve()
 {
