@@ -20,6 +20,7 @@
 #include "CamelliaTestingHelpers.h"
 #include "CubatureFactory.h"
 #include "GDAMinimumRule.h"
+#include "GnuPlotUtil.h"
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
 #include "MeshTestUtility.h"
@@ -1186,10 +1187,20 @@ namespace
     
     PoissonFormulation poissonForm(spaceDim, useConformingTraces);
     MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, poissonForm.bf(), H1Order, delta_k) );
+
+//    {
+//      // DEBUGGING
+//      GnuPlotUtil::writeComputationalMeshSkeleton("/tmp/triangleMesh2Irregular", mesh, true); // true: label cells
+//    }
     
     // The above mesh will cause some cascading constraints, which the new getBasisMap() can't
     // handle.  We have added logic to deal with this case to Mesh::enforceOneIrregularity().
     mesh->enforceOneIrregularity();
+//    
+//    {
+//      // DEBUGGING
+//      GnuPlotUtil::writeComputationalMeshSkeleton("/tmp/triangleMesh", mesh, true); // true: label cells
+//    }
 
     testCoarseBasisEqualsWeightedFineBasis(mesh, out, success);
     
@@ -1498,25 +1509,13 @@ namespace
     PoissonFormulation form(spaceDim, useConformingTraces, PoissonFormulation::ULTRAWEAK);
     
     vector<double> dimensions = {1.0,1.0};
-    vector<int> elementCounts = {4,4};
+    vector<int> elementCounts = {2,1};
     
     int H1Order = 1, delta_k = 0;
     MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
                                                 elementCounts[0], elementCounts[1], useTriangles);
     
     PartitionIndexType rank = mesh->Comm()->MyPID();
-//    int numProcs = mesh->Comm()->NumProc();
-//
-//    GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(mesh->globalDofAssignment().get());
-//    for (int p=0; p<numProcs; p++)
-//    {
-//      if (rank == p)
-//      {
-//        cout << "rank " << p << " global dof info:\n";
-//        minRule->printGlobalDofInfo();
-//      }
-//      mesh->Comm()->Barrier();
-//    }
     
     double prescribedValue = 1.0;
     SolutionPtr soln = Solution::solution(form.bf(), mesh);
@@ -1525,25 +1524,52 @@ namespace
     bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
     soln->initializeLHSVector();
     
-    Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndices;
-    Intrepid::FieldContainer<double> bcGlobalValues;
+    Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesFC;
+    Intrepid::FieldContainer<double> bcGlobalValuesFC;
     
     set<GlobalIndexType> myGlobalIndicesSet = mesh->globalDofAssignment()->globalDofIndicesForPartition(rank);
+
+    //     mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*bc, myGlobalIndicesSet, mesh->globalDofAssignment().get());
+    mesh->boundary().bcsToImpose(bcGlobalIndicesFC,bcGlobalValuesFC,*bc, mesh->globalDofAssignment().get());
     
-    mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*bc, myGlobalIndicesSet, mesh->globalDofAssignment().get());
+    map<int,map<GlobalIndexType,double>> bcValuesToSend; // key to outer map: recipient PID
+    for (int i=0; i<bcGlobalIndicesFC.size(); i++)
+    {
+      GlobalIndexType globalIndex = bcGlobalIndicesFC[i];
+      if (myGlobalIndicesSet.find(globalIndex) == myGlobalIndicesSet.end())
+      {
+        int owner = mesh->globalDofAssignment()->partitionForGlobalDofIndex(globalIndex);
+        bcValuesToSend[owner][globalIndex] = bcGlobalValuesFC[i];
+      }
+    }
+    map<GlobalIndexType,double> offRankBCs;
+    MPIWrapper::sendDataMaps(mesh->Comm(), bcValuesToSend, offRankBCs);
     
     // we prescribe 1 at at all the bc indices, and 0 everywhere else.
     // then we check the values on the elements.
-    // for now, we are interested in cell 0, side 2 in particular, because of a bug.
     
+    Epetra_BlockMap partMap = soln->getLHSVector()->Map();
     auto lhsVector = soln->getLHSVector();
     
-    for (int i=0; i<bcGlobalIndices.size(); i++)
+    vector<GlobalIndexTypeToCast> bcGlobalIndices(bcGlobalIndicesFC.size());
+    for (int i=0; i<bcGlobalIndicesFC.size(); i++)
     {
-      GlobalIndexTypeToCast globalIndex = bcGlobalIndices[i];
-      int LID = lhsVector->Map().LID(globalIndex);
-      (*lhsVector)[0][LID] = bcGlobalValues[i];
+      bcGlobalIndices[i] = bcGlobalIndicesFC[i];
+      out << "Imposing \"BC\" at global index " << bcGlobalIndices[i] << endl;
     }
+    
+    if (bcGlobalValuesFC.size() > 0)
+    {
+      lhsVector->ReplaceGlobalValues(bcGlobalValuesFC.size(), &bcGlobalIndices[0], &bcGlobalValuesFC[0]);
+    }
+    for (auto offRankEntry : offRankBCs)
+    {
+      GlobalIndexType globalIndex = offRankEntry.first;
+      double value = offRankEntry.second;
+      int LID = lhsVector->Map().LID((GlobalIndexTypeToCast)globalIndex);
+      (*lhsVector)[0][LID] = value;
+    }
+    lhsVector->GlobalAssemble();
     
     soln->importSolution();
     // for each of my cells, find vertices on the mesh boundary.
@@ -1560,6 +1586,10 @@ namespace
     FieldContainer<double> phiValues(1,numPoints);
     for (GlobalIndexType cellID : myCellIDs)
     {
+      DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
+      out << "cell " << cellID << ", nonzero coefficients:\n";
+      printLabeledDofCoefficients(out, form.bf()->varFactory(), trialOrder, soln->allCoefficientsForCellID(cellID));
+      
       BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
       int sideCount = basisCache->cellTopology()->getSideCount();
       for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
@@ -1578,15 +1608,34 @@ namespace
           if ((abs(x-0) < tol) || (abs(x-1) < tol) || (abs(y-0) < tol) || (abs(y-1) < tol))
           {
             double actualValue = phiValues(0,pointOrdinal);
-            out << "testing value for (" << x << "," << y << ") on cell " << cellID << ", side " << sideOrdinal << endl;
+            out << "\n\ntesting value for (" << x << "," << y << ") on cell " << cellID << ", side " << sideOrdinal << endl;
             TEST_FLOATING_EQUALITY(actualValue, prescribedValue, tol);
           }
         }
       }
     }
-    HDF5Exporter exporter(mesh, "PoissonGlobalBCExample", "/tmp");
-    int num1DPoints = 20;
-    exporter.exportSolution(soln, 0, num1DPoints);
+    
+    {
+//      // DEBUGGING
+//      if (mesh->Comm()->MyPID() == 0)
+//      {
+//        cout << "rank 0 info:\n";
+//        mesh->getTopology()->printAllEntitiesInBaseMeshTopology();
+//        GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(mesh->globalDofAssignment().get());
+//        minRule->printGlobalDofInfo();
+//      }
+//      MeshTopologyPtr gatheredMeshTopo = mesh->getTopology()->getGatheredCopy();
+//      if (mesh->Comm()->MyPID() == 0)
+//      {
+//        GnuPlotUtil::writeExactMeshSkeleton("/tmp/conformingTriangleMesh", gatheredMeshTopo.get(), 2, true);
+//        cout << "Wrote gathered mesh topo to /tmp/conformingTriangleMesh on rank 0.\n";
+//        gatheredMeshTopo->printAllEntities();
+//      }
+    }
+    
+//    HDF5Exporter exporter(mesh, "PoissonGlobalBCExample", "/tmp");
+//    int num1DPoints = 20;
+//    exporter.exportSolution(soln, 0, num1DPoints);
 //    success = false;
   }
   

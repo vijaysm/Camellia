@@ -2766,8 +2766,9 @@ SubcellDofIndices & GDAMinimumRule::getOwnedGlobalDofIndices(GlobalIndexType cel
   
   if (myCellIDs->find(cellID) == myCellIDs->end())
   {
-    cout << "getOwnedGlobalDofIndices() called for non-locally-owned active cellID " << cellID << endl;
+    cout << "getOwnedGlobalDofIndices() called for non-locally-owned active cellID " << cellID << " on rank " << rank << endl;
     print("myCellIDs", *myCellIDs);
+    _meshTopology->printAllEntitiesInBaseMeshTopology();
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "getOwnedGlobalDofIndices() called for non-local cellID");
   }
   
@@ -3336,10 +3337,11 @@ void GDAMinimumRule::printConstraintInfo(GlobalIndexType cellID)
 
 void GDAMinimumRule::printGlobalDofInfo()
 {
+  bool ownedGlobalDofsOnly = false;
   set<GlobalIndexType> cellIDs = _meshTopology->getMyActiveCellIndices();
   for (GlobalIndexType cellID : cellIDs)
   {
-    SubcellDofIndices subcellDofIndices = getOwnedGlobalDofIndices(cellID);
+    SubcellDofIndices subcellDofIndices = ownedGlobalDofsOnly ? getOwnedGlobalDofIndices(cellID) : getGlobalDofIndices(cellID);
     printDofIndexInfo(cellID, subcellDofIndices);
   }
 }
@@ -3392,6 +3394,39 @@ void GDAMinimumRule::rebuildLookups()
   map<GlobalIndexType, SubcellDofIndices> myCellDofIndices;
   set<GlobalIndexType> nonLocalCellNeighbors; // cells whose dofs I need to label, but aren't in myCells
   
+  bool isPureView = (NULL == dynamic_cast<MeshTopology*>(_meshTopology.get()));
+  if (isPureView)
+  {
+    // then we should get dof info for ancestors of the fine cells owned by _meshTopology->baseMeshTopology()
+    // add these to nonLocalCellNeighbors
+    set<IndexType> ancestorsOfInterest = _meshTopology->getActiveCellIndicesForAncestorsOfMyCellsInBaseMeshTopology();
+    for (IndexType cellID : ancestorsOfInterest)
+    {
+      if (myCellIDs->find(cellID) == myCellIDs->end())
+      {
+        nonLocalCellNeighbors.insert(cellID);
+      }
+    }
+  }
+  
+  // new approach to nonLocalCellNeighbors (using halo):
+  // the nonLocalCellNeighbors of interest are, at most, the active ones in the cell halo of my cell IDs
+  // together with the cell halo of the ancestors of interest, now sitting in nonLocalCellNeighbors
+  set<GlobalIndexType> cellHalo;
+  _meshTopology->cellHalo(cellHalo, *myCellIDs, _minContinuityDimension);
+  _meshTopology->cellHalo(cellHalo, nonLocalCellNeighbors, _minContinuityDimension);
+  // get just the active ones that aren't among myCells
+  for (GlobalIndexType cellID : cellHalo)
+  {
+    // we use _partitionForCellID to determine whether the cell is active or not.
+    // (If it's not there, then we won't know who to ask for the global dofs, so any active cell whose global dofs we
+    //  need should be listed in _partitionForCellID.)
+    if ((_partitionForCellID.find(cellID) != _partitionForCellID.end()) && (myCellIDs->find(cellID) == myCellIDs->end()))
+    {
+      nonLocalCellNeighbors.insert(cellID);
+    }
+  }
+  
   _partitionDofCount = 0; // how many dofs we own locally
   for (GlobalIndexType cellID : *myCellIDs)
   {
@@ -3400,23 +3435,23 @@ void GDAMinimumRule::rebuildLookups()
     CellTopoPtr topo = cell->topology();
     CellConstraints constraints = getCellConstraints(cellID);
 
-    // determine cell's non-local neighbors, and construct the container for cell's owned subcells
-//    SubcellList ownedSubcells;
-    for (int d=d_min; d<=spaceDim; d++)
-    {
-      int scCount = topo->getSubcellCount(d);
-      for (int scord=0; scord<scCount; scord++)
-      {
-        GlobalIndexType owningCellID = constraints.owningCellIDForSubcell[d][scord].cellID;
-        if (owningCellID != cellID)
-        {
-          if (myCellIDs->find(owningCellID) == myCellIDs->end())
-          {
-            nonLocalCellNeighbors.insert(owningCellID);
-          }
-        }
-      }
-    }
+//      // old approach to determining nonLocalCellNeighbors -- this is more granular but neglects the halo of the ancestors of interest...
+//      // determine cell's non-local neighbors, and construct the container for cell's owned subcells
+//      for (int d=d_min; d<=spaceDim; d++)
+//      {
+//        int scCount = topo->getSubcellCount(d);
+//        for (int scord=0; scord<scCount; scord++)
+//        {
+//          GlobalIndexType owningCellID = constraints.owningCellIDForSubcell[d][scord].cellID;
+//          if (owningCellID != cellID)
+//          {
+//            if (myCellIDs->find(owningCellID) == myCellIDs->end())
+//            {
+//              nonLocalCellNeighbors.insert(owningCellID);
+//            }
+//          }
+//        }
+//      }
     
     // getOwnedGlobalDofIndices will use the cell's global dof offset, which we still have to compute
     // We use zero for now, and adjust below
@@ -3440,21 +3475,6 @@ void GDAMinimumRule::rebuildLookups()
           break;
       }
       _partitionDofCount += dofsForVariable.size();
-    }
-  }
-  
-  bool isPureView = (NULL == dynamic_cast<MeshTopology*>(_meshTopology.get()));
-  if (isPureView)
-  {
-    // then we should also get dof info for ancestors of the fine cells owned by _meshTopology->baseMeshTopology()
-    // add these to nonLocalCellNeighbors
-    set<IndexType> ancestorsOfInterest = _meshTopology->getActiveCellIndicesForAncestorsOfMyCellsInBaseMeshTopology();
-    for (IndexType cellID : ancestorsOfInterest)
-    {
-      if (myCellIDs->find(cellID) == myCellIDs->end())
-      {
-        nonLocalCellNeighbors.insert(cellID);
-      }
     }
   }
   

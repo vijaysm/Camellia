@@ -33,6 +33,7 @@ namespace
                                            Teuchos::FancyOStream &out, bool &success)
   {
     set<GlobalIndexType> myCells = mesh->cellIDsInPartition();
+    if (myCells.size() == 0) return; // nothing to check
     
     set<IndexType> knownActiveCells = mesh->getTopology()->getLocallyKnownActiveCellIndices();
     GlobalIndexType maxCellID = *max_element(knownActiveCells.begin(), knownActiveCells.end());

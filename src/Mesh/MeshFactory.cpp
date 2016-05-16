@@ -53,7 +53,7 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename, Epetra_Com
   hdf5.Read("MeshTopology", "num chunks", numChunks);
   vector<int> chunkSizes(numChunks);
   hdf5.Read("MeshTopology", "chunk sizes", H5T_NATIVE_INT, numChunks, &chunkSizes[0]);
-
+  
   int myRank = Comm->MyPID();
   int numProcs = Comm->NumProc();
   vector<int> myChunkRanks; // ranks that were part of the write, now assigned to me
@@ -172,15 +172,20 @@ MeshPtr MeshFactory::loadFromHDF5(TBFPtr<double> bf, string filename, Epetra_Com
   {
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid GDA");
   }
-  void* trialOrderEnhancementsLocation = (trialOrderEnhancementsSize > 0) ? &trialOrderEnhancementsVec[0] : NULL;
-  hdf5.Read("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsSize, trialOrderEnhancementsLocation);
+  if (trialOrderEnhancementsSize > 0)
+  {
+    hdf5.Read("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsSize, &trialOrderEnhancementsVec[0]);
+  }
 
-  void* testOrderEnhancementsLocation = (testOrderEnhancementsSize > 0) ? &testOrderEnhancementsVec[0] : NULL;
-  hdf5.Read("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsSize, testOrderEnhancementsLocation);
+  if (trialOrderEnhancementsSize > 0)
+  {
+    hdf5.Read("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsSize, &testOrderEnhancementsVec[0]);
+  }
   hdf5.Read("Mesh", "H1Order", H5T_NATIVE_INT, H1OrderSize, &H1Order[0]);
 
   vector<int> partitionCounts(numChunks);
   hdf5.Read("Mesh", "partition counts", H5T_NATIVE_INT, numChunks, &partitionCounts[0]);
+  
   // we use the same assignments as above
   int myCellCount = 0;
   for (int myChunkRank : myChunkRanks)

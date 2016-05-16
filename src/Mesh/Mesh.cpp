@@ -1722,8 +1722,8 @@ void Mesh::saveToHDF5(string filename)
   // gather all the rank sizes so that we can write a global "header" indicating where the boundaries lie
   // among other things, this will allow safe reading when the number of reading processors is
   // different from the number of writing processors
-  vector<int> rankSizes(numProcs);
-  Comm()->GatherAll(&myGeometrySize, &rankSizes[0], 1);
+  vector<int> chunkSizes(numProcs);
+  Comm()->GatherAll(&myGeometrySize, &chunkSizes[0], 1);
   
   int globalGeometrySize;
   Comm()->SumAll(&myGeometrySize, &globalGeometrySize, 1);
@@ -1731,7 +1731,7 @@ void Mesh::saveToHDF5(string filename)
   EpetraExt::HDF5 hdf5(*Comm());
   hdf5.Create(filename);
   hdf5.Write("MeshTopology", "num chunks", numProcs);
-  hdf5.Write("MeshTopology", "chunk sizes", H5T_NATIVE_INT, numProcs, &rankSizes[0]);
+  hdf5.Write("MeshTopology", "chunk sizes", H5T_NATIVE_INT, numProcs, &chunkSizes[0]);
   hdf5.Write("MeshTopology", "geometry chunks", myGeometrySize, globalGeometrySize, H5T_NATIVE_CHAR, &myGeometryData[0]);
   
   // if the base mesh topology has a pure view, record that, too
@@ -1782,12 +1782,18 @@ void Mesh::saveToHDF5(string filename)
   }
   int trialOrderEnhancementsSize = trialOrderEnhancementsVec.size();
   hdf5.Write("Mesh", "trialOrderEnhancementsSize", trialOrderEnhancementsSize);
-  hdf5.Write("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsVec.size(), &trialOrderEnhancementsVec[0]);
+  if (trialOrderEnhancementsSize > 0)
+  {
+    hdf5.Write("Mesh", "trialOrderEnhancements", H5T_NATIVE_INT, trialOrderEnhancementsVec.size(), &trialOrderEnhancementsVec[0]);
+  }
 
   int testOrderEnhancementsSize = testOrderEnhancementsVec.size();
   hdf5.Write("Mesh", "testOrderEnhancementsSize", testOrderEnhancementsSize);
-  hdf5.Write("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsVec.size(), &testOrderEnhancementsVec[0]);
-
+  if (testOrderEnhancementsSize > 0)
+  {
+    hdf5.Write("Mesh", "testOrderEnhancements", H5T_NATIVE_INT, testOrderEnhancementsVec.size(), &testOrderEnhancementsVec[0]);
+  }
+  
   vector<int> initialH1Order = globalDofAssignment()->getInitialH1Order();
   hdf5.Write("Mesh", "H1OrderSize", (int)initialH1Order.size());
   hdf5.Write("Mesh", "H1Order", H5T_NATIVE_INT, initialH1Order.size(), &initialH1Order[0]);
@@ -1804,7 +1810,7 @@ void Mesh::saveToHDF5(string filename)
   
   hdf5.Write("Mesh", "partition counts", H5T_NATIVE_INT, numProcs, &partitionCounts[0]);
   hdf5.Write("Mesh", "partitions", myCellCount, globalCellCount, H5T_NATIVE_INT, &myCellIDsVector[0]);
-
+  
   // for now, the p refinements are globally known:
   const map<GlobalIndexType,int>* pRefinements = &globalDofAssignment()->getCellPRefinements();
   vector<int> pRefinementsVector(pRefinements->size() * 2);

@@ -182,6 +182,9 @@ public:
   map<int, int> getTestOrderEnhancements();
   map<int, int> getTrialOrderEnhancements();
 
+  int getTestOrderEnhancement(int varID) const;
+  int getTrialOrderEnhancement(int varID) const;
+  
   int matchSides(DofOrderingPtr &firstOrdering, int firstSideIndex,
                  CellTopoPtr firstCellTopo,
                  DofOrderingPtr &secondOrdering, int secondSideIndex,

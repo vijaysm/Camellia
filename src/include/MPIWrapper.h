@@ -151,6 +151,16 @@ public:
   static void entryWiseSum(const Epetra_Comm &Comm, std::vector<long long> &values);
   static void entryWiseSum(const Epetra_Comm &Comm, std::vector<double> &values);
   
+  template<typename DataType>
+  static void sendDataVectors(Epetra_CommPtr Comm, const std::vector<int> &recipients,
+                              const std::vector<std::vector<DataType>> &dataVectors,
+                              std::vector<DataType> &receivedVector);
+  
+  template<typename KeyType, typename ValueType>
+  static void sendDataMaps(Epetra_CommPtr Comm,
+                           const std::map<int,std::map<KeyType,ValueType>> &recipientDataMaps,
+                           std::map<KeyType,ValueType> &receivedMap);
+  
   // sum the contents of valuesToSum across all processors, and returns the result:
   // (valuesToSum may vary in length across processors)
   static double sum(const Intrepid::FieldContainer<double> &valuesToSum);
@@ -222,6 +232,79 @@ public:
     }
 #else
 #endif
+  }
+  
+  template<typename KeyType, typename ValueType>
+  void MPIWrapper::sendDataMaps(Epetra_CommPtr Comm,
+                                const std::map<int,std::map<KeyType,ValueType>> &recipientDataMaps,
+                                std::map<KeyType,ValueType> &receivedMap)
+  {
+    // convert to a vector, and send that.
+    typedef std::vector<std::pair<KeyType,ValueType>> MapVector;
+    std::vector<MapVector> dataVectors;
+    std::vector<int> recipients;
+    for (auto recipientDataMapEntry : recipientDataMaps)
+    {
+      int recipient = recipientDataMapEntry.first;
+      recipients.push_back(recipient);
+      auto dataMap = &recipientDataMapEntry.second;
+      dataVectors.push_back(MapVector(dataMap->begin(),dataMap->end()));
+    }
+    MapVector receivedVector;
+    sendDataVectors(Comm,recipients,dataVectors,receivedVector);
+    receivedMap.insert(receivedVector.begin(),receivedVector.end());
+  }
+  
+  template<typename DataType>
+  void MPIWrapper::sendDataVectors(Epetra_CommPtr Comm, const std::vector<int> &recipients,
+                                   const std::vector<std::vector<DataType>> &dataVectors,
+                                   std::vector<DataType> &receivedVector)
+  {
+    // check that recipients are in numerical order:
+    int numRecipients = recipients.size();
+    for (int i=1; i<numRecipients; i++)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(recipients[i-1] >= recipients[i], std::invalid_argument, "recipients list must be in numerical order, and populated with distinct recipients");
+    }
+    
+    Teuchos::RCP<Epetra_Distributor> distributor = MPIWrapper::getDistributor(*Comm);
+    
+    TEUCHOS_TEST_FOR_EXCEPTION(dataVectors.size() != numRecipients, std::invalid_argument, "dataVectors and recipients list must be the same length");
+    
+    const int *recipientPtr = (numRecipients > 0) ? &recipients[0] : NULL;
+    int* exportRecipients = NULL;
+    
+    bool deterministic = true; // doesn't do anything at present, according to docs.
+    int numProcsThatWillSendToMe;
+    distributor->CreateFromSends(numRecipients, recipientPtr, deterministic, numProcsThatWillSendToMe);
+    
+    std::vector<int> lengthForEachSendProc(dataVectors.size()); // number of entries in each vector
+    int vectorOrdinal = 0;
+    std::vector<DataType> packedData;
+    for (const std::vector<DataType> dataVector : dataVectors)
+    {
+      lengthForEachSendProc[vectorOrdinal] = dataVector.size();
+      packedData.insert(packedData.end(),dataVector.begin(),dataVector.end());
+      vectorOrdinal++;
+    }
+    
+    char* export_chars = (packedData.size() > 0) ? reinterpret_cast<char*>(&packedData[0]) : NULL;
+    int* lengthForEachSendProcPtr = (lengthForEachSendProc.size() > 0) ? &lengthForEachSendProc[0] : NULL;
+    char* import_chars = NULL;
+
+    int len_import_chars = 0;
+    int err = distributor->Do(export_chars, (int)sizeof(DataType), lengthForEachSendProcPtr, len_import_chars, import_chars);
+    
+    DataType* recvd_rows = reinterpret_cast<DataType*>(import_chars);
+    int numEntriesReceived = len_import_chars/sizeof(DataType);
+    
+    receivedVector.resize(numEntriesReceived);
+    for (int i=0; i<numEntriesReceived; i++)
+    {
+      receivedVector[i] = recvd_rows[i];
+    }
+    
+    if (import_chars != 0) delete [] import_chars;
   }
   
   template<typename ScalarType>

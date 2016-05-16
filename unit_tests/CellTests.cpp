@@ -118,4 +118,71 @@ TEUCHOS_UNIT_TEST( Cell, Neighbors1D )
     
     TEST_EQUALITY(neighborIDs.size(), neighborsExpected);
   }
+  
+  TEUCHOS_UNIT_TEST( Cell, VertexNeighbors_HangingNodeTriangle )
+  {
+    bool useTriangles = true;
+    vector<double> dimensions = {1.0,1.0};
+    vector<int> elementCounts = {1,1};
+    MeshTopologyPtr meshTopo = MeshFactory::quadMeshTopology(dimensions[0], dimensions[1],
+                                                             elementCounts[0], elementCounts[1], useTriangles);
+    IndexType firstChildCellIndex = meshTopo->cellCount();
+    IndexType cellToRefine = 0;
+    RefinementPatternPtr triangleRefPattern = RefinementPattern::regularRefinementPatternTriangle();
+    meshTopo->refineCell(cellToRefine, triangleRefPattern, firstChildCellIndex);
+    
+    // find the edge the two original cells share:
+    IndexType sharedEdgeEntityIndex = -1;
+    CellPtr cell0 = meshTopo->getCell(0);
+    CellPtr cell1 = meshTopo->getCell(1);
+    int edgeCount = cell0->topology()->getEdgeCount();
+    int vertexDim = 0;
+    int edgeDim = 1;
+    for (int edgeOrdinal=0; edgeOrdinal<edgeCount; edgeOrdinal++)
+    {
+      if (cell0->getNeighbor(edgeOrdinal, meshTopo) != Teuchos::null)
+      {
+        sharedEdgeEntityIndex = cell0->entityIndex(edgeDim, edgeOrdinal);
+      }
+    }
+    // find the new vertex created by breaking that shared edge
+    vector<IndexType> edgeChildren = meshTopo->getChildEntities(edgeDim, sharedEdgeEntityIndex);
+    TEUCHOS_TEST_FOR_EXCEPT(edgeChildren.size() != 2);
+    vector<IndexType> firstChildNodes = meshTopo->getEntityVertexIndices(edgeDim, edgeChildren[0]);
+    vector<IndexType> secondChildNodes = meshTopo->getEntityVertexIndices(edgeDim, edgeChildren[1]);
+    
+    IndexType newVertexIndex;
+    if ((firstChildNodes[0] == secondChildNodes[0]) || (firstChildNodes[0] == secondChildNodes[1]))
+    {
+      newVertexIndex = firstChildNodes[0];
+    }
+    else if ((firstChildNodes[1] == secondChildNodes[0]) || (firstChildNodes[1] == secondChildNodes[1]))
+    {
+      newVertexIndex = firstChildNodes[1];
+    }
+    else
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "new vertex not found!");
+    }
+    // which active cells match the new vertex?  All such cells should be included among cell1's vertex neighbors
+    set<pair<IndexType,unsigned>> matchingCellEntries = meshTopo->getCellsContainingEntity(vertexDim, newVertexIndex);
+    set<IndexType> matchingCellIDs;
+    for (auto entry : matchingCellEntries)
+    {
+      matchingCellIDs.insert(entry.first);
+    }
+    
+    set<GlobalIndexType> neighborIDs = cell1->getActiveNeighborIndices(vertexDim, meshTopo);
+
+    for (IndexType newVertexCellID : matchingCellIDs)
+    {
+      if (neighborIDs.find(newVertexCellID) == neighborIDs.end())
+      {
+        success = false;
+        out << newVertexCellID << " not found in neighborIDs.\n";
+      }
+    }
+    print(out, "matchingCellIDs", matchingCellIDs);
+    print(out, "neighborIDs", neighborIDs);
+  }
 } // namespace

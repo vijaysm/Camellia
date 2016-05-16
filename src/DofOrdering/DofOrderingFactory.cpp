@@ -5,30 +5,6 @@
 
 // @HEADER
 //
-// Copyright © 2011 Sandia Corporation. All Rights Reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are
-// permitted provided that the following conditions are met:
-// 1. Redistributions of source code must retain the above copyright notice, this list of
-// conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright notice, this list of
-// conditions and the following disclaimer in the documentation and/or other materials
-// provided with the distribution.
-// 3. The name of the author may not be used to endorse or promote products derived from
-// this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY SANDIA CORPORATION "AS IS" AND ANY
-// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-// ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
-// OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-// BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-// LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-// SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
 // Questions? Contact Nate Roberts (nate@nateroberts.com).
 //
 // @HEADER
@@ -95,7 +71,7 @@ DofOrderingPtr DofOrderingFactory::testOrdering(vector<int> &polyOrder, CellTopo
     BasisPtr basis;
     for (int pComponent = 0; pComponent < polyOrder.size(); pComponent++)
     {
-      testIDPolyOrder[pComponent] = polyOrder[pComponent] + _testOrderEnhancements[testID]; // uses the fact that map defaults to 0 for entries that aren't found
+      testIDPolyOrder[pComponent] = polyOrder[pComponent] + getTestOrderEnhancement(testID);
     }
     Camellia::EFunctionSpace fsTemporal = FUNCTION_SPACE_HGRAD; // tests should use HGRAD, so we can take time derivatives...
     basis = BasisFactory::basisFactory()->getBasis( testIDPolyOrder, cellTopo, fs, fsTemporal);
@@ -145,9 +121,10 @@ DofOrderingPtr DofOrderingFactory::trialOrdering(vector<int> &polyOrder,
   {
     int trialID = *trialIterator;
     VarPtr trialVar = _varFactory->trialVars().find(trialID)->second;
+    int trialOrderEnhancement = getTrialOrderEnhancement(trialID);
     for (int pComponent = 0; pComponent < polyOrder.size(); pComponent++)
     {
-      trialIDPolyOrder[pComponent] = polyOrder[pComponent] + _trialOrderEnhancements[trialID]; // uses the fact that map defaults to 0 for entries that aren't found
+      trialIDPolyOrder[pComponent] = polyOrder[pComponent] + trialOrderEnhancement; // uses the fact that map defaults to 0 for entries that aren't found
     }
 
     Camellia::EFunctionSpace fs = efsForSpace(_varFactory->trial(trialID)->space());
@@ -321,7 +298,7 @@ int DofOrderingFactory::polyOrder(DofOrderingPtr dofOrdering, bool isTestOrderin
     int varID = *idIt;
     const vector<int>* sidesForVar = &dofOrdering->getSidesForVarID(varID);
     int numSides = sidesForVar->size();
-    int varIDEnhancement = isTestOrdering ? _testOrderEnhancements[varID] : _trialOrderEnhancements[varID];
+    int varIDEnhancement = isTestOrdering ? getTestOrderEnhancement(varID) : getTrialOrderEnhancement(varID);
     if (numSides == 1)
     {
       interiorVariable = varID;
@@ -348,7 +325,7 @@ int DofOrderingFactory::polyOrder(DofOrderingPtr dofOrdering, bool isTestOrderin
                                 "DofOrdering appears not to have any interior (volume) varIDs--DofOrderingFactory cannot pRefine.");
     return minSidePolyOrder;
   }
-  int varIDEnhancement = isTestOrdering ? _testOrderEnhancements[interiorVariable] : _trialOrderEnhancements[interiorVariable];
+  int varIDEnhancement = isTestOrdering ? getTestOrderEnhancement(interiorVariable) : getTrialOrderEnhancement(interiorVariable);
   BasisPtr interiorBasis = dofOrdering->getBasis(interiorVariable);
   return BasisFactory::basisFactory()->basisPolyOrder(interiorBasis) - varIDEnhancement;
 }
@@ -418,6 +395,24 @@ map<int, BasisPtr> DofOrderingFactory::getPatchBasisUpgradeMap(const DofOrdering
     }
   }
   return varIDsToUpgrade;
+}
+
+int DofOrderingFactory::getTestOrderEnhancement(int varID) const
+{
+  auto foundEntry = _testOrderEnhancements.find(varID);
+  if (foundEntry != _testOrderEnhancements.end())
+    return foundEntry->second;
+  else
+    return 0;
+}
+
+int DofOrderingFactory::getTrialOrderEnhancement(int varID) const
+{
+  auto foundEntry = _trialOrderEnhancements.find(varID);
+  if (foundEntry != _trialOrderEnhancements.end())
+    return foundEntry->second;
+  else
+    return 0;
 }
 
 void DofOrderingFactory::assignMultiBasis(DofOrderingPtr &trialOrdering, int sideIndex,
@@ -631,15 +626,8 @@ DofOrderingPtr DofOrderingFactory::pRefine(DofOrderingPtr dofOrdering, CellTopoP
     const vector<int>* sidesForVar = &dofOrdering->getSidesForVarID(varID);
     int numSides = sidesForVar->size();
     Camellia::EFunctionSpace fs;
-    int newPolyOrderForVarID;
-    if (isTestOrdering)
-    {
-      newPolyOrderForVarID = newPolyOrder + _testOrderEnhancements[varID];
-    }
-    else
-    {
-      newPolyOrderForVarID = newPolyOrder + _trialOrderEnhancements[varID];
-    }
+    int enhancement = isTestOrdering ? getTestOrderEnhancement(varID) : getTrialOrderEnhancement(varID);
+    int newPolyOrderForVarID = newPolyOrder + enhancement;
     for (int sideOrdinal : *sidesForVar)
     {
       BasisPtr basis = dofOrdering->getBasis(varID,sideOrdinal);

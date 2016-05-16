@@ -10,8 +10,8 @@
 
 #include "CellDataMigration.h"
 
+#include "CamelliaDebugUtility.h"
 #include "GlobalDofAssignment.h"
-
 #include "Solution.h"
 
 using namespace Intrepid;
@@ -402,6 +402,7 @@ void CellDataMigration::unpackGeometryData(Mesh* mesh, GlobalIndexType cellID, c
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
   TEUCHOS_TEST_FOR_EXCEPTION(meshTopo==NULL, std::invalid_argument, "unpackGeometryData() called on a Mesh that does not have a full MeshTopology as its MeshTopologyView");
   
+  int rank = mesh->Comm()->MyPID();
   cellHaloGeometry.clear();
   int numLabeledBranches;
   

@@ -107,8 +107,6 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     // the mesh partitioning and dof assignments).
     MPIWrapper::CommWorld()->Barrier(); // for setting a breakpoint for debugging
     
-    int globalRank = MPIWrapper::CommWorld()->MyPID();
-
     int spaceDim = 2;
     int H1Order = 2;
     vector<int> elemCounts(spaceDim,2);
@@ -137,16 +135,24 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
 
   TEUCHOS_UNIT_TEST( Mesh, EnforceRegularityHexahedralMesh )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 3;
     int H1Order = 1;
     vector<int> elemCounts = {2,2,1}; // just big enough that we can have some refinements that an element only sees along an edge
     vector<double> dims(spaceDim,1.0);
     
     bool repartitionAndRebuild = false; // since we'll have 2-irregular meshes at some point, defer repartitioning until 1-irregularity is enforced
-    
     bool conformingTraces = true;
+    
+    /*
+     We first run on a serial communicator, and record the cells we refined there.
+     Then we re-run on CommWorld.
+     */
+    vector<vector<GlobalIndexType>> cellsForRefinement;
+    
     PoissonFormulation form(spaceDim,conformingTraces);
-    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order);
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order, 0, vector<double>(), map<int,int>(),
+                                                map<int,int>(), MPIWrapper::CommSerial());
     MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
     
     int numActiveElementsExpected = elemCounts[0] * elemCounts[1] * elemCounts[2];
@@ -154,9 +160,10 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
     
     // there should be one edge that is shared by all four cells; let's find it
-    IndexType centralEdgeEntityIndex = -1;
+    int centralEdgeEntityIndex = -1;
     int edgeDim = 1;
-    CellPtr cell0 = meshTopo->getCell(0);
+    GlobalIndexType cellID0 = 0;
+    CellPtr cell0 = meshTopo->getCell(cellID0);
     CellTopoPtr cellTopo = cell0->topology();
     int edgeCount = cellTopo->getSubcellCount(edgeDim);
     for (int edgeOrdinal=0; edgeOrdinal<edgeCount; edgeOrdinal++)
@@ -169,11 +176,13 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
         break;
       }
     }
+    
     // test that we found it:
     TEST_INEQUALITY(centralEdgeEntityIndex, -1);
     
     // now, refine cell 0
-    mesh->hRefine(vector<GlobalIndexType>{0}, repartitionAndRebuild);
+    mesh->hRefine(vector<GlobalIndexType>{cellID0}, repartitionAndRebuild);
+    cellsForRefinement.push_back(vector<GlobalIndexType>{cellID0});
     
     // that should add 7 new active elements
     numActiveElementsExpected += 7;
@@ -190,6 +199,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     TEST_EQUALITY(cellsForChildEdge.size(), 1);
     IndexType cellIDForCentralChildEdge = (*cellsForChildEdge.begin()).first;
     mesh->hRefine(vector<GlobalIndexType>{cellIDForCentralChildEdge}, repartitionAndRebuild);
+    cellsForRefinement.push_back(vector<GlobalIndexType>{cellIDForCentralChildEdge});
     
     // should have another 7 new active elements:
     numActiveElementsExpected += 7;
@@ -201,6 +211,36 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     int numActiveCellsForCentralEdgeExpected = 3;
     int numActiveCellsForCentralEdge = meshTopo->getActiveCellIndices(edgeDim, centralEdgeEntityIndex).size();
     TEST_EQUALITY(numActiveCellsForCentralEdge, numActiveCellsForCentralEdgeExpected);
+    
+    // now, enforce 1 irregularity.  This should cause all 3 remaining original cells to be refined.
+    mesh->enforceOneIrregularity();
+    numActiveCellsForCentralEdgeExpected = 0;
+    numActiveCellsForCentralEdge = meshTopo->getActiveCellIndices(edgeDim, centralEdgeEntityIndex).size();
+    TEST_EQUALITY(numActiveCellsForCentralEdge, numActiveCellsForCentralEdgeExpected);
+    
+    // now, repeat all the above, skipping the cell ID determinations
+    mesh = MeshFactory::rectilinearMesh(form.bf(), dims, elemCounts, H1Order, 0, vector<double>(), map<int,int>(),
+                                                map<int,int>(), MPIWrapper::CommWorld());
+    meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    
+    numActiveElementsExpected = elemCounts[0] * elemCounts[1] * elemCounts[2];
+    numActiveElementsActual = meshTopo->activeCellCount();
+    TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
+    
+    // first refinement (results in a 1-irregular mesh)
+    mesh->hRefine(cellsForRefinement[0], repartitionAndRebuild);
+    
+    // that should add 7 new active elements
+    numActiveElementsExpected += 7;
+    numActiveElementsActual = meshTopo->activeCellCount();
+    TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
+    
+    // second refinement (results in a 2-irregular mesh)
+    mesh->hRefine(cellsForRefinement[1], repartitionAndRebuild);
+    // should have another 7 new active elements:
+    numActiveElementsExpected += 7;
+    numActiveElementsActual = meshTopo->activeCellCount();
+    TEST_EQUALITY(numActiveElementsActual, numActiveElementsExpected);
     
     // now, enforce 1 irregularity.  This should cause all 3 remaining original cells to be refined.
     mesh->enforceOneIrregularity();

@@ -267,33 +267,15 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
       }
     }
   }
-  
-  void testPruneAddPrune(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
+
+  void testPruneAddPrune(MeshTopologyPtr meshTopo, vector<set<GlobalIndexType>> &partitions, Teuchos::FancyOStream &out, bool &success)
   {
     // Simulate what happens when distributing the mesh geometry
     // keep a canonical copy
     MeshTopologyPtr originalMesh = meshTopo->deepCopy();
     vector<IndexType> activeCellIDsVector = originalMesh->getActiveCellIndicesGlobal();
     set<IndexType> activeCellIDs(activeCellIDsVector.begin(),activeCellIDsVector.end());
-    // define 4 partitions -- and simply go in numerical order
-    int numCells = activeCellIDs.size();
-    int numPartitions = 4;
-    vector<int> partitionSizes(numPartitions);
-    partitionSizes[0] = 1;
-    partitionSizes[1] = max(numCells / (numPartitions - 1) - 1, 0);
-    partitionSizes[2] = 0;
-    partitionSizes[3] = numCells - partitionSizes[0] - partitionSizes[1] - partitionSizes[2];
-    vector<set<GlobalIndexType>> partitions(numPartitions);
-    auto cellIndexPtr = activeCellIDs.begin();
-    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
-    {
-      int partitionSize = partitionSizes[partitionOrdinal];
-      for (int i=0; i<partitionSize; i++)
-      {
-        partitions[partitionOrdinal].insert(*cellIndexPtr);
-        cellIndexPtr++;
-      }
-    }
+    int numPartitions = partitions.size();
     vector<MeshTopologyPtr> localMeshTopos(numPartitions);
     int vertexDim = 0;
     for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
@@ -341,6 +323,33 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
       
       testMeshTopologiesMatchOnCells(originalMesh, thisLocalMeshTopo, previousCells, vertexDim, out, success);
     }
+  }
+  
+  void testPruneAddPrune(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
+  {
+    // Simulate what happens when distributing the mesh geometry
+    vector<IndexType> activeCellIDsVector = meshTopo->getActiveCellIndicesGlobal();
+    set<IndexType> activeCellIDs(activeCellIDsVector.begin(),activeCellIDsVector.end());
+    // define 4 partitions -- and simply go in numerical order
+    int numCells = activeCellIDs.size();
+    int numPartitions = 4;
+    vector<int> partitionSizes(numPartitions);
+    partitionSizes[0] = 1;
+    partitionSizes[1] = max(numCells / (numPartitions - 1) - 1, 0);
+    partitionSizes[2] = 0;
+    partitionSizes[3] = numCells - partitionSizes[0] - partitionSizes[1] - partitionSizes[2];
+    vector<set<GlobalIndexType>> partitions(numPartitions);
+    auto cellIndexPtr = activeCellIDs.begin();
+    for (int partitionOrdinal = 0; partitionOrdinal < numPartitions; partitionOrdinal++)
+    {
+      int partitionSize = partitionSizes[partitionOrdinal];
+      for (int i=0; i<partitionSize; i++)
+      {
+        partitions[partitionOrdinal].insert(*cellIndexPtr);
+        cellIndexPtr++;
+      }
+    }
+    testPruneAddPrune(meshTopo, partitions, out, success);
   }
   
   void testPrune(MeshTopologyPtr meshTopo, Teuchos::FancyOStream &out, bool &success)
@@ -764,7 +773,9 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
     dimensions.push_back(width);
     elementCounts.push_back(rootMeshNumCells);
   }
-  MeshPtr originalMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0);
+  // serial MeshTopology:
+  MeshTopologyPtr originalMeshTopology = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts);
+  // distributed Mesh:
   MeshPtr mesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0);
 
   int numUniformRefinements = 3;
@@ -777,44 +788,42 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
   
   MeshTopologyViewPtr rootMeshTopology = meshTopo->getView(meshTopo->getRootCellIndicesGlobal());
-  const MeshTopology* originalMeshTopology = originalMesh->getTopology()->baseMeshTopology();
-
   TEST_EQUALITY(rootMeshTopology->cellCount(), originalMeshTopology->cellCount());
 
+  // test that the locally known cells are a subset of the original cells
   set<IndexType> rootCellIndices = rootMeshTopology->getLocallyKnownActiveCellIndices();
   set<IndexType> originalCellIndices = originalMeshTopology->getLocallyKnownActiveCellIndices();
 
   // compare sets:
-  std::set<IndexType>::iterator rootCellIt = rootCellIndices.begin(), originalCellIt = originalCellIndices.begin();
-  TEST_EQUALITY(rootCellIndices.size(), originalCellIndices.size());
-  if (rootCellIndices.size() == originalCellIndices.size())
+  bool allMyRootCellsFound = true;
+  for (IndexType myRootCellID : rootCellIndices)
   {
-    for (int i=0; i<rootCellIndices.size(); i++)
+    TEUCHOS_ASSERT(originalCellIndices.find(myRootCellID) != originalCellIndices.end());
+    if (originalCellIndices.find(myRootCellID) == originalCellIndices.end())
     {
-      TEST_EQUALITY(*rootCellIt, *originalCellIt);
-      rootCellIt++;
-      originalCellIt++;
+      allMyRootCellsFound = false;
     }
   }
-
-  for (std::set<IndexType>::iterator cellIDIt = rootCellIndices.begin(); cellIDIt != rootCellIndices.end(); cellIDIt++)
+  
+  // test that the distributed root cells of the refined mesh have the same vertices as those in the original mesh topology
+  if (allMyRootCellsFound)
   {
-    CellPtr originalCell = originalMeshTopology->getCell(*cellIDIt);
-    CellPtr rootCell = rootMeshTopology->getCell(*cellIDIt);
-
-    vector<unsigned> originalVertexIndices = originalCell->vertices();
-    vector<unsigned> rootVertexIndices = rootCell->vertices();
-
-    TEST_EQUALITY(originalVertexIndices.size(), rootVertexIndices.size());
-
-    TEST_COMPARE_ARRAYS(originalVertexIndices, rootVertexIndices);
-
-    for (int i=0; i<originalVertexIndices.size(); i++)
+    for (IndexType cellID : rootCellIndices)
     {
-      vector<double> originalVertex = originalMeshTopology->getVertex(originalVertexIndices[i]);
-      vector<double> rootVertex = rootMeshTopology->getVertex(rootVertexIndices[i]);
+      CellPtr originalCell = originalMeshTopology->getCell(cellID);
+      CellPtr rootCell = rootMeshTopology->getCell(cellID);
 
-      TEST_COMPARE_FLOATING_ARRAYS(originalVertex, rootVertex, 1e-15);
+      vector<unsigned> originalVertexIndices = originalCell->vertices();
+      vector<unsigned> rootVertexIndices = rootCell->vertices();
+
+      TEST_EQUALITY(originalVertexIndices.size(), rootVertexIndices.size());
+      for (int i=0; i<originalVertexIndices.size(); i++)
+      {
+        vector<double> originalVertex = originalMeshTopology->getVertex(originalVertexIndices[i]);
+        vector<double> rootVertex = rootMeshTopology->getVertex(rootVertexIndices[i]);
+
+        TEST_COMPARE_FLOATING_ARRAYS(originalVertex, rootVertex, 1e-15);
+      }
     }
   }
 }
@@ -989,6 +998,61 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
     // now, one where some pruning takes place in all cases
     meshTopo = MeshFactory::rectilinearMeshTopology({1.0,1.0,1.0}, {4,4,4});
     testPruneAddPrune(meshTopo, out, success);
+  }
+  
+  TEUCHOS_UNIT_TEST( MeshTopology, TriangleEnforceOneIrregularity )
+  {
+    // test a particular case that has been a challenge previously
+    vector<vector<double>> vertices = {{0,0},{1,0},{0.5,1}};
+    vector<vector<IndexType>> elementVertices = {{0,1,2}};
+    CellTopoPtr triangle = CellTopology::triangle();
+    
+    MeshGeometryPtr geometry = Teuchos::rcp( new MeshGeometry(vertices, elementVertices, {triangle}) );
+    MeshTopologyPtr meshTopo = Teuchos::rcp( new MeshTopology(geometry));
+    
+    // create a problematic mesh of a particular sort: refine once, then refine the interior element.  Then refine the interior element of the refined element.
+    IndexType cellIDToRefine = 0, nextCellIndex = 1;
+    int interiorChildOrdinal = 1; // interior child has index 1 in children
+    RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(triangle);
+    meshTopo->refineCell(cellIDToRefine, refPattern, nextCellIndex);
+    nextCellIndex += refPattern->numChildren();
+    
+    vector<CellPtr> children = meshTopo->getCell(cellIDToRefine)->children();
+    cellIDToRefine = children[interiorChildOrdinal]->cellIndex();
+    meshTopo->refineCell(cellIDToRefine, refPattern, nextCellIndex);
+    nextCellIndex += refPattern->numChildren();
+    
+    children = meshTopo->getCell(cellIDToRefine)->children();
+    cellIDToRefine = children[interiorChildOrdinal]->cellIndex();
+    meshTopo->refineCell(cellIDToRefine, refPattern, nextCellIndex);
+    nextCellIndex += refPattern->numChildren();
+    
+    // The above mesh will cause some cascading constraints, which the new getBasisMap() can't
+    // handle.  We have added logic to deal with this case to Mesh::enforceOneIrregularity().
+    // What that does is refine the outer triangles from the original mesh, like so:
+    CellPtr rootCell = meshTopo->getCell(0);
+    vector<IndexType> childCellIndices = rootCell->getChildIndices(meshTopo);
+    for (IndexType childCellIndex : childCellIndices)
+    {
+      CellPtr childCell = meshTopo->getCell(childCellIndex);
+      if (!childCell->isParent(meshTopo))
+      {
+        meshTopo->refineCell(childCellIndex, refPattern, nextCellIndex);
+        nextCellIndex += refPattern->numChildren();
+      }
+    }
+
+    // cell 21 has been a problem.  Let's try putting it in its own partition, with empty adjacent partitions, so that we simulate starting with empty MeshTopology and migrating the stuff for 21.
+    
+    vector<set<GlobalIndexType>> partitions;
+    partitions.push_back({});
+    partitions.push_back({21});
+    partitions.push_back({});
+    set<GlobalIndexType> allActiveCells = meshTopo->getLocallyKnownActiveCellIndices(); // not distributed, so this will be all
+    allActiveCells.erase(21);
+    partitions.push_back(allActiveCells);
+    
+    testPruneAddPrune(meshTopo, partitions, out, success);
   }
   
   TEUCHOS_UNIT_TEST( MeshTopology, UpdateNeighborsAfterAnisotropicRefinements)

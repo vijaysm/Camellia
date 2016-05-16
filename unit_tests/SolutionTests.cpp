@@ -769,7 +769,7 @@ namespace
     double tol = 1e-10;
     vector<double> pointForImposition = {0.0,0.0};
     
-    int rank = Teuchos::GlobalMPISession::getRank();;
+    int rank = Teuchos::GlobalMPISession::getRank();
     
     int spaceDim = 2;
     bool conformingTraces = false; // false mostly because I want to do cavity flow with non-H^1 BCs
@@ -1004,9 +1004,18 @@ namespace
     int vertexDim = 0;
     IndexType pointForImpositionEntityIndex;
     bool vertexFound = mesh->getTopology()->getVertexIndex(pointForImposition, pointForImpositionEntityIndex);
-    TEST_ASSERT(vertexFound);
     
-    vector<pair<IndexType,unsigned>> cellsForVertex = mesh->getTopology()->getActiveCellIndices(vertexDim, pointForImpositionEntityIndex);
+    // make sure at least someone found the vertex
+    int myFoundVertex = vertexFound ? 1 : 0;
+    int globalFoundVertex;
+    mesh->Comm()->SumAll(&myFoundVertex, &globalFoundVertex, 1);
+    TEST_ASSERT(globalFoundVertex > 0);
+    
+    vector<pair<IndexType,unsigned>> cellsForVertex;
+    if (vertexFound)
+    {
+      cellsForVertex = mesh->getTopology()->getActiveCellIndices(vertexDim, pointForImpositionEntityIndex);
+    }
     
     const set<GlobalIndexType>* myCellIDs = &mesh->cellIDsInPartition();
     for (pair<IndexType,unsigned> cellEntry : cellsForVertex)
@@ -1613,6 +1622,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( Solution, SaveAndLoadPoissonConforming )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     bool conformingTraces = true;
     PoissonFormulation form(spaceDim,conformingTraces);

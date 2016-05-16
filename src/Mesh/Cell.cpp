@@ -54,34 +54,37 @@ set<GlobalIndexType> Cell::getActiveNeighborIndices(ConstMeshTopologyViewPtr mes
   return neighborIndices;
 }
 
-std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
+std::set<pair<unsigned, IndexType>> Cell::entitiesOnNeighborInterfaces(unsigned dimensionForNeighborRelation,
+                                                                       ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
 {
-  int numSubcells = _cellTopo->getSubcellCount(dimensionForNeighborRelation);
-  
   set< pair<unsigned, IndexType> > entitiesToMatch; // dim, entityIndex
   
-  for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
+  int spaceDim = _cellTopo->getDimension();
+  for (int d=dimensionForNeighborRelation; d<spaceDim; d++)
   {
-    IndexType subcellEntityIndex = entityIndex(dimensionForNeighborRelation, subcellOrdinal);
-    if (subcellEntityIndex != -1)
-      entitiesToMatch.insert({dimensionForNeighborRelation,subcellEntityIndex});
-    else
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
-    
-    CellPtr ancestor = ancestralCellForSubcell(dimensionForNeighborRelation, subcellOrdinal, meshTopoViewForCellValidity);
-    if (ancestor->cellIndex() != _cellIndex)
+    int numSubcells = _cellTopo->getSubcellCount(d);
+    for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
     {
-      pair<unsigned, unsigned> ancestralInfo = ancestralSubcellOrdinalAndDimension(dimensionForNeighborRelation,
-                                                                                   subcellOrdinal, meshTopoViewForCellValidity);
-      unsigned ancestorDim = ancestralInfo.second;
-      unsigned ancestorSubcellOrdinal = ancestralInfo.first;
-      IndexType ancestralEntityIndex = ancestor->entityIndex(ancestorDim, ancestorSubcellOrdinal);
-      if (ancestralEntityIndex != -1)
-        entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
+      IndexType subcellEntityIndex = entityIndex(d, subcellOrdinal);
+      if (subcellEntityIndex != -1)
+        entitiesToMatch.insert({d,subcellEntityIndex});
       else
-      {
-        // this may be just fine, but I want to understand when it's happening...
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
+      
+      CellPtr ancestor = ancestralCellForSubcell(d, subcellOrdinal, meshTopoViewForCellValidity);
+      if (ancestor->cellIndex() != _cellIndex)
+      {
+        pair<unsigned, unsigned> ancestralInfo = ancestralSubcellOrdinalAndDimension(d, subcellOrdinal,
+                                                                                     meshTopoViewForCellValidity);
+        unsigned ancestorDim = ancestralInfo.second;
+        unsigned ancestorSubcellOrdinal = ancestralInfo.first;
+        IndexType ancestralEntityIndex = ancestor->entityIndex(ancestorDim, ancestorSubcellOrdinal);
+        if (ancestralEntityIndex != -1)
+          entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
+        else
+        {
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
+        }
       }
     }
   }

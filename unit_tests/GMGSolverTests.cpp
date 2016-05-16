@@ -721,8 +721,8 @@ namespace
       fineMeshTopo->refineCell(cellIndex, refPattern, firstChildCellIndex);
     }
     
-    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView(originalCells);
     MeshPtr fineMesh = Teuchos::rcp( new Mesh(fineMeshTopo, bf, H1Order_fine, delta_k) );
+    MeshTopologyViewPtr coarseMeshTopo = fineMeshTopo->getView(originalCells);
     
     MeshPartitionPolicyPtr partitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo, fineMesh);
     MeshPtr coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, bf, H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), partitionPolicy) );
