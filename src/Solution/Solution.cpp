@@ -110,7 +110,7 @@ using namespace Camellia;
 using namespace Intrepid;
 
 template <typename Scalar>
-double TSolution<Scalar>::conditionNumberEstimate( Epetra_LinearProblem & problem )
+double TSolution<Scalar>::conditionNumberEstimate( Epetra_LinearProblem & problem, int &errCode )
 {
   // estimates the 2-norm condition number
   AztecOOConditionNumber conditionEstimator;
@@ -118,9 +118,9 @@ double TSolution<Scalar>::conditionNumberEstimate( Epetra_LinearProblem & proble
 
   int maxIters = 40000;
   double tol = 1e-10;
-  int status = conditionEstimator.computeConditionNumber(maxIters, tol);
-  if (status!=0)
-    cout << "status result from computeConditionNumber(): " << status << endl;
+  errCode = conditionEstimator.computeConditionNumber(maxIters, tol);
+  if (errCode!=0)
+    cout << "status result from computeConditionNumber(): " << errCode << endl;
   double condest = conditionEstimator.getConditionNumber();
 
   return condest;
@@ -955,13 +955,13 @@ void TSolution<Scalar>::applyDGJumpTerms()
 
 // ! After a problem has been set up (stiffness matrix, rhs assembled; BCs imposed), this method will compute and return a condition number estimate using AztecOO.
 template <typename Scalar>
-double TSolution<Scalar>::conditionNumberEstimate() const
+double TSolution<Scalar>::conditionNumberEstimate(int &errCode) const
 {
   // if a problem has not been set up, return -1
   if (_globalStiffMatrix == Teuchos::null) return -1;
   
   Epetra_LinearProblem linearProblem(&*_globalStiffMatrix, &*_lhsVector, &*_rhsVector);
-  return conditionNumberEstimate(linearProblem);
+  return conditionNumberEstimate(linearProblem, errCode);
 }
 
 template <typename Scalar>
@@ -1451,7 +1451,8 @@ int TSolution<Scalar>::solveWithPrepopulatedStiffnessAndLoad(TSolverPtr<Scalar> 
   {
     //    double oneNorm = globalStiffMatrix.NormOne();
     Teuchos::RCP<Epetra_LinearProblem> problem = Teuchos::rcp( new Epetra_LinearProblem(&*_globalStiffMatrix, &*_lhsVector, &*_rhsVector));
-    double condest = conditionNumberEstimate(*problem);
+    int errCode;
+    double condest = conditionNumberEstimate(*problem, errCode);
     if (rank == 0)
     {
       // cout << "(one-norm) of global stiffness matrix: " << oneNorm << endl;

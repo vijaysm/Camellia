@@ -126,7 +126,7 @@ private:
 
   double _zmcRho;
 
-  static double conditionNumberEstimate( Epetra_LinearProblem & problem );
+  static double conditionNumberEstimate( Epetra_LinearProblem & problem, int &errCode );
 
   void setGlobalSolutionFromCellLocalCoefficients();
 
@@ -200,7 +200,7 @@ public:
   void clear();
 
   // ! After a problem has been set up (stiffness matrix, rhs assembled; BCs imposed), this method will compute and return a condition number estimate using AztecOO.
-  double conditionNumberEstimate() const;
+  double conditionNumberEstimate(int &errCode) const;
   
   int cubatureEnrichmentDegree() const;
   void setCubatureEnrichmentDegree(int value);

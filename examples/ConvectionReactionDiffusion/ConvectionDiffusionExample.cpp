@@ -274,8 +274,20 @@ int main(int argc, char *argv[])
   solution->solve();
   if (conditionNumberEstimate)
   {
-    double conditionNumber = solution->conditionNumberEstimate();
-    if (rank==0) cout << "Condition Number estimate initial mesh: " << conditionNumber << endl;
+    int errCode;
+    double conditionNumber = solution->conditionNumberEstimate(errCode);
+    if (rank==0)
+    {
+      if (errCode != 0)
+      {
+        cout << "Condition Number estimation failed with error code " << errCode;
+        cout << " (estimate, for what it's worth--very little, probably--was " << conditionNumber << ")\n";
+      }
+      else
+      {
+        cout << "Condition Number estimate initial mesh: " << conditionNumber << endl;
+      }
+    }
   }
   LinearTermPtr residual = form.residual(solution);
   if (ipForResidual == Teuchos::null) ipForResidual = ip;
@@ -345,10 +357,24 @@ int main(int argc, char *argv[])
     
     exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
     
+    
+    
     if (conditionNumberEstimate)
     {
-      double conditionNumber = solution->conditionNumberEstimate();
-      if (rank==0) cout << "Condition Number estimate refinement " << refinementNumber << ": " << conditionNumber << endl;
+      int errCode;
+      double conditionNumber = solution->conditionNumberEstimate(errCode);
+      if (rank==0)
+      {
+        if (errCode != 0)
+        {
+          cout << "Condition Number estimation failed with error code " << errCode;
+          cout << " (estimate, for what it's worth--very little, probably--was " << conditionNumber << ")\n";
+        }
+        else
+        {
+          cout << "Condition Number estimate refinement " << refinementNumber << ": " << conditionNumber << endl;
+        }
+      }
     }
     
     refStrategy.getRieszRep()->computeRieszRep();
