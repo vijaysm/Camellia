@@ -944,7 +944,7 @@ namespace Camellia
     double testMatrixAssemblyTime = 0, localStiffnessDeterminationTime = 0;
     double rhsDeterminationTime = 0;
     
-    Epetra_Time timer(*MPIWrapper::CommWorld());
+    Epetra_Time timer(*MPIWrapper::CommSerial());
     bool printTimings = false;
 
     if (! _useSubgridMeshForOptimalTestSolve)
@@ -1030,6 +1030,8 @@ namespace Camellia
         rhs->integrateAgainstOptimalTests(rhsVector, optTestCoeffs, testOrder, basisCache);
         rhsDeterminationTime += timer.ElapsedTime();
       }
+      
+      _rhsTimingCallback(numCells,rhsDeterminationTime,elemType);
     }
     else
     {
@@ -1097,9 +1099,9 @@ namespace Camellia
     int numTestDofs = testOrdering->totalDofs();
     int numTrialDofs = trialOrdering->totalDofs();
     
-    Epetra_Time timer(*MPIWrapper::CommWorld());
+    Epetra_Time timer(*MPIWrapper::CommSerial());
     
-    double timeG, timeB, timeT; // time to compute Gram matrix, the right-hand side B, and time to solve GT = B
+    double timeG, timeB, timeT, timeK; // time to compute Gram matrix, the right-hand side B, time to solve GT = B, and time to compute K = B^T T.
     
     // check that optimalTestWeights is properly dimensioned....
     TEUCHOS_TEST_FOR_EXCEPTION( ( optimalTestWeights.dimension(0) != numCells ),
@@ -1145,9 +1147,11 @@ namespace Camellia
     ip->computeInnerProductMatrix(ipMatrix, testOrder, ipBasisCache);
     timeG = timer.ElapsedTime();
     
-    timer.ResetStartTime();
+    timeT = 0;
+    timeK = 0;
     for (int cellIndex=0; cellIndex < numCells; cellIndex++)
     {
+      timer.ResetStartTime();
       int result = 0;
       FieldContainer<Scalar> cellIPMatrix(localIPDim, &ipMatrix(cellIndex,0,0));
       FieldContainer<Scalar> cellRectangularStiffness(localRectangularStiffnessDim, &rectangularStiffnessMatrix(cellIndex,0,0));
@@ -1175,26 +1179,42 @@ namespace Camellia
       {
         SerialDenseWrapper::solveSystemMultipleRHS(cellOptimalWeightsT, cellIPMatrix, cellRectangularStiffness);
       }
+      timeT += timer.ElapsedTime();
       
+      timer.ResetStartTime();
       // multiply to determine stiffness matrix.
       SerialDenseWrapper::multiply(cellStiffness, cellOptimalWeightsT, cellRectangularStiffness, 'T', 'N'); // transpose A; don't transpose B
       
       // transpose the optimal test weights -- since this is a view into optimalTestWeights, this reorders (part of) that matrix according to contract with caller
       SerialDenseWrapper::transposeMatrix(cellOptimalWeightsT);
+      timeK += timer.ElapsedTime();
       
       if (result != 0)
       {
         solvedAll = result;
       }
     }
-    timeT = timer.ElapsedTime();
    
+    _optimalTestTimingCallback(numCells,timeG,timeB,timeT,timeK,elemType);
     bool printTimings = false;
     if (printTimings)
     {
-      cout << "BF timings: computed G in " << timeG << " seconds, B in " << timeB << "; solve for T in " << timeT << endl;
+      cout << "BF timings: on " << numCells << " elements, computed G in " << timeG << " seconds, B in " << timeB << " seconds; solve for T in " << timeT;
+      cout << " seconds; compute K=B^T T in " << timeK << " seconds." << endl;
     }
     return solvedAll;
+  }
+  
+  template <typename Scalar>
+  void TBF<Scalar>::setOptimalTestTimingCallback(std::function<void(int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType)> &optimalTestTimingCallback)
+  {
+    _optimalTestTimingCallback = optimalTestTimingCallback;
+  }
+  
+  template <typename Scalar>
+  void TBF<Scalar>::setRHSTimingCallback(std::function<void(int numElements, double timeRHS, ElementTypePtr elemType)> &rhsTimingCallback)
+  {
+    _rhsTimingCallback = rhsTimingCallback;
   }
   
   template <typename Scalar>

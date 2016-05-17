@@ -232,8 +232,36 @@ int main(int argc, char *argv[])
     ipForResidual = primalForm.bf()->naiveNorm(spaceDim);
   }
   
-  // set up mesh
+  // set up timings printer
+  double totalTimeG = 0, totalTimeB = 0, totalTimeT = 0, totalTimeK = 0;
+  int totalElementCount = 0;
+  std::function<void(int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType)> optimalTestTimingCallback;
+  optimalTestTimingCallback = [&totalTimeG, &totalTimeB, &totalTimeT, &totalTimeK, &totalElementCount]
+    (int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType) {
+      cout << "BF timings: on " << numElements << " elements, computed G in " << timeG;
+      cout << " seconds, B in " << timeB << " seconds; solve for T in " << timeT;
+      cout << " seconds; compute K=B^T T in " << timeK << " seconds." << endl;
+      totalElementCount += numElements;
+      totalTimeG += timeG;
+      totalTimeB += timeB;
+      totalTimeT += timeT;
+      totalTimeK += timeK;
+  };
+  // same thing, now for RHS computation:
+  std::function<void(int numElements, double timeRHS, ElementTypePtr elemType)> rhsTimingCallback;
+  double totalTimeRHS = 0;
+  int totalRHSElements = 0;
+  rhsTimingCallback = [&totalTimeRHS, &totalRHSElements]
+  (int numElements, double timeRHS, ElementTypePtr elemType) {
+    cout << "RHS timings: on " << numElements << " elements, computed RHS in " << timeRHS << " seconds.\n";
+    totalTimeRHS += timeRHS;
+    totalRHSElements += numElements;
+  };
+  // register the timing callbacks
+  bf->setOptimalTestTimingCallback(optimalTestTimingCallback);
+  bf->setRHSTimingCallback(rhsTimingCallback);
   
+  // set up mesh
   vector<double> dimensions = {1.0,1.0};
   vector<int> elementCounts = {meshWidth,meshWidth};
   
@@ -391,5 +419,26 @@ int main(int argc, char *argv[])
     cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
   }
 
+  // compute average timings across all MPI ranks.
+  Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+  totalTimeG = MPIWrapper::sum(*Comm, totalTimeG);
+  totalTimeB = MPIWrapper::sum(*Comm, totalTimeB);
+  totalTimeT = MPIWrapper::sum(*Comm, totalTimeT);
+  totalTimeK = MPIWrapper::sum(*Comm, totalTimeK);
+  totalElementCount = MPIWrapper::sum(*Comm, totalElementCount);
+
+  totalTimeRHS = MPIWrapper::sum(*Comm, totalTimeRHS);
+  totalRHSElements = MPIWrapper::sum(*Comm, totalRHSElements);
+  
+  if (rank == 0)
+  {
+    cout << "Average time/element for optimal test computations:\n";
+    cout << "G:   " <<  totalTimeG / totalElementCount << " sec.\n";
+    cout << "B:   " <<  totalTimeB / totalElementCount << " sec.\n";
+    cout << "T:   " <<  totalTimeT / totalElementCount << " sec.\n";
+    cout << "K:   " <<  totalTimeK / totalElementCount << " sec.\n";
+    cout << "RHS: " << totalTimeRHS / totalRHSElements << " sec.\n";
+  }
+  
   return 0;
 }

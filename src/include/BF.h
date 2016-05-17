@@ -27,6 +27,9 @@ class TBF
   
   VarFactoryPtr _varFactory;
 
+  std::function<void(int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType)> _optimalTestTimingCallback;
+  std::function<void(int numElements, double timeRHS, ElementTypePtr elemType)> _rhsTimingCallback;
+  
   bool _isLegacySubclass;
   //members that used to be part of BilinearForm:
 protected:
@@ -140,6 +143,9 @@ public:
                                   vector<Camellia::EOperator> &testOps); // default implementation calls trialTestOperator
 
   virtual VarFactoryPtr varFactory();
+  
+  void setOptimalTestTimingCallback(std::function<void(int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType)> &optimalTestTimingCallback);
+  void setRHSTimingCallback(std::function<void(int numElements, double timeRHS, ElementTypePtr elemType)> &rhsTimingCallback);
 
   // non-virtual methods (originally from BilinearForm):
   void setUseSPDSolveForOptimalTestFunctions(bool value);
