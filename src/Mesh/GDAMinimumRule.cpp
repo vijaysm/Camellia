@@ -1133,15 +1133,15 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubcellDofIndices& 
                                                                                                             subsubcdim, sscOrdInOriginalConstrainingCell,
                                                                                                             false);
           
-          if (weightsForWholeSubcell.isIdentity)
-          {
-            SubBasisReconciliationWeights weightsForWholeSubcellManual = weightsManualIdentity(weightsForWholeSubcell);
-            SubBasisReconciliationWeights expectedWeights = BasisReconciliation::weightsForCoarseSubcell(weightsForWholeSubcellManual, constrainingBasis,
-                                                                                                         subsubcdim, sscOrdInOriginalConstrainingCell,
-                                                                                                         false);
-            bool equal = BasisReconciliation::equalWeights(expectedWeights, weightsForSubSubcell);
-            TEUCHOS_TEST_FOR_EXCEPTION(!equal, std::invalid_argument, "Something wrong with identity weights treatment");
-          }
+//          if (weightsForWholeSubcell.isIdentity)
+//          {
+//            SubBasisReconciliationWeights weightsForWholeSubcellManual = weightsManualIdentity(weightsForWholeSubcell);
+//            SubBasisReconciliationWeights expectedWeights = BasisReconciliation::weightsForCoarseSubcell(weightsForWholeSubcellManual, constrainingBasis,
+//                                                                                                         subsubcdim, sscOrdInOriginalConstrainingCell,
+//                                                                                                         false);
+//            bool equal = BasisReconciliation::equalWeights(expectedWeights, weightsForSubSubcell);
+//            TEUCHOS_TEST_FOR_EXCEPTION(!equal, std::invalid_argument, "Something wrong with identity weights treatment");
+//          }
           
           DofOrderingPtr sscConstrainingTrialOrdering = elementType(subsubcellConstraints.cellID)->trialOrderPtr;
           BasisPtr sscConstrainingBasis = sscConstrainingTrialOrdering->getBasis(var->ID());
@@ -2267,7 +2267,6 @@ CellConstraints GDAMinimumRule::getCellConstraints(GlobalIndexType cellID)
 {
   if (_constraintsCache.find(cellID) == _constraintsCache.end())
   {
-
 //    cout << "Getting cell constraints for cellID " << cellID << endl;
 
     typedef pair< IndexType, unsigned > CellPair;
