@@ -5,3 +5,6 @@ target_link_libraries(ConvectionReactionExample Camellia)
 
 add_executable(ConvectionDiffusionExample ConvectionDiffusionExample.cpp)
 target_link_libraries(ConvectionDiffusionExample Camellia)
+
+add_executable(RebuildLookupsPerformanceTest RebuildLookupsPerformanceTest.cpp)
+target_link_libraries(RebuildLookupsPerformanceTest Camellia)
