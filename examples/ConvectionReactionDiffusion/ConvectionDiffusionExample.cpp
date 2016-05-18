@@ -151,13 +151,16 @@ int main(int argc, char *argv[])
   int meshWidth = 16;
   int polyOrder = 1, delta_k = 1;
   int spaceDim = 2;
-  double epsilon = 1e-6;
+  double epsilon = 1e-3;
   double beta_1 = 2.0, beta_2 = 1.0;
   bool useTriangles = true; // otherwise, quads
   int numRefinements = 0;
   double energyThreshold = 0.2; // for refinements
   string formulationChoice = "Ultraweak";
   bool conditionNumberEstimate = false;
+  bool exportVisualization = false;
+  bool reportSolutionTimings = true;
+  int quadratureEnrichmentL2 = 5;
   
   cmdp.setOption("meshWidth", &meshWidth );
   cmdp.setOption("polyOrder", &polyOrder );
@@ -168,9 +171,12 @@ int main(int argc, char *argv[])
   cmdp.setOption("beta_2", &beta_2);
   cmdp.setOption("useTriangles", "useQuads", &useTriangles);
   cmdp.setOption("numRefinements", &numRefinements);
+  cmdp.setOption("quadratureEnrichmentL2", &quadratureEnrichmentL2);
   cmdp.setOption("energyThreshold", &energyThreshold);
   cmdp.setOption("formulationChoice", &formulationChoice);
   cmdp.setOption("reportConditionNumber", "dontReportConditionNumber", &conditionNumberEstimate);
+  cmdp.setOption("reportSolutionTimings", "dontReportSolutionTimings", &reportSolutionTimings);
+  cmdp.setOption("useVisualization","noVisualization",&exportVisualization);
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -317,6 +323,10 @@ int main(int argc, char *argv[])
       }
     }
   }
+  if (reportSolutionTimings)
+  {
+    solution->reportTimings();
+  }
   LinearTermPtr residual = form.residual(solution);
   if (ipForResidual == Teuchos::null) ipForResidual = ip;
   RefinementStrategy refStrategy(mesh, residual, ipForResidual, energyThreshold);
@@ -335,27 +345,46 @@ int main(int argc, char *argv[])
   vector<string> traceFunctionsToExportNames = {"mesh"};
   
   int refinementNumber = 0;
+  FunctionPtr u_soln = Function::solution(form.u(), solution);
+  double errL2;
   
   // for some reason, ParaView introduces visual artifacts when doing plot over line on traces when
   // the outputted resolution (HDF5Exporter's "num1DPoints" argument) is too low.  (10 is too low.)
   int numLinearPointsPlotting = max(polyOrder,15);
 
-  HDF5Exporter functionExporter(mesh, "ConvectionDiffusionExampleFunctions");
-  functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
-  functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
+  Teuchos::RCP<HDF5Exporter> functionExporter;
+  Teuchos::RCP<HDF5Exporter> solnExporter;
+  if (exportVisualization)
+  {
+    functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, "ConvectionDiffusionExampleFunctions"));
+    functionExporter->exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
+    functionExporter->exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
+    
+    solnExporter = Teuchos::rcp(new HDF5Exporter(mesh, "ConvectionDiffusionExampleSolution"));
+    solnExporter->exportSolution(solution, refinementNumber, numLinearPointsPlotting);
+  }
   
-  HDF5Exporter exporter(mesh, "ConvectionDiffusionExampleSolution");
-  exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
+  bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
   
   while (refinementNumber < numRefinements)
   {
     GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
     GlobalIndexType numActiveElements = mesh->numActiveElements();
     
-    refStrategy.refine();
-   
-    vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(mesh, 1, delta_k);
+    errL2 = (u_soln - u_exact)->l2norm(solution->mesh());
     
+    if (formulationIsDPG)
+    {
+      refStrategy.refine();
+    }
+    else
+    {
+      set<GlobalIndexType> allActiveCells = mesh->getActiveCellIDsGlobal();
+      mesh->hRefine(allActiveCells);
+    }
+   
+//    vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(mesh, 1, delta_k);
+//    
 //    int maxIters = 500;
 //    double cgTol = 1e-6;
 //    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, maxIters, cgTol,
@@ -371,21 +400,38 @@ int main(int argc, char *argv[])
 //    
 //    gmgSolver->setAztecOutput(25);
     
-    double energyError = refStrategy.getEnergyError(refinementNumber);
-
-    if (rank == 0)
+    if (formulationIsDPG)
     {
-      cout << "Refinement " << refinementNumber << " has energy error " << energyError;
-      cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+      double energyError = refStrategy.getEnergyError(refinementNumber);
+      if (rank == 0)
+      {
+        cout << "Refinement " << refinementNumber << " has energy error " << energyError;
+        cout << ", L^2 error " << errL2 << ";";
+        cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+      }
+    }
+    else
+    {
+      if (rank == 0)
+      {
+        cout << "Refinement " << refinementNumber << " has L^2 error " << errL2 << ";";
+        cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+      }
     }
     
 //    solution->solve(gmgSolver);
     solution->solve();
     refinementNumber++;
     
-    exporter.exportSolution(solution, refinementNumber, numLinearPointsPlotting);
+    if (reportSolutionTimings)
+    {
+      solution->reportTimings();
+    }
     
-    
+    if (exportVisualization)
+    {
+      solnExporter->exportSolution(solution, refinementNumber, numLinearPointsPlotting);
+    }
     
     if (conditionNumberEstimate)
     {
@@ -405,18 +451,43 @@ int main(int argc, char *argv[])
       }
     }
     
-    refStrategy.getRieszRep()->computeRieszRep();
-    functionExporter.exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
-    functionExporter.exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
+    if (formulationIsDPG)
+    {
+      Epetra_Time timer(*MPIWrapper::CommSerial());
+      refStrategy.getRieszRep()->computeRieszRep();
+      double rieszRepTime = timer.ElapsedTime();
+      if (rank==0)
+      {
+        cout << "Computed Riesz rep in " << rieszRepTime << " seconds (timed on rank 0).\n";
+      }
+    }
+    if (exportVisualization)
+    {
+      functionExporter->exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
+      functionExporter->exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
+    }
   }
   
-  double energyError = refStrategy.computeTotalEnergyError();
   GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
   GlobalIndexType numActiveElements = mesh->numActiveElements();
-  if (rank == 0)
+  
+  if (formulationIsDPG)
   {
-    cout << "Refinement " << refinementNumber << " has energy error " << energyError;
-    cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+    double energyError = refStrategy.computeTotalEnergyError();
+    if (rank == 0)
+    {
+      cout << "Refinement " << refinementNumber << " has energy error " << energyError;
+      cout << ", L^2 error " << errL2 << ";";
+      cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+    }
+  }
+  else
+  {
+    if (rank == 0)
+    {
+      cout << "Refinement " << refinementNumber << " has L^2 error " << errL2 << ";";
+      cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
+    }
   }
 
   // compute average timings across all MPI ranks.
@@ -430,7 +501,7 @@ int main(int argc, char *argv[])
   totalTimeRHS = MPIWrapper::sum(*Comm, totalTimeRHS);
   totalRHSElements = MPIWrapper::sum(*Comm, totalRHSElements);
   
-  if (rank == 0)
+  if ((rank == 0) && (formulation != ConvectionDiffusionReactionFormulation::SUPG))
   {
     cout << "Average time/element for optimal test computations:\n";
     cout << "G:   " <<  totalTimeG / totalElementCount << " sec.\n";
