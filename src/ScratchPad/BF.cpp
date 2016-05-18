@@ -1003,7 +1003,12 @@ namespace Camellia
         }
         
         localStiffnessDeterminationTime += timer.ElapsedTime();
-
+        // "timeB" is basically the localStiffnessDeterminationTime
+        if (_optimalTestTimingCallback)
+        {
+          _optimalTestTimingCallback(numCells,0,localStiffnessDeterminationTime,0,0,elemType);
+        }
+        
         timer.ResetStartTime();
         rhs->integrateAgainstStandardBasis(rhsVector, testOrder, basisCache);
         rhsDeterminationTime += timer.ElapsedTime();
@@ -1031,7 +1036,10 @@ namespace Camellia
         rhsDeterminationTime += timer.ElapsedTime();
       }
       
-      _rhsTimingCallback(numCells,rhsDeterminationTime,elemType);
+      if (_rhsTimingCallback)
+      {
+        _rhsTimingCallback(numCells,rhsDeterminationTime,elemType);
+      }
     }
     else
     {
@@ -1195,7 +1203,10 @@ namespace Camellia
       }
     }
    
-    _optimalTestTimingCallback(numCells,timeG,timeB,timeT,timeK,elemType);
+    if (_optimalTestTimingCallback)
+    {
+      _optimalTestTimingCallback(numCells,timeG,timeB,timeT,timeK,elemType);
+    }
     bool printTimings = false;
     if (printTimings)
     {
