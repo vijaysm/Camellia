@@ -59,6 +59,7 @@ map<GlobalIndexType,FieldContainer<Scalar> > TRieszRep<Scalar>::integrateFunctio
 template <typename Scalar>
 void TRieszRep<Scalar>::computeRieszRep(int cubatureEnrichment)
 {
+  _rieszRepNormSquared.clear();
   set<GlobalIndexType> cellIDs = _mesh->cellIDsInPartition();
   for (set<GlobalIndexType>::iterator cellIDIt=cellIDs.begin(); cellIDIt !=cellIDs.end(); cellIDIt++)
   {
