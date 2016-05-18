@@ -38,15 +38,22 @@ namespace Camellia {
     }
     else
     {
-      // we should be able to add value to the rangeOrdinal range, or the previous one
+      // we may be able to add value to the rangeOrdinal range, or the previous one
       if (_rangeBegins[rangeOrdinal] <= value) // we know that (_rangeEnds[rangeOrdinal] >= value)
       {
         // value already present; can return
         return;
       }
+      else if (_rangeBegins[rangeOrdinal] == value + 1)
+      {
+        // add this in
+        _rangeBegins[rangeOrdinal] -= 1;
+        _size++;
+        mergeIfPossible(rangeOrdinal);
+      }
       else
       {
-        // check whether we can add to previous one entries
+        // check whether we can add to previous entries
         if ((rangeOrdinal == 0) && (value == _rangeBegins[0]-1))
         {
           _rangeBegins[0] -= 1;
@@ -97,7 +104,7 @@ namespace Camellia {
     {
       if ((_rangeEnds[entryOrdinal-1]==_rangeBegins[entryOrdinal]) || (_rangeEnds[entryOrdinal-1]+1==_rangeBegins[entryOrdinal]))
       {
-        _rangeEnds[entryOrdinal] = _rangeEnds[entryOrdinal+1];
+        _rangeEnds[entryOrdinal-1] = _rangeEnds[entryOrdinal];
         _rangeBegins.erase(_rangeBegins.begin() + entryOrdinal);
         _rangeEnds.erase(_rangeEnds.begin() + entryOrdinal);
       }

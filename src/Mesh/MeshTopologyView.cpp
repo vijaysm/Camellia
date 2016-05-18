@@ -74,7 +74,7 @@ IndexType MeshTopologyView::cellCount() const
   return _globalCellCount;
 }
 
-void MeshTopologyView::cellHalo(std::set<GlobalIndexType> &haloCellIndices, const std::set<GlobalIndexType> &cellIndices,
+void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set<GlobalIndexType> &cellIndices,
                                 unsigned dimForNeighborRelation) const
 {
   // the cells passed in are the ones the user wants to include -- e.g. those owned by the MPI rank.
@@ -86,39 +86,120 @@ void MeshTopologyView::cellHalo(std::set<GlobalIndexType> &haloCellIndices, cons
   // for all the original cells, also add the peer neighbors of their ancestors
   // (these need to be included here so that, for example, geometric multigrid can work properly.)
   set<GlobalIndexType> cellsThatMatch = cellIndices;
+
+  vector<set<IndexType>> entitiesToMatchSetForLevel;
+
   for (GlobalIndexType cellID : cellIndices)
   {
     CellPtr cell = getCell(cellID);
+    
     while (cell->getParent() != Teuchos::null)
     {
       cell = cell->getParent();
-      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
-      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
+      bool peersOnly = true;
+      vector<IndexType> entitiesToMatch = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, peersOnly, thisPtr);
+      if (entitiesToMatchSetForLevel.size() <= cell->level())
+      {
+        entitiesToMatchSetForLevel.resize(cell->level() + 1);
+      }
+      entitiesToMatchSetForLevel[cell->level()].insert(entitiesToMatch.begin(),entitiesToMatch.end());
     }
   }
   
+  int sideDim = this->getDimension() - 1;
+  
+  for (int level=0; level<entitiesToMatchSetForLevel.size(); level++)
+  {
+    set<IndexType>* entitiesToMatchSet = &entitiesToMatchSetForLevel[level];
+    vector<IndexType> entitiesToMatch(entitiesToMatchSet->begin(),entitiesToMatchSet->end());
+    vector<IndexType> sidesThatMatch = this->getSidesContainingEntities(dimForNeighborRelation, entitiesToMatch);
+    set<pair<IndexType,unsigned>> cellPairs = this->getCellsContainingSides(sidesThatMatch);
+    // add just the ones that are actually peers (i.e. are on this level)
+    for (auto cellPair : cellPairs)
+    {
+      CellPtr cell = getCell(cellPair.first);
+      if (cell->level() == level)
+      {
+        cellsThatMatch.insert(cellPair.first);
+      }
+      else if (cell->level() > level)
+      {
+        int levelDiff = cell->level() - level;
+        for (int i=0; i<levelDiff; i++)
+        {
+          cell = cell->getParent();
+        }
+        IndexType cellIndex = cell->cellIndex();
+        if (cellsThatMatch.find(cellIndex) != cellsThatMatch.end()) continue; // we've already matched this cell
+        
+        // otherwise, before we add, check to make sure this cell has a side among sidesThatMatch
+        int sideCount = cell->getSideCount();
+        for (int sideOrdinal=0; sideOrdinal < sideCount; sideOrdinal++)
+        {
+          IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
+          if (std::find(sidesThatMatch.begin(), sidesThatMatch.end(), sideEntityIndex) != sidesThatMatch.end())
+          {
+            cellsThatMatch.insert(cellIndex);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // old code that determined peer neighbors on a per-cell basis:
+  //  for (GlobalIndexType cellID : cellIndices)
+  //  {
+  //    CellPtr cell = getCell(cellID);
+  //    while (cell->getParent() != Teuchos::null)
+  //    {
+  //      cell = cell->getParent();
+  //      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
+  //      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
+  //    }
+  //  }
+
+  
+//  {
+//    // DEBUGGING: with the old code, do we find any peer neighbors we don't with the new?
+//    for (GlobalIndexType cellID : cellIndices)
+//    {
+//      CellPtr cell = getCell(cellID);
+//      while (cell->getParent() != Teuchos::null)
+//      {
+//        cell = cell->getParent();
+//        set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
+//        for (IndexType peerNeighborCellID : peerNeighbors)
+//        {
+//          if (cellsThatMatch.find(peerNeighborCellID) == cellsThatMatch.end())
+//          {
+//            cout << "peer neighbor cell " << peerNeighborCellID << " not found by the revised cellHalo() code.\n";
+//            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "peer neighbor not found by revised cellHalo()");
+//          }
+//        }
+//      }
+//    }
+//  }
+  
   // now, let's find all the entities that these cells touch
-  set<pair<unsigned,IndexType>> entitiesToMatch;
+  set<IndexType> entitiesToMatchSet;
+  bool peersOnly = false; // also get descendants
   for (GlobalIndexType cellID : cellsThatMatch)
   {
     CellPtr cell = getCell(cellID);
-    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
-    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
+    vector<IndexType> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, peersOnly, thisPtr);
+    entitiesToMatchSet.insert(cellEntities.begin(),cellEntities.end());
   }
   
+  vector<IndexType> entitiesToMatch(entitiesToMatchSet.begin(),entitiesToMatchSet.end());
   // now, determine which cells match those entities
-  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
+  set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntities(dimForNeighborRelation, entitiesToMatch);
+  for (pair<IndexType, unsigned> cellPair : cellPairs)
   {
-    unsigned entityDim = entityInfo.first;
-    IndexType entityIndex = entityInfo.second;
-    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
-    for (pair<IndexType, unsigned> cellPair : cellPairs)
-    {
-      IndexType cellID = cellPair.first;
-      cellsThatMatch.insert(cellID);
-    }
+    IndexType cellID = cellPair.first;
+    cellsThatMatch.insert(cellID);
   }
-  
+
   // now, for each cell, ascend the refinement hierarchy, adding ancestors
   for (GlobalIndexType cellID : cellsThatMatch)
   {
@@ -371,6 +452,67 @@ set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsi
     }
   }
   return cells;
+}
+
+set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntities(unsigned d, const vector<IndexType> &entities) const
+{
+  vector<IndexType> sidesForEntities = getSidesContainingEntities(d,entities);
+  return getCellsContainingSides(sidesForEntities);
+}
+
+set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingSides(const vector<IndexType> &sideEntityIndices) const
+{
+  set<pair<IndexType, unsigned>> cellEntries;
+  const MeshTopology* baseMeshTopo = baseMeshTopology();
+  for (IndexType sideEntityIndex : sideEntityIndices)
+  {
+    for (int whichCell=0; whichCell<2; whichCell++)
+    {
+      IndexType cellIndex;
+      if (whichCell == 0)
+        cellIndex = baseMeshTopo->getFirstCellForSide(sideEntityIndex).first;
+      else
+        cellIndex =  baseMeshTopo->getSecondCellForSide(sideEntityIndex).first;
+      unsigned sideOrdinalInCell = -1;
+      int sideDim = baseMeshTopo->getDimension() - 1;
+      while ((cellIndex != -1) && !isValidCellIndex(cellIndex))
+      {
+        // we should check whether there is a valid ancestor of the cell that also contains the side
+        // (this can happen both in 1D and with anisotropic refinements)
+        CellPtr cell = baseMeshTopo->getCell(cellIndex);
+        sideOrdinalInCell = cell->findSubcellOrdinal(sideDim, sideEntityIndex);
+        CellPtr parent = cell->getParent();
+        if (parent != Teuchos::null)
+        {
+          // check whether the parent contains the side:
+          unsigned sideOrdinal = parent->findSubcellOrdinal(sideDim, sideEntityIndex);
+          if (sideOrdinal != -1) cellIndex = parent->cellIndex();
+          else cellIndex = -1;
+        }
+        else
+        {
+          cellIndex = -1;
+        }
+      }
+      if (isValidCellIndex(cellIndex)) cellEntries.insert({cellIndex,sideOrdinalInCell});
+    }
+  }
+  return cellEntries;
+}
+
+vector<IndexType> MeshTopologyView::getSidesContainingEntities(unsigned d, const vector<IndexType> &entities) const
+{
+  vector<IndexType> viewSides;
+  vector<IndexType> meshTopoSides = _meshTopo->getSidesContainingEntities(d,entities);
+  
+  for (IndexType topoSideIndex : meshTopoSides)
+  {
+    if (this->getCellsForSide(topoSideIndex).size() > 0)
+    {
+      viewSides.push_back(topoSideIndex);
+    }
+  }
+  return viewSides;
 }
 
 vector<IndexType> MeshTopologyView::getCellsForSide(IndexType sideEntityIndex) const

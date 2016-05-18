@@ -90,6 +90,10 @@ namespace Camellia {
     virtual CellPtr getCell(IndexType cellIndex) const;
     virtual std::vector<double> getCellCentroid(IndexType cellIndex) const;
     virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, unsigned entityIndex) const;
+    virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntities(unsigned d, const std::vector<IndexType> &entities) const;
+    
+    virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingSides(const std::vector<IndexType> &sideEntityIndices) const;
+    virtual std::vector<IndexType> getSidesContainingEntities(unsigned d, const std::vector<IndexType> &entities) const;
     virtual std::vector<IndexType> getCellsForSide(IndexType sideEntityIndex) const;
 
     virtual std::pair<IndexType, unsigned> getConstrainingEntity(unsigned d, IndexType entityIndex) const;

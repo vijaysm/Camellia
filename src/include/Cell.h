@@ -132,7 +132,8 @@ public:
   std::set<GlobalIndexType> getActiveNeighborIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   std::set<GlobalIndexType> getActiveNeighborIndices(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   std::set<GlobalIndexType> getPeerNeighborIndices(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
-  std::set<pair<unsigned, IndexType>> entitiesOnNeighborInterfaces(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
+  std::vector<IndexType> entitiesOnNeighborInterfaces(unsigned dimensionOfInterest, bool peersOnly,
+                                                      ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
   
   void printApproximateMemoryReport(); // in bytes
 

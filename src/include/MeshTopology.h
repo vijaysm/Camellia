@@ -61,7 +61,7 @@ class MeshTopology : public MeshTopologyView
   vector< vector< vector<IndexType> > > _canonicalEntityOrdering;
   vector< vector< vector< pair<IndexType, unsigned> > > > _activeCellsForEntities; // inner vector entries are sorted (cellIndex, entityIndexInCell) (entityIndexInCell aka subcord)--I'm vascillating on whether this should contain entries for active ancestral cells.  Today, I think it should not.  I think we should have another set of activeEntities.  Things in that list either themselves have active cells or an ancestor that has an active cell.  So if your parent is inactive and you don't have any active cells of your own, then you know you can deactivate.
   vector< vector< vector<IndexType> > > _sidesForEntities; // vector indices: dimension d, entity index; innermost container stores entity indices of dimension _spaceDim-1 belonging to cells that contain the indicated entity, sorted by index.
-  map< IndexType, pair< pair<IndexType, unsigned>, pair<IndexType, unsigned> > > _cellsForSideEntities; // key: sideEntityIndex.  value.first is (cellIndex1, sideOrdinal1), value.second is (cellIndex2, sideOrdinal2).  On initialization, (cellIndex2, sideOrdinal2) == ((IndexType)-1,(IndexType)-1).
+  vector<pair< pair<IndexType, unsigned>, pair<IndexType, unsigned> > > _cellsForSideEntities; // key: sideEntityIndex.  value.first is (cellIndex1, sideOrdinal1), value.second is (cellIndex2, sideOrdinal2).  On initialization, (cellIndex2, sideOrdinal2) == ((IndexType)-1,(IndexType)-1).
   set<IndexType> _boundarySides; // entities of dimension _spaceDim-1 on the mesh boundary
   vector< map< IndexType, vector< pair<IndexType, unsigned> > > > _parentEntities; // map from entity to its possible parents.  Not every entity has a parent.  We support entities having multiple parents.  Such things will be useful in the context of anisotropic refinements.  The pair entries here are (parentEntityIndex, refinementOrdinal), where the refinementOrdinal is the index into the _childEntities[d][parentEntityIndex] vector.
 
@@ -70,6 +70,7 @@ class MeshTopology : public MeshTopologyView
   vector< map<Camellia::CellTopologyKey, RangeList<IndexType>>> _entityCellTopologyKeys;
 
 //  vector< CellPtr > _cells;
+  RangeList<GlobalIndexType> _validCells; // RangeList for potentially faster lookups; should match the keys in _cells
   map<GlobalIndexType, CellPtr> _cells; // the cells known on this MPI rank.  Right now, all cells are stored on every rank; soon, this will not be true anymore.
 
   // these guys presently only support 2D:
@@ -199,13 +200,16 @@ public:
 
   set< pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, IndexType entityIndex) const;
   vector<IndexType> getCellsForSide(IndexType sideEntityIndex) const;
-  vector< IndexType > getSidesContainingEntity(unsigned d, IndexType entityIndex) const;
+  vector<IndexType> getSidesContainingEntity(unsigned d, IndexType entityIndex) const;
+  vector<IndexType> getSidesContainingEntities(unsigned d, const std::vector<IndexType> &entities) const;
 
 //  RefinementBranch getSideConstraintRefinementBranch(IndexType sideEntityIndex); // Returns a RefinementBranch that goes from the constraining side to the side indicated.
 
   unsigned getDimension() const;
   unsigned getSubEntityCount(unsigned int d, IndexType entityIndex, unsigned subEntityDim) const;
   IndexType getSubEntityIndex(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal) const;
+  // ! getSubEntityIndices() vector is not guaranteed to be in any particular order
+  void getSubEntityIndices(unsigned d, IndexType entityIndex, unsigned subEntityDim, vector<IndexType> &subEntityIndices) const;
   unsigned getSubEntityPermutation(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal) const;
   bool getVertexIndex(const vector<double> &vertex, IndexType &vertexIndex, double tol=1e-14) const;
   std::vector<IndexType> getVertexIndicesMatching(const vector<double> &vertexInitialCoordinates, double tol=1e-14) const;
