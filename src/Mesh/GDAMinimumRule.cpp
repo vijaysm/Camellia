@@ -129,48 +129,70 @@ void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
 {
   // 1. Which parents am I interested in?
   // This is exactly the constraining cells which are inactive
+
+  // TODO: write this method
+  /*
+   
+   The beginning below is likely sub-optimal.
+   At worst, we should be communicating about parents for which we do not locally see
+   all the siblings.  We need to work out which of our seen-but-not-owned active cells
+   have siblings we do not see.
+   
+   Then we will want to establish minimum polynomial orders for each subcell of the 
+   parent (for edges on up).
+   
+   To do this correctly probably involves elements that are anisotropic in p.
+   I'm not sure that we have such basis functions for non-hypercube topologies.
+   
+   A first pass could simply take the minimum polynomial order for any child, and use
+   that for all elements on the interface with the parent.  This is over-constrained,
+   but it should be consistent.
+   
+   (We don't actually do much in terms of p-refinements in our drivers.)
+   
+   */
   
-  map<GlobalIndexType,GlobalIndexType> parentToOwningChild; // the ones I'm interested in
-  const set<GlobalIndexType>* myCellIDs = &_mesh->cellIDsInPartition();
-  int d_min = minimumSubcellDimensionForContinuityEnforcement();
-  
-  for (GlobalIndexType myCellID : *myCellIDs)
-  {
-    CellPtr cell = _meshTopology->getCell(myCellID);
-    CellTopoPtr cellTopo = cell->topology();
-    int cellDim = cellTopo->getDimension();
-    for (int d=d_min; d<cellDim; d++)
-    {
-      int scCount = cellTopo->getSubcellCount(d);
-      for (int scord=0; scord<scCount; scord++)
-      {
-        IndexType subcellEntityIndex = cell->entityIndex(d, scord);
-        pair<IndexType, unsigned> constrainingEntity = _mesh->getTopology()->getConstrainingEntity(d, subcellEntityIndex);
-        IndexType constrainingEntityIndex = constrainingEntity.first;
-        unsigned constrainingEntityDimension = constrainingEntity.second;
-        set<pair<IndexType,unsigned>> cellEntries = _meshTopology->getCellsContainingEntity(constrainingEntityDimension, constrainingEntityIndex);
-        for (pair<IndexType,unsigned> cellEntry : cellEntries)
-        {
-          IndexType constrainingCellID = cellEntry.first;
-          CellPtr cellForConstrainingEntity = _meshTopology->getCell(constrainingCellID);
-          if (cellForConstrainingEntity->isParent(_meshTopology))
-          {
-            IndexType firstChild = cellForConstrainingEntity->getChildIndices(_meshTopology)[0];
-            parentToOwningChild[constrainingCellID] = firstChild;
-          }
-        }
-      }
-    }
-  }
-  
-  map<PartitionIndexType, set<GlobalIndexType>> requestMap;
-  for (auto parentChildEntry : parentToOwningChild)
-  {
-    GlobalIndexType parentCellID = parentChildEntry.first;
-    GlobalIndexType firstChildCellID = parentChildEntry.second;
-    PartitionIndexType partition = partitionForCellID(firstChildCellID);
-    requestMap[partition].insert(parentCellID);
-  }
+//  map<GlobalIndexType,GlobalIndexType> parentToOwningChild; // the ones I'm interested in
+//  const set<GlobalIndexType>* myCellIDs = &_mesh->cellIDsInPartition();
+//  int d_min = minimumSubcellDimensionForContinuityEnforcement();
+//  
+//  for (GlobalIndexType myCellID : *myCellIDs)
+//  {
+//    CellPtr cell = _meshTopology->getCell(myCellID);
+//    CellTopoPtr cellTopo = cell->topology();
+//    int cellDim = cellTopo->getDimension();
+//    for (int d=d_min; d<cellDim; d++)
+//    {
+//      int scCount = cellTopo->getSubcellCount(d);
+//      for (int scord=0; scord<scCount; scord++)
+//      {
+//        IndexType subcellEntityIndex = cell->entityIndex(d, scord);
+//        pair<IndexType, unsigned> constrainingEntity = _mesh->getTopology()->getConstrainingEntity(d, subcellEntityIndex);
+//        IndexType constrainingEntityIndex = constrainingEntity.first;
+//        unsigned constrainingEntityDimension = constrainingEntity.second;
+//        set<pair<IndexType,unsigned>> cellEntries = _meshTopology->getCellsContainingEntity(constrainingEntityDimension, constrainingEntityIndex);
+//        for (pair<IndexType,unsigned> cellEntry : cellEntries)
+//        {
+//          IndexType constrainingCellID = cellEntry.first;
+//          CellPtr cellForConstrainingEntity = _meshTopology->getCell(constrainingCellID);
+//          if (cellForConstrainingEntity->isParent(_meshTopology))
+//          {
+//            IndexType firstChild = cellForConstrainingEntity->getChildIndices(_meshTopology)[0];
+//            parentToOwningChild[constrainingCellID] = firstChild;
+//          }
+//        }
+//      }
+//    }
+//  }
+//  
+//  map<PartitionIndexType, set<GlobalIndexType>> requestMap;
+//  for (auto parentChildEntry : parentToOwningChild)
+//  {
+//    GlobalIndexType parentCellID = parentChildEntry.first;
+//    GlobalIndexType firstChildCellID = parentChildEntry.second;
+//    PartitionIndexType partition = partitionForCellID(firstChildCellID);
+//    requestMap[partition].insert(parentCellID);
+//  }
   
   static bool haveWarned = false;
   
