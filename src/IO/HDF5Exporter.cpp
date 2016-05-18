@@ -132,6 +132,12 @@ void HDF5Exporter::exportFunction(vector<TFunctionPtr<double>> functions, vector
 {
   int commRank = _mesh->Comm()->MyPID();
   int numProcs = _mesh->Comm()->NumProc();
+  
+  if (functions.size() != functionNames.size())
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "functions must match functionNames in length!");
+  }
+  TEUCHOS_TEST_FOR_EXCEPTION(functions.size() == 0, std::invalid_argument, "empty function container");
 
   bool exportingBoundaryValues = functions[0]->boundaryValueOnly();
 
@@ -529,7 +535,7 @@ void HDF5Exporter::exportFunction(vector<TFunctionPtr<double>> functions, vector
     ptDimsf = 2 * totalPts;
   else
     ptDimsf = spaceDim * totalPts;
-  double ptArray[ptDimsf];
+  vector<double> ptArray(ptDimsf);
 
   Teuchos::XMLObject geoDataItem("DataItem");
   geometry.addChild(geoDataItem);
@@ -709,6 +715,8 @@ void HDF5Exporter::exportFunction(vector<TFunctionPtr<double>> functions, vector
             cellTopoKey = shards::Quadrilateral<4>::key;
           else if (spaceDim == 2)
             cellTopoKey = shards::Line<2>::key;
+          else // shouldn't get here
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unhandled case in HDF5Exporter");
           // cellTopoKey = shards::Quadrilateral<4>::key;
           break;
         case 2:
