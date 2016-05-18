@@ -414,19 +414,24 @@ void TRefinementStrategy<Scalar>::refine(bool printToConsole)
   GlobalIndexTypeToCast numCellsToPRefine = 0;
   GlobalIndexTypeToCast myNumCellsToPRefine = myCellsToPRefine.size();
   mesh->Comm()->SumAll(&myNumCellsToPRefine, &numCellsToPRefine, 1);
-  myCellOrdinalOffset = 0;
-  mesh->Comm()->ScanSum(&myNumCellsToPRefine, &myCellOrdinalOffset, 1);
-  myCellOrdinalOffset -= myNumCellsToPRefine;
   
-  vector<GlobalIndexTypeToCast> globalCellsToPRefineVector(numCellsToRefine, 0);
-  for (int i=0; i<myNumCellsToPRefine; i++)
+  vector<GlobalIndexType> cellsToPRefine;
+  if (numCellsToPRefine > 0)
   {
-    globalCellsToPRefineVector[myCellOrdinalOffset + i] = myCellsToRefine[i];
+    myCellOrdinalOffset = 0;
+    mesh->Comm()->ScanSum(&myNumCellsToPRefine, &myCellOrdinalOffset, 1);
+    myCellOrdinalOffset -= myNumCellsToPRefine;
+
+    vector<GlobalIndexTypeToCast> globalCellsToPRefineVector(numCellsToRefine, 0);
+    for (int i=0; i<myNumCellsToPRefine; i++)
+    {
+      globalCellsToPRefineVector[myCellOrdinalOffset + i] = myCellsToRefine[i];
+    }
+    vector<GlobalIndexTypeToCast> gatheredCellsToPRefineVector(numCellsToPRefine, 0);
+    mesh->Comm()->SumAll(&globalCellsToPRefineVector[0], &gatheredCellsToPRefineVector[0], numCellsToPRefine);
+
+    cellsToPRefine = vector<GlobalIndexType>(gatheredCellsToPRefineVector.begin(),gatheredCellsToPRefineVector.end());
   }
-    vector<GlobalIndexTypeToCast> gatheredCellsToPRefineVector(numCellsToRefine, 0);
-  mesh->Comm()->SumAll(&globalCellsToPRefineVector[0], &gatheredCellsToPRefineVector[0], numCellsToPRefine);
-  
-  vector<GlobalIndexType> cellsToPRefine(gatheredCellsToPRefineVector.begin(),gatheredCellsToPRefineVector.end());
   
   if (printToConsole)
   {
