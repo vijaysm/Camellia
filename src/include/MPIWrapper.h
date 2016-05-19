@@ -155,6 +155,10 @@ public:
   static void sendDataVectors(Epetra_CommPtr Comm, const std::vector<int> &recipients,
                               const std::vector<std::vector<DataType>> &dataVectors,
                               std::vector<DataType> &receivedVector);
+  template<typename DataType>
+  static void sendDataVectors(Epetra_CommPtr Comm,
+                              const std::map<int,std::vector<DataType>> &recipientDataVectors,
+                              std::vector<DataType> &receivedVector);
   
   template<typename KeyType, typename ValueType>
   static void sendDataMaps(Epetra_CommPtr Comm,
@@ -254,6 +258,24 @@ public:
     sendDataVectors(Comm,recipients,dataVectors,receivedVector);
     receivedMap.insert(receivedVector.begin(),receivedVector.end());
   }
+
+  template<typename DataType>
+  void MPIWrapper::sendDataVectors(Epetra_CommPtr Comm,
+                                   const std::map<int,std::vector<DataType>> &recipientDataVectors,
+                                   std::vector<DataType> &receivedVector)
+  {
+    int numRecipients = recipientDataVectors.size();
+    std::vector<std::vector<DataType>> dataVectors(numRecipients);
+    std::vector<int> recipients(numRecipients);
+    int ordinal = 0;
+    for (auto recipientVectorEntry : recipientDataVectors)
+    {
+      recipients[ordinal] = recipientVectorEntry.first;
+      dataVectors[ordinal] = recipientVectorEntry.second;
+      ordinal++;
+    }
+    sendDataVectors(Comm,recipients,dataVectors,receivedVector);
+  }
   
   template<typename DataType>
   void MPIWrapper::sendDataVectors(Epetra_CommPtr Comm, const std::vector<int> &recipients,
@@ -272,7 +294,6 @@ public:
     TEUCHOS_TEST_FOR_EXCEPTION(dataVectors.size() != numRecipients, std::invalid_argument, "dataVectors and recipients list must be the same length");
     
     const int *recipientPtr = (numRecipients > 0) ? &recipients[0] : NULL;
-    int* exportRecipients = NULL;
     
     bool deterministic = true; // doesn't do anything at present, according to docs.
     int numProcsThatWillSendToMe;
