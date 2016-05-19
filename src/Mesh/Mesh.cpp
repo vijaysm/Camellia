@@ -1052,6 +1052,16 @@ void Mesh::hUnrefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndReb
   }
 }
 
+void Mesh::initializeTransformationFunction()
+{
+  MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(_meshTopology.get());
+  if (meshTopo != NULL)
+  {
+    MeshPtr thisPtr = Teuchos::rcp(this,false);
+    meshTopo->initializeTransformationFunction(thisPtr);
+  }
+}
+
 void Mesh::initializePartitionPolicyIfNull(MeshPartitionPolicyPtr &partitionPolicy, Epetra_CommPtr Comm)
 {
   if ( partitionPolicy.get() == NULL )

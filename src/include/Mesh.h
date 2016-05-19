@@ -261,7 +261,10 @@ public:
   void hRefine(const vector<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern);
 
   void hUnrefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndRebuild = true);
-
+  
+  // ! For curvilinear geometry, call this after mesh initialization.
+  void initializeTransformationFunction();
+  
   void interpretGlobalCoefficients(GlobalIndexType cellID, Intrepid::FieldContainer<double> &localCoefficients, const Epetra_MultiVector &globalCoefficients);
   void interpretLocalBasisCoefficients(GlobalIndexType cellID, int varID, int sideOrdinal, const Intrepid::FieldContainer<double> &basisCoefficients,
                                        Intrepid::FieldContainer<double> &globalCoefficients, Intrepid::FieldContainer<GlobalIndexType> &globalDofIndices);
