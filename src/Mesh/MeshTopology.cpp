@@ -2018,58 +2018,70 @@ unsigned MeshTopology::getSubEntityIndex(unsigned int d, unsigned int entityInde
 
 void MeshTopology::getSubEntityIndices(unsigned d, IndexType entityIndex, unsigned subEntityDim, vector<IndexType> &subEntityIndices) const
 {
-  unsigned sideDim = getDimension() - 1;
-  
-  IndexType sideForEntity;
-  
-  if (d != sideDim)
+  if (subEntityDim == d)
   {
-    TEUCHOS_TEST_FOR_EXCEPTION((entityIndex < 0) || (entityIndex > _sidesForEntities[d].size()), std::invalid_argument, "entityIndex is out of bounds");
-    TEUCHOS_TEST_FOR_EXCEPTION(_sidesForEntities[d][entityIndex].size() == 0, std::invalid_argument, "No sides contain entity");
-    sideForEntity = _sidesForEntities[d][entityIndex][0];
+    // entity is its own sub-entity:
+    subEntityIndices.resize(1);
+    subEntityIndices[0] = entityIndex;
+  }
+  else if (subEntityDim == 0)
+  {
+    // if interested in vertices, we know those:
+    subEntityIndices = _canonicalEntityOrdering[d][entityIndex];
   }
   else
   {
-    sideForEntity = entityIndex;
-  }
-  
-  pair<IndexType,unsigned> cellEntry = getFirstCellForSide(sideForEntity);
-  if (!isValidCellIndex(cellEntry.first))
-  {
-    cellEntry = getSecondCellForSide(sideForEntity);
-  }
-  TEUCHOS_TEST_FOR_EXCEPTION(!isValidCellIndex(cellEntry.first), std::invalid_argument, "Internal error: cell found for side is not valid");
-  CellPtr cell = getCell(cellEntry.first);
-  
-  CellTopoPtr cellTopo = cell->topology();
-  unsigned sideOrdinal = cellEntry.second;
-  unsigned entitySubcellOrdinalInCell = -1;
-  if (d == sideDim)
-  {
-    entitySubcellOrdinalInCell = sideOrdinal;
-  }
-  else
-  {
-    CellTopoPtr sideTopo = cellTopo->getSide(sideOrdinal);
-    int subcellCount = sideTopo->getSubcellCount(d);
-    for (int subcord=0; subcord<subcellCount; subcord++)
+    unsigned sideDim = getDimension() - 1;
+    IndexType sideForEntity;
+    if (d != sideDim)
     {
-      unsigned subcordInCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, sideDim, sideOrdinal, d, subcord);
-      if (cell->entityIndex(d, subcordInCell) == entityIndex)
-      {
-        entitySubcellOrdinalInCell = subcordInCell;
-        break;
-      }
+      TEUCHOS_TEST_FOR_EXCEPTION((entityIndex < 0) || (entityIndex > _sidesForEntities[d].size()), std::invalid_argument, "entityIndex is out of bounds");
+      TEUCHOS_TEST_FOR_EXCEPTION(_sidesForEntities[d][entityIndex].size() == 0, std::invalid_argument, "No sides contain entity");
+      sideForEntity = _sidesForEntities[d][entityIndex][0];
     }
-    TEUCHOS_TEST_FOR_EXCEPTION(entitySubcellOrdinalInCell == -1, std::invalid_argument, "entity not found in Cell");
-  }
-  CellTopoPtr subcellTopo = cellTopo->getSubcell(d, entitySubcellOrdinalInCell);
-  int subsubcellCount = subcellTopo->getSubcellCount(subEntityDim);
-  subEntityIndices.resize(subsubcellCount);
-  for (int subsubcord=0; subsubcord<subsubcellCount; subsubcord++)
-  {
-    unsigned subsubcordInCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, d, entitySubcellOrdinalInCell, subEntityDim, subsubcord);
-    subEntityIndices[subsubcord] = cell->entityIndex(subEntityDim, subsubcordInCell);
+    else
+    {
+      sideForEntity = entityIndex;
+    }
+    
+    pair<IndexType,unsigned> cellEntry = getFirstCellForSide(sideForEntity);
+    if (!isValidCellIndex(cellEntry.first))
+    {
+      cellEntry = getSecondCellForSide(sideForEntity);
+    }
+    TEUCHOS_TEST_FOR_EXCEPTION(!isValidCellIndex(cellEntry.first), std::invalid_argument, "Internal error: cell found for side is not valid");
+    CellPtr cell = getCell(cellEntry.first);
+    
+    CellTopoPtr cellTopo = cell->topology();
+    unsigned sideOrdinal = cellEntry.second;
+    unsigned entitySubcellOrdinalInCell = -1;
+    if (d == sideDim)
+    {
+      entitySubcellOrdinalInCell = sideOrdinal;
+    }
+    else
+    {
+      CellTopoPtr sideTopo = cellTopo->getSide(sideOrdinal);
+      int subcellCount = sideTopo->getSubcellCount(d);
+      for (int subcord=0; subcord<subcellCount; subcord++)
+      {
+        unsigned subcordInCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, sideDim, sideOrdinal, d, subcord);
+        if (cell->entityIndex(d, subcordInCell) == entityIndex)
+        {
+          entitySubcellOrdinalInCell = subcordInCell;
+          break;
+        }
+      }
+      TEUCHOS_TEST_FOR_EXCEPTION(entitySubcellOrdinalInCell == -1, std::invalid_argument, "entity not found in Cell");
+    }
+    CellTopoPtr subcellTopo = cellTopo->getSubcell(d, entitySubcellOrdinalInCell);
+    int subsubcellCount = subcellTopo->getSubcellCount(subEntityDim);
+    subEntityIndices.resize(subsubcellCount);
+    for (int subsubcord=0; subsubcord<subsubcellCount; subsubcord++)
+    {
+      unsigned subsubcordInCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, d, entitySubcellOrdinalInCell, subEntityDim, subsubcord);
+      subEntityIndices[subsubcord] = cell->entityIndex(subEntityDim, subsubcordInCell);
+    }
   }
 }
 
