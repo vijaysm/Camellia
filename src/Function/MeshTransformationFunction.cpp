@@ -567,13 +567,12 @@ void MeshTransformationFunction::didHRefine(const set<GlobalIndexType> &cellIDs)
   
   TEUCHOS_TEST_FOR_EXCEPTION(!topology, std::invalid_argument, "Mesh::hRefine() called when _meshTopology is not an instance of MeshTopology--likely Mesh initialized with a pure MeshTopologyView, which cannot be h-refined.");
 
-  for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  for (GlobalIndexType parentCellID : cellIDs)
   {
-    GlobalIndexType parentCellID = *cellIDIt;
+    if (_cellTransforms.find(parentCellID) == _cellTransforms.end()) continue;
     vector<IndexType> childCells = topology->getCell(parentCellID)->getChildIndices(_mesh->getTopology());
-    for (vector<IndexType>::iterator childCellIt = childCells.begin(); childCellIt != childCells.end(); childCellIt++)
+    for (IndexType childCellID : childCells)
     {
-      unsigned childCellID = *childCellIt;
       if (topology->cellHasCurvedEdges(childCellID))
       {
         childrenWithCurvedEdges.insert(childCellID);
