@@ -96,17 +96,16 @@ int main(int argc, char *argv[])
 
   while (refinementNumber < numRefinements)
   {
-    GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
-    GlobalIndexType numActiveElements = mesh->numActiveElements();
-    
     set<GlobalIndexType> allActiveCells = mesh->getActiveCellIDsGlobal();
     timer.ResetStartTime();
     mesh->hRefine(allActiveCells);
     refinementNumber++;
     double refinementTime = timer.ElapsedTime();
+    GlobalIndexType numActiveElements = mesh->numActiveElements();
     if (rank==0)
     {
-      cout << "Refinement " << refinementNumber << " completed in " << refinementTime << " seconds.\n";
+      cout << "Refinement " << refinementNumber << " completed in " << refinementTime << " seconds (";
+      cout << numActiveElements << " active elements).\n";
     }
   }
   
