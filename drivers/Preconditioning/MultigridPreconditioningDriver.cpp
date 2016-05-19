@@ -270,7 +270,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     int meshWidthCells = rootMeshNumCells;
     while (meshWidthCells < numCells)
     {
-      set<IndexType> activeCellIDs = meshTopo->getActiveCellIndices();
+      vector<IndexType> activeCellIDs = meshTopo->getActiveCellIndicesGlobal();
 //      if (rank==0)
 //      {
 //        print("h-refining cells", activeCellIDs);
@@ -416,17 +416,12 @@ long long approximateMemoryCostsForMeshTopologies(vector<MeshPtr> meshes)
 int main(int argc, char *argv[])
 {
   Teuchos::GlobalMPISession mpiSession(&argc, &argv, NULL);
-  int rank = Teuchos::GlobalMPISession::getRank();
-  int numProcs = Teuchos::GlobalMPISession::getNProc();
+  
+  Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+  int rank = Comm->MyPID();
+  int numProcs = Comm->NumProc();
 
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-  //cout << "rank: " << rank << " of " << numProcs << endl;
-#else
-  Epetra_SerialComm Comm;
-#endif
-
-  Comm.Barrier(); // set breakpoint here to allow debugger attachment to other MPI processes than the one you automatically attached to.
+  Comm->Barrier(); // set breakpoint here to allow debugger attachment to other MPI processes than the one you automatically attached to.
 
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
 
@@ -533,7 +528,7 @@ int main(int argc, char *argv[])
       cout << "Press Enter to continue.\n";
       cin.get();
     }
-    Comm.Barrier();
+    Comm->Barrier();
   }
 
   ProblemChoice problemChoice;
@@ -612,7 +607,7 @@ int main(int argc, char *argv[])
     cout << "Solving " << spaceDim << "D " << problemChoiceString << " problem with k = " << k << " on " << numProcs << " MPI ranks.  Initializing meshes...\n";
   }
   
-  Epetra_Time timer(Comm);
+  Epetra_Time timer(*Comm);
 
   SolutionPtr solution;
   MeshPtr coarseMesh;
