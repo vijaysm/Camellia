@@ -468,6 +468,71 @@ namespace
 //    }
   }
 
+  
+  
+  // this method adapted from MultigridPreconditioningDriver
+  void getPoissonMeshesCoarseToFine(vector<MeshPtr> &meshesCoarseToFine,
+                                    int spaceDim, bool conformingTraces,
+                                    bool useStaticCondensation, int numCells, int k, int delta_k,
+                                    int k_coarse, int rootMeshNumCells, bool jumpToCoarsePolyOrder)
+  {
+    int rank = Teuchos::GlobalMPISession::getRank();
+    
+    BFPtr bf;
+    MeshPtr mesh;
+    
+    double width = 1.0; // in each dimension
+    vector<double> x0(spaceDim,0); // origin is the default
+    
+    map<int,int> trialOrderEnhancements;
+    
+    PoissonFormulation formulation(spaceDim, conformingTraces);
+    
+    bf = formulation.bf();
+    
+    int H1Order = k + 1;
+    
+    vector<double> dimensions;
+    vector<int> elementCounts;
+    for (int d=0; d<spaceDim; d++)
+    {
+      dimensions.push_back(width);
+      elementCounts.push_back(rootMeshNumCells);
+    }
+    
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts);
+    
+    meshesCoarseToFine.clear();
+
+    int meshWidthCells = rootMeshNumCells;
+    while (meshWidthCells < numCells)
+    {
+      vector<IndexType> activeCellIDs = meshTopo->getActiveCellIndicesGlobal();
+      IndexType nextCellID = meshTopo->cellCount();
+      for (IndexType activeCellID : activeCellIDs)
+      {
+        CellTopoPtr cellTopo = meshTopo->getCell(activeCellID)->topology();
+        RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
+        meshTopo->refineCell(activeCellID, refPattern, nextCellID);
+        nextCellID += refPattern->numChildren();
+      }
+      meshWidthCells *= 2;
+    }
+    if (meshWidthCells != numCells)
+    {
+      if (rank == 0)
+      {
+        cout << "Warning: may have over-refined mesh; mesh has width " << meshWidthCells << ", not " << numCells << endl;
+      }
+    }
+    mesh = Teuchos::rcp(new Mesh(meshTopo, bf, H1Order, delta_k, trialOrderEnhancements));
+    Teuchos::ParameterList pl;
+    pl.set("kCoarse", k_coarse);
+    pl.set("delta_k", delta_k);
+    pl.set("jumpToCoarsePolyOrder",jumpToCoarsePolyOrder);
+    meshesCoarseToFine = GMGSolver::meshesForMultigrid(mesh, pl);
+  }
+
   TEUCHOS_UNIT_TEST( GMGSolver, MeshesForMultigrid)
   {
     MPIWrapper::CommWorld()->Barrier();
@@ -519,6 +584,21 @@ namespace
       Camellia::print("actualDofCounts", actualDofCounts);
       Camellia::print("expectedDofCounts", expectedDofCounts);
     }
+  }
+  
+  TEUCHOS_UNIT_TEST( GMGSolver, MeshesForMultigridRunsToCompletion_1D)
+  {
+    vector<MeshPtr> meshes;
+    int spaceDim = 1;
+    bool conformingTraces = false;
+    bool useStaticCondensation = false;
+    int numCells = 16; // when test was written, this numCells caused problems on 2 MPI ranks.
+    int k = 0;
+    int delta_k = 1;
+    int k_coarse = 0;
+    int rootMeshNumCells = 1;
+    bool jumpToCoarsePolyOrder = false;
+    getPoissonMeshesCoarseToFine(meshes, spaceDim, conformingTraces, useStaticCondensation, numCells, k, delta_k, k_coarse, rootMeshNumCells, jumpToCoarsePolyOrder);
   }
   
   TEUCHOS_UNIT_TEST( GMGSolver, UniformIdentity_1D_Slow)
