@@ -1968,68 +1968,6 @@ void TSolution<Scalar>::imposeBCs()
   {
     ML_Epetra::Apply_OAZToMatrix(&bcLocalIndices[0], numBCs, *_globalStiffMatrix);
   }
-  
-  // old BC imposition code below:
-//  _mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*(_bc.get()), myGlobalIndicesSet, _dofInterpreter.get());
-//  int numBCs = bcGlobalIndices.size();
-//
-//  Intrepid::FieldContainer<GlobalIndexTypeToCast> bcGlobalIndicesCast;
-//  // cast whatever the global index type is to a type that Epetra supports
-//  Teuchos::Array<int> dim;
-//  bcGlobalIndices.dimensions(dim);
-//  bcGlobalIndicesCast.resize(dim);
-//  for (int dofOrdinal = 0; dofOrdinal < bcGlobalIndices.size(); dofOrdinal++)
-//  {
-//    bcGlobalIndicesCast[dofOrdinal] = bcGlobalIndices[dofOrdinal];
-//  }
-////  cout << "bcGlobalIndices:" << endl << bcGlobalIndices;
-//  //  cout << "bcGlobalValues:" << endl << bcGlobalValues;
-//
-//  Epetra_MultiVector v(partMap,1);
-//  v.PutScalar(0.0);
-//  for (int i = 0; i < numBCs; i++)
-//  {
-//    v.ReplaceGlobalValue(bcGlobalIndicesCast(i), 0, bcGlobalValues(i));
-//  }
-//
-//  Epetra_MultiVector rhsDirichlet(partMap,1);
-//  _globalStiffMatrix->Apply(v,rhsDirichlet);
-//
-//  // Update right-hand side
-//  _rhsVector->Update(-1.0,rhsDirichlet,1.0);
-//
-//  if (numBCs == 0)
-//  {
-//    //cout << "Solution: Warning: Imposing no BCs." << endl;
-//  }
-//  else
-//  {
-//    int err = _rhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndicesCast(0),&bcGlobalValues(0));
-//    if (err != 0)
-//    {
-//      cout << "Error code " << err << " returned by rhsVector.ReplaceGlobalValues()\n";
-//    }
-//    err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndicesCast(0),&bcGlobalValues(0));
-//    if (err != 0)
-//    {
-//      cout << "Error code " << err << " returned by lhsVector.ReplaceGlobalValues()\n";
-//    }
-//  }
-//  // Zero out rows and columns of stiffness matrix corresponding to Dirichlet edges
-//  //  and add one to diagonal.
-//  Intrepid::FieldContainer<int> bcLocalIndices(bcGlobalIndices.dimension(0));
-//  for (int i=0; i<bcGlobalIndices.dimension(0); i++)
-//  {
-//    bcLocalIndices(i) = _globalStiffMatrix->LRID(bcGlobalIndicesCast(i));
-//  }
-//  if (numBCs == 0)
-//  {
-//    ML_Epetra::Apply_OAZToMatrix(NULL, 0, *_globalStiffMatrix);
-//  }
-//  else
-//  {
-//    ML_Epetra::Apply_OAZToMatrix(&bcLocalIndices(0), numBCs, *_globalStiffMatrix);
-//  }
 }
 
 
