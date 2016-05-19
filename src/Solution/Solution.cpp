@@ -1845,66 +1845,120 @@ template <typename Scalar>
 void TSolution<Scalar>::imposeBCs()
 {
   narrate("imposeBCs()");
-  int rank     = Teuchos::GlobalMPISession::getRank();
+  int rank = _mesh->Comm()->MyPID();
 
-  Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndices;
-  Intrepid::FieldContainer<Scalar> bcGlobalValues;
-
-  set<GlobalIndexType> myGlobalIndicesSet = _dofInterpreter->globalDofIndicesForPartition(rank);
-  //  cout << "rank " << rank << " has " << myGlobalIndicesSet.size() << " locally-owned dof indices.\n";
   Epetra_Map partMap = getPartitionMap();
 
-  _mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*(_bc.get()), myGlobalIndicesSet, _dofInterpreter.get());
-  int numBCs = bcGlobalIndices.size();
-
-  Intrepid::FieldContainer<GlobalIndexTypeToCast> bcGlobalIndicesCast;
-  // cast whatever the global index type is to a type that Epetra supports
-  Teuchos::Array<int> dim;
-  bcGlobalIndices.dimensions(dim);
-  bcGlobalIndicesCast.resize(dim);
-  for (int dofOrdinal = 0; dofOrdinal < bcGlobalIndices.size(); dofOrdinal++)
+  Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesFC;
+  Intrepid::FieldContainer<double> bcGlobalValuesFC;
+  
+  _mesh->boundary().bcsToImpose(bcGlobalIndicesFC,bcGlobalValuesFC,*_bc, _mesh->globalDofAssignment().get());
+  
+  map<int,vector<pair<GlobalIndexType,double>>> bcValuesToSend; // key to outer map: recipient PID
+  vector<pair<GlobalIndexType,double>> bcsToImposeThisRank;
+  for (int i=0; i<bcGlobalIndicesFC.size(); i++)
   {
-    bcGlobalIndicesCast[dofOrdinal] = bcGlobalIndices[dofOrdinal];
+    GlobalIndexType globalIndex = bcGlobalIndicesFC[i];
+    int owner = _mesh->globalDofAssignment()->partitionForGlobalDofIndex(globalIndex);
+    if (owner != rank)
+    {
+      bcValuesToSend[owner].push_back({globalIndex,bcGlobalValuesFC[i]});
+    }
+    else
+    {
+      bcsToImposeThisRank.push_back({globalIndex,bcGlobalValuesFC[i]});
+    }
   }
-//  cout << "bcGlobalIndices:" << endl << bcGlobalIndices;
-  //  cout << "bcGlobalValues:" << endl << bcGlobalValues;
-
+  vector<pair<GlobalIndexType,double>> offRankBCs;
+  MPIWrapper::sendDataVectors(_mesh->Comm(), bcValuesToSend, offRankBCs);
+  
+  bcsToImposeThisRank.insert(bcsToImposeThisRank.begin(),offRankBCs.begin(),offRankBCs.end());
+  std::sort(bcsToImposeThisRank.begin(),bcsToImposeThisRank.end());
+  
+  // we may have some duplicates (multiple ranks may have ideas about our BC's values)
+  // count them:
+  int numDuplicates = 0;
+  int numBCsWithDuplicates = bcsToImposeThisRank.size();
+  for (int i=0; i<numBCsWithDuplicates-1; i++)
+  {
+    if (bcsToImposeThisRank[i].first == bcsToImposeThisRank[i+1].first)
+    {
+      numDuplicates++;
+      // while we're at it, let's check that the two values are within some reasonable tolerance of each other
+      double tol = 1e-10;
+      double firstValue = bcsToImposeThisRank[i].second;
+      double secondValue = bcsToImposeThisRank[i+1].second;
+      // two ways to pass:
+      // (1) if their absolute difference is below tol
+      // (2) if their absolute difference is above tol, but their relative difference is below tol
+      double absDiff = abs(firstValue - secondValue);
+      if (absDiff > tol)
+      {
+        double relativeDiff = absDiff / max(abs(firstValue),abs(secondValue));
+        if (relativeDiff > tol)
+        {
+          cout << "WARNING: inconsistent values for BC: " << firstValue << " and ";
+          cout << secondValue << " prescribed for global dof index " << bcsToImposeThisRank[i].first;
+        }
+      }
+    }
+  }
+  
+  int numBCs = bcsToImposeThisRank.size()-numDuplicates;
+  vector<GlobalIndexTypeToCast> bcGlobalIndices(numBCs);
+  vector<double> bcGlobalValues(numBCs);
+  int i_adjusted = 0; // adjusted to eliminate duplicates
+  for (int i=0; i<bcsToImposeThisRank.size(); i++)
+  {
+    if (i>0)
+    {
+      // then check whether the current guy matches the previous one -- if so, skip
+      if (bcsToImposeThisRank[i].first == bcsToImposeThisRank[i-1].first)
+      {
+        continue;
+      }
+    }
+    bcGlobalIndices[i_adjusted] = bcsToImposeThisRank[i].first;
+    bcGlobalValues[i_adjusted] = bcsToImposeThisRank[i].second;
+    i_adjusted++;
+  }
+  
   Epetra_MultiVector v(partMap,1);
   v.PutScalar(0.0);
   for (int i = 0; i < numBCs; i++)
   {
-    v.ReplaceGlobalValue(bcGlobalIndicesCast(i), 0, bcGlobalValues(i));
+    v.ReplaceGlobalValue(bcGlobalIndices[i], 0, bcGlobalValues[i]);
   }
-
+  
   Epetra_MultiVector rhsDirichlet(partMap,1);
   _globalStiffMatrix->Apply(v,rhsDirichlet);
-
+  
   // Update right-hand side
   _rhsVector->Update(-1.0,rhsDirichlet,1.0);
-
+  
   if (numBCs == 0)
   {
     //cout << "Solution: Warning: Imposing no BCs." << endl;
   }
   else
   {
-    int err = _rhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndicesCast(0),&bcGlobalValues(0));
+    int err = _rhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndices[0],&bcGlobalValues[0]);
     if (err != 0)
     {
-      cout << "ERROR: rhsVector.ReplaceGlobalValues(): some indices non-local...\n";
+      cout << "Error code " << err << " returned by rhsVector.ReplaceGlobalValues()\n";
     }
-    err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndicesCast(0),&bcGlobalValues(0));
+    err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndices[0],&bcGlobalValues[0]);
     if (err != 0)
     {
-      cout << "ERROR: rhsVector.ReplaceGlobalValues(): some indices non-local...\n";
+      cout << "Error code " << err << " returned by lhsVector.ReplaceGlobalValues()\n";
     }
   }
   // Zero out rows and columns of stiffness matrix corresponding to Dirichlet edges
   //  and add one to diagonal.
-  Intrepid::FieldContainer<int> bcLocalIndices(bcGlobalIndices.dimension(0));
-  for (int i=0; i<bcGlobalIndices.dimension(0); i++)
+  std::vector<int> bcLocalIndices(numBCs);
+  for (int i=0; i<numBCs; i++)
   {
-    bcLocalIndices(i) = _globalStiffMatrix->LRID(bcGlobalIndicesCast(i));
+    bcLocalIndices[i] = _globalStiffMatrix->LRID(bcGlobalIndices[i]);
   }
   if (numBCs == 0)
   {
@@ -1912,8 +1966,70 @@ void TSolution<Scalar>::imposeBCs()
   }
   else
   {
-    ML_Epetra::Apply_OAZToMatrix(&bcLocalIndices(0), numBCs, *_globalStiffMatrix);
+    ML_Epetra::Apply_OAZToMatrix(&bcLocalIndices[0], numBCs, *_globalStiffMatrix);
   }
+  
+  // old BC imposition code below:
+//  _mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*(_bc.get()), myGlobalIndicesSet, _dofInterpreter.get());
+//  int numBCs = bcGlobalIndices.size();
+//
+//  Intrepid::FieldContainer<GlobalIndexTypeToCast> bcGlobalIndicesCast;
+//  // cast whatever the global index type is to a type that Epetra supports
+//  Teuchos::Array<int> dim;
+//  bcGlobalIndices.dimensions(dim);
+//  bcGlobalIndicesCast.resize(dim);
+//  for (int dofOrdinal = 0; dofOrdinal < bcGlobalIndices.size(); dofOrdinal++)
+//  {
+//    bcGlobalIndicesCast[dofOrdinal] = bcGlobalIndices[dofOrdinal];
+//  }
+////  cout << "bcGlobalIndices:" << endl << bcGlobalIndices;
+//  //  cout << "bcGlobalValues:" << endl << bcGlobalValues;
+//
+//  Epetra_MultiVector v(partMap,1);
+//  v.PutScalar(0.0);
+//  for (int i = 0; i < numBCs; i++)
+//  {
+//    v.ReplaceGlobalValue(bcGlobalIndicesCast(i), 0, bcGlobalValues(i));
+//  }
+//
+//  Epetra_MultiVector rhsDirichlet(partMap,1);
+//  _globalStiffMatrix->Apply(v,rhsDirichlet);
+//
+//  // Update right-hand side
+//  _rhsVector->Update(-1.0,rhsDirichlet,1.0);
+//
+//  if (numBCs == 0)
+//  {
+//    //cout << "Solution: Warning: Imposing no BCs." << endl;
+//  }
+//  else
+//  {
+//    int err = _rhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndicesCast(0),&bcGlobalValues(0));
+//    if (err != 0)
+//    {
+//      cout << "Error code " << err << " returned by rhsVector.ReplaceGlobalValues()\n";
+//    }
+//    err = _lhsVector->ReplaceGlobalValues(numBCs,&bcGlobalIndicesCast(0),&bcGlobalValues(0));
+//    if (err != 0)
+//    {
+//      cout << "Error code " << err << " returned by lhsVector.ReplaceGlobalValues()\n";
+//    }
+//  }
+//  // Zero out rows and columns of stiffness matrix corresponding to Dirichlet edges
+//  //  and add one to diagonal.
+//  Intrepid::FieldContainer<int> bcLocalIndices(bcGlobalIndices.dimension(0));
+//  for (int i=0; i<bcGlobalIndices.dimension(0); i++)
+//  {
+//    bcLocalIndices(i) = _globalStiffMatrix->LRID(bcGlobalIndicesCast(i));
+//  }
+//  if (numBCs == 0)
+//  {
+//    ML_Epetra::Apply_OAZToMatrix(NULL, 0, *_globalStiffMatrix);
+//  }
+//  else
+//  {
+//    ML_Epetra::Apply_OAZToMatrix(&bcLocalIndices(0), numBCs, *_globalStiffMatrix);
+//  }
 }
 
 
@@ -1921,7 +2037,7 @@ template <typename Scalar>
 void TSolution<Scalar>::imposeZMCsUsingLagrange()
 {
   narrate("imposeZMCsUsingLagrange()");
-  int rank = Teuchos::GlobalMPISession::getRank();
+  int rank = _mesh->Comm()->MyPID();
 
   if (_zmcsAsRankOneUpdate)
   {
@@ -1942,10 +2058,8 @@ void TSolution<Scalar>::imposeZMCsUsingLagrange()
 
   // order is: element-lagrange, then (on rank 0) global lagrange and ZMC
   vector<int> zeroMeanConstraints = getZeroMeanConstraints();
-  for (vector< int >::iterator trialIt = zeroMeanConstraints.begin(); trialIt != zeroMeanConstraints.end(); trialIt++)
+  for (int trialID : zeroMeanConstraints)
   {
-    int trialID = *trialIt;
-
     // sample an element to make sure that the basis used for trialID is nodal
     // (this is assumed in our imposition mechanism)
     if (_mesh->cellIDsInPartition().size() > 0)

@@ -1088,6 +1088,78 @@ namespace
     testImportOffRankCellSolution(spaceDim, meshWidth, out, success);
   }
   
+  TEUCHOS_UNIT_TEST( Solution, ImposeBCs )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    int spaceDim = 2;
+    bool useConformingTraces = true;
+    bool useTriangles = true;
+    PoissonFormulation form(spaceDim, useConformingTraces, PoissonFormulation::ULTRAWEAK);
+    
+    vector<double> dimensions = {1.0,1.0};
+    vector<int> elementCounts = {2,1};
+    
+    int H1Order = 1, delta_k = 0;
+    MeshPtr mesh = MeshFactory::quadMeshMinRule(form.bf(), H1Order, delta_k, dimensions[0], dimensions[1],
+                                                elementCounts[0], elementCounts[1], useTriangles);
+    
+    double prescribedValue = 1.0;
+    BCPtr bc = BC::bc();
+    VarPtr phi_hat = form.phi_hat();
+    bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
+    SolutionPtr soln = Solution::solution(form.bf(), mesh, bc);
+    soln->initializeLHSVector();
+    soln->initializeStiffnessAndLoad();
+    
+    // we prescribe 1 at at all the bc indices, and leave the solution coefficients as 0 everywhere else.
+    // then we check the values on the elements.
+    
+    soln->imposeBCs();
+    soln->importSolution();
+    // for each of my cells, find vertices on the mesh boundary.
+    set<GlobalIndexType> myCellIDs = mesh->cellIDsInPartition();
+    int numPoints = 4;
+    FieldContainer<double> refLinePoints(numPoints,1);
+    refLinePoints(0,0) = -1.0;
+    refLinePoints(1,0) = -0.5;
+    refLinePoints(2,0) =  0.5;
+    refLinePoints(3,0) =  1.0;
+    
+    double tol = 1e-14;
+    FunctionPtr phi_soln = Function::solution(phi_hat, soln);
+    FieldContainer<double> phiValues(1,numPoints);
+    for (GlobalIndexType cellID : myCellIDs)
+    {
+      DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
+      out << "cell " << cellID << ", nonzero coefficients:\n";
+      printLabeledDofCoefficients(out, form.bf()->varFactory(), trialOrder, soln->allCoefficientsForCellID(cellID));
+      
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID);
+      int sideCount = basisCache->cellTopology()->getSideCount();
+      for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
+      {
+        BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+        sideCache->setRefCellPoints(refLinePoints);
+        phi_soln->values(phiValues, sideCache);
+        
+        // are there some physical points that lie on the boundary?
+        // we expect to match prescribedValue at these
+        const FieldContainer<double>* physicalPoints = &sideCache->getPhysicalCubaturePoints();
+        for (int pointOrdinal=0; pointOrdinal<numPoints; pointOrdinal++)
+        {
+          double x = (*physicalPoints)(0,pointOrdinal,0);
+          double y = (*physicalPoints)(0,pointOrdinal,1);
+          if ((abs(x-0) < tol) || (abs(x-1) < tol) || (abs(y-0) < tol) || (abs(y-1) < tol))
+          {
+            double actualValue = phiValues(0,pointOrdinal);
+            out << "\n\ntesting value for (" << x << "," << y << ") on cell " << cellID << ", side " << sideOrdinal << endl;
+            TEST_FLOATING_EQUALITY(actualValue, prescribedValue, tol);
+          }
+        }
+      }
+    }
+  }
+  
   void testProjectTraceOnTensorMesh(CellTopoPtr spaceTopo, int H1Order, FunctionPtr f, VarType traceOrFlux,
                                     Teuchos::FancyOStream &out, bool &success)
   {
