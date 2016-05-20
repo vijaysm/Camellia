@@ -277,7 +277,11 @@ namespace
     Teuchos::RCP<Epetra_MultiVector> rhsVector = exactPoissonSolution->getRHSVector();
     // since I'm not totally sure that the KluSolver won't clobber the rhsVector, make a copy:
     Epetra_MultiVector rhsVectorCopy(*rhsVector);
-    exactPoissonSolution->solve();
+    
+    // because valgrind is complaining that SuperLU_Dist is doing some incorrect reads here, we
+    // replace with KLU.
+    SolverPtr solver = Solver::getSolver(Solver::KLU, false);
+    exactPoissonSolution->solve(solver);
     Teuchos::RCP<Epetra_MultiVector> lhsVector = exactPoissonSolution->getLHSVector();
     //        EpetraExt::MultiVectorToMatlabFile("/tmp/x_direct.dat",*lhsVector);
 

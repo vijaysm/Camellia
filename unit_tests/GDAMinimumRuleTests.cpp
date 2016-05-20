@@ -289,7 +289,11 @@ namespace
     }
     
     soln->clear();
-    soln->solve();
+    
+    // because valgrind is complaining that SuperLU_Dist is doing some incorrect reads here, we
+    // replace with KLU.
+    SolverPtr solver = Solver::getSolver(Solver::KLU, false);
+    soln->solve(solver);
     
     Epetra_MultiVector *lhsVector = soln->getGlobalCoefficients();
     Epetra_SerialComm Comm;
@@ -1526,8 +1530,6 @@ namespace
     
     Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesFC;
     Intrepid::FieldContainer<double> bcGlobalValuesFC;
-    
-    set<GlobalIndexType> myGlobalIndicesSet = mesh->globalDofAssignment()->globalDofIndicesForPartition(rank);
 
     //     mesh->boundary().bcsToImpose(bcGlobalIndices,bcGlobalValues,*bc, myGlobalIndicesSet, mesh->globalDofAssignment().get());
     mesh->boundary().bcsToImpose(bcGlobalIndicesFC,bcGlobalValuesFC,*bc, mesh->globalDofAssignment().get());
@@ -1536,9 +1538,9 @@ namespace
     for (int i=0; i<bcGlobalIndicesFC.size(); i++)
     {
       GlobalIndexType globalIndex = bcGlobalIndicesFC[i];
-      if (myGlobalIndicesSet.find(globalIndex) == myGlobalIndicesSet.end())
+      int owner = mesh->globalDofAssignment()->partitionForGlobalDofIndex(globalIndex);
+      if (owner != rank)
       {
-        int owner = mesh->globalDofAssignment()->partitionForGlobalDofIndex(globalIndex);
         bcValuesToSend[owner][globalIndex] = bcGlobalValuesFC[i];
       }
     }

@@ -91,7 +91,12 @@ namespace
     
     SolutionPtr soln = Solution::solution(form.bf(), mesh, bc, rhs, ip);
     soln->setCubatureEnrichmentDegree(beta_degree); //set to match the degree of beta
-    soln->solve();
+    
+    // because valgrind is complaining that SuperLU_Dist is doing some incorrect reads here, we
+    // replace with KLU.  (Valgrind does not then complain.)
+    SolverPtr solver = Solver::getSolver(Solver::KLU, false);
+    
+    soln->solve(solver);
     
     FunctionPtr u_soln = Function::solution(form.u(), soln);
     
