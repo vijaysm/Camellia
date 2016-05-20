@@ -385,7 +385,7 @@ TEUCHOS_UNIT_TEST( BasisCache, SetRefCellPoints )
     {
       double diff = abs(physicalCubaturePointsExpected[valOrdinal]-physicalCubaturePointsActual[valOrdinal]);
       TEST_ASSERT( diff < tol );
-      double maxDiff = max(maxDiff,diff);
+      maxDiff = max(maxDiff,diff);
     }
     TEST_ASSERT(maxDiff < tol);
 
