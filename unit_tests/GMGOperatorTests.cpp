@@ -212,7 +212,7 @@ namespace
       StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim,mu,useConformingTraces);
       bf = form.bf();
       mesh = MeshFactory::rectilinearMesh(bf, dimensions, cellCounts, H1Order, delta_k);
-      bc->addSinglePointBC(form.p()->ID(), 0.0, mesh);
+      bc->addSpatialPointBC(form.p()->ID(), 0.0, vector<double>(spaceDim,0.0));
     }
     testIdentityProlongationOperator(mesh, useStaticCondensation, out, success);
   }
@@ -273,6 +273,7 @@ namespace
   
   TEUCHOS_UNIT_TEST( GMGOperator, IdentityProlongationOperatorUniform_StokesCondensed2D )
   {
+    MPIWrapper::CommWorld()->Barrier();
     int spaceDim = 2;
     bool useConformingTraces = false;
     bool useStaticCondensation = true;
