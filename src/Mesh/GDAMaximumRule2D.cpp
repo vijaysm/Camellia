@@ -1085,7 +1085,10 @@ void GDAMaximumRule2D::interpretGlobalCoefficients(GlobalIndexType cellID, Field
     {
       GlobalIndexTypeToCast globalIndex = globalDofIndex(cellID, dofIndex);
       int localIndex = globalCoefficients.Map().LID(globalIndex);
-      localCoefficients(dofIndex) = globalCoefficients[0][localIndex];
+      if (localIndex != -1)
+      {
+        localCoefficients(dofIndex) = globalCoefficients[0][localIndex];
+      }
     }
   }
   else if (localCoefficients.rank()==2)
@@ -1100,7 +1103,10 @@ void GDAMaximumRule2D::interpretGlobalCoefficients(GlobalIndexType cellID, Field
       {
         GlobalIndexTypeToCast globalIndex = globalDofIndex(cellID, dofIndex);
         int localIndex = globalCoefficients.Map().LID(globalIndex);
-        localCoefficients(vectorOrdinal, dofIndex) = globalCoefficients[vectorOrdinal][localIndex];
+        if (localIndex != -1)
+        {
+          localCoefficients(vectorOrdinal, dofIndex) = globalCoefficients[vectorOrdinal][localIndex];
+        }
       }
     }
   }
