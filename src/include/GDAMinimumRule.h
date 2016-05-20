@@ -201,8 +201,9 @@ class GDAMinimumRule : public GlobalDofAssignment
   map<GlobalIndexType, GlobalIndexType> _globalCellDofOffsets; // (cellID -> first global dof index for that cell)
   GlobalIndexType _partitionDofOffset; // add to partition-local dof indices to get a global dof index
   GlobalIndexType _partitionDofCount; // how many dofs belong to the local partition
-  Intrepid::FieldContainer<IndexType> _partitionDofCounts; // how many dofs belong to each MPI rank.
-  GlobalIndexType _globalDofCount;
+//  std::vector<GlobalIndexType> _partitionDofCounts; // how many dofs belong to each MPI rank.
+  std::vector<GlobalIndexType> _partitionDofOffsets; // offsets for each partition, plus we store global dof count at the end
+//  GlobalIndexType _globalDofCount;
   
   bool _hasSpaceOnlyTrialVariable;
   

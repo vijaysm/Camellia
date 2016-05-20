@@ -530,7 +530,8 @@ GlobalIndexType GDAMinimumRule::globalDofCount()
   // assumes the lookups have been rebuilt since the last change that would affect the count
 
   // TODO: Consider working out a way to guard against a stale value here.  E.g. could have a "dirty" flag that gets set anytime there's a change to the refinements, and cleared when lookups are rebuilt.  If we're dirty when we get here, we rebuild before returning the global dof count.
-  return _globalDofCount;
+  int numRanks = _partitionPolicy->Comm()->NumProc();
+  return _partitionDofOffsets[numRanks];
 }
 
 set<GlobalIndexType> GDAMinimumRule::globalDofIndicesForCell(GlobalIndexType cellID)
@@ -558,33 +559,17 @@ set<GlobalIndexType> GDAMinimumRule::globalDofIndicesForPartition(PartitionIndex
 
   if (partitionNumber==-1) partitionNumber = rank;
 
-  // Added this exception because I suspected that in our usage, partitionNumber is always -1 and therefore we can/should
-  // dispense with the argument...  (The recently added case which violates this is in CondensedDofInterpreter)
-//  TEUCHOS_TEST_FOR_EXCEPTION(partitionNumber != rank, std::invalid_argument, "partitionNumber must be -1 or the current MPI rank");
-  set<GlobalIndexType> globalDofIndices;
-  if (partitionNumber == rank)
+  GlobalIndexType partitionDofOffset = _partitionDofOffsets[partitionNumber];
+  GlobalIndexType nextPartitionDofOffset = _partitionDofOffsets[partitionNumber+1];
+  vector<GlobalIndexType> globalDofIndicesVector(nextPartitionDofOffset - partitionDofOffset);
+  int ordinal = 0;
+  for (IndexType i=partitionDofOffset; i<nextPartitionDofOffset; i++)
   {
-    // by construction, our globalDofIndices are contiguously numbered, starting with _partitionDofOffset
-    for (GlobalIndexType i=0; i<_partitionDofCount; i++)
-    {
-      globalDofIndices.insert(_partitionDofOffset + i);
-    }
-  }
-  else
-  {
-    GlobalIndexType partitionDofOffset = 0;
-    for (int i=0; i<partitionNumber; i++)
-    {
-      partitionDofOffset += _partitionDofCounts[i];
-    }
-    IndexType partitionDofCount = _partitionDofCounts[partitionNumber];
-    for (IndexType i=0; i<partitionDofCount; i++)
-    {
-      globalDofIndices.insert(partitionDofOffset + i);
-    }
+    globalDofIndicesVector[ordinal] = i;
+    ordinal++;
   }
 
-  return globalDofIndices;
+  return set<GlobalIndexType>(globalDofIndicesVector.begin(),globalDofIndicesVector.end());
 }
 
 set<GlobalIndexType> GDAMinimumRule::ownedGlobalDofIndicesForCell(GlobalIndexType cellID)
@@ -3313,17 +3298,32 @@ GlobalIndexType GDAMinimumRule::numPartitionOwnedGlobalTraceIndices()
 
 PartitionIndexType GDAMinimumRule::partitionForGlobalDofIndex( GlobalIndexType globalDofIndex )
 {
-  PartitionIndexType numRanks = _partitionDofCounts.size();
-  GlobalIndexType totalDofCount = 0;
-  for (PartitionIndexType i=0; i<numRanks; i++)
+  // find the first rank whose offset is above globalDofIndex; the one prior to that will be the owner
+  auto upperBoundIt = std::upper_bound(_partitionDofOffsets.begin(), _partitionDofOffsets.end(), globalDofIndex);
+  int firstRankPastGlobalDofIndex = upperBoundIt - _partitionDofOffsets.begin();
+  int partition = firstRankPastGlobalDofIndex - 1;
+
+  // since the final entry in _partitionDofOffsets is for the global dof count (and does not correspond to any rank),
+  // we should be at most one away from that
+  TEUCHOS_TEST_FOR_EXCEPTION((partition < 0) || (partition >= _partitionDofOffsets.size() - 1), std::invalid_argument, "partition for globalDofIndex not found");
+  // sanity check:
   {
-    totalDofCount += _partitionDofCounts(i);
-    if (totalDofCount > globalDofIndex)
-    {
-      return i;
-    }
+    TEUCHOS_TEST_FOR_EXCEPTION(globalDofIndex < _partitionDofOffsets[partition], std::invalid_argument, "internal error: partition found for globalDofIndex does not contain it.");
+    TEUCHOS_TEST_FOR_EXCEPTION(globalDofIndex >= _partitionDofOffsets[partition+1], std::invalid_argument, "internal error: partition found for globalDofIndex does not contain it.");
   }
-  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid globalDofIndex");
+  
+  return partition;
+//  PartitionIndexType numRanks = _partitionDofCounts.size();
+//  GlobalIndexType totalDofCount = 0;
+//  for (PartitionIndexType i=0; i<numRanks; i++)
+//  {
+//    totalDofCount += _partitionDofCounts(i);
+//    if (totalDofCount > globalDofIndex)
+//    {
+//      return i;
+//    }
+//  }
+//  TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Invalid globalDofIndex");
 }
 
 void GDAMinimumRule::printConstraintInfo(GlobalIndexType cellID)
@@ -3455,24 +3455,6 @@ void GDAMinimumRule::rebuildLookups()
     CellPtr cell = _meshTopology->getCell(cellID);
     CellTopoPtr topo = cell->topology();
     CellConstraints constraints = getCellConstraints(cellID);
-
-//      // old approach to determining nonLocalCellNeighbors -- this is more granular but neglects the halo of the ancestors of interest...
-//      // determine cell's non-local neighbors, and construct the container for cell's owned subcells
-//      for (int d=d_min; d<=spaceDim; d++)
-//      {
-//        int scCount = topo->getSubcellCount(d);
-//        for (int scord=0; scord<scCount; scord++)
-//        {
-//          GlobalIndexType owningCellID = constraints.owningCellIDForSubcell[d][scord].cellID;
-//          if (owningCellID != cellID)
-//          {
-//            if (myCellIDs->find(owningCellID) == myCellIDs->end())
-//            {
-//              nonLocalCellNeighbors.insert(owningCellID);
-//            }
-//          }
-//        }
-//      }
     
     // getOwnedGlobalDofIndices will use the cell's global dof offset, which we still have to compute
     // We use zero for now, and adjust below
@@ -3498,55 +3480,24 @@ void GDAMinimumRule::rebuildLookups()
       _partitionDofCount += dofsForVariable.size();
     }
   }
-  
+
   int numRanks = _partitionPolicy->Comm()->NumProc();
-  _partitionDofCounts.resize(numRanks);
-  _partitionDofCounts.initialize(0.0);
-  _partitionDofCounts[rank] = _partitionDofCount;
-  MPIWrapper::entryWiseSumAfterCasting<GlobalIndexType,long long>(*_partitionPolicy->Comm(),_partitionDofCounts);
-//  if (rank==0) cout << "partitionDofCounts:\n" << _partitionDofCounts;
-  _partitionDofOffset = 0; // add this to a local partition dof index to get the global dof index
-  for (int i=0; i<rank; i++)
+  vector<GlobalIndexType> partitionDofCounts(numRanks);
+  MPIWrapper::allGather(*_partitionPolicy->Comm(), partitionDofCounts, _partitionDofCount);
+  
+  _partitionDofOffsets.resize(numRanks+1); // global dof count will be at the end
+  _partitionDofOffsets[0] = 0;
+  for (int i=1; i<numRanks+1; i++)
   {
-    _partitionDofOffset += _partitionDofCounts[i];
+    _partitionDofOffsets[i] = _partitionDofOffsets[i-1] + partitionDofCounts[i-1];
   }
-  _globalDofCount = _partitionDofOffset;
-  for (int i=rank; i<numRanks; i++)
-  {
-    _globalDofCount += _partitionDofCounts[i];
-  }
-//  if (rank==0) cout << "globalDofCount: " << _globalDofCount << endl;
-  // collect and communicate global cell dof offsets:
-//  int activeCellCount = _meshTopology->activeCellCount();
-//  Intrepid::FieldContainer<int> globalCellIDDofOffsets(activeCellCount);
-//  int partitionCellOffset = 0;
-//  for (int i=0; i<rank; i++)
-//  {
-//    partitionCellOffset += _partitions[i].size();
-//  }
+  
+  _partitionDofOffset = _partitionDofOffsets[rank];
   
   for (GlobalIndexType cellID : *myCellIDs)
   {
     _globalCellDofOffsets[cellID] = _cellDofOffsets[cellID] + _partitionDofOffset;
   }
-  
-//  // TODO: adjust the _globalCellDofOffsets container to contain only the ones we actually need -- do something along the lines of distributeGlobalDofOwnership, below...
-//  // global copy:
-//  MPIWrapper::entryWiseSum(*_partitionPolicy->Comm(),globalCellIDDofOffsets);
-//  // fill in the lookup table:
-//  _globalCellDofOffsets.clear();
-//  int globalCellIndex = 0;
-//  for (int i=0; i<numRanks; i++)
-//  {
-//    set<GlobalIndexType> rankCellIDs = _partitions[i];
-//    for (set<GlobalIndexType>::iterator cellIDIt = rankCellIDs.begin(); cellIDIt != rankCellIDs.end(); cellIDIt++)
-//    {
-//      GlobalIndexType cellID = *cellIDIt;
-//      _globalCellDofOffsets[cellID] = globalCellIDDofOffsets[globalCellIndex];
-////      if (rank==numRanks-1) cout << "global dof offset for cell " << cellID << ": " << _globalCellDofOffsets[cellID] << endl;
-//      globalCellIndex++;
-//    }
-//  }
   
   // Now that we have the global dof offsets for our cells, we adjust the ownedGlobalDofIndices container accordingly
   for (GlobalIndexType cellID : *myCellIDs)
