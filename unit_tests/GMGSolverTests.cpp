@@ -392,7 +392,7 @@ namespace
 
     double l2_diff = (exactPhiSoln-actualPhiSoln)->l2norm(mesh);
 
-    tol = iter_tol * 10;
+    tol = max(iter_tol * 10, 1e-12);
     if (l2_diff > tol)
     {
       success = false;
