@@ -903,17 +903,19 @@ set<GlobalIndexType> CondensedDofInterpreter<Scalar>::globalDofIndicesForPartiti
   if (rank == -1)
   {
     // default to current partition, just as Mesh does.
-    rank = Teuchos::GlobalMPISession::getRank();
+    rank = _mesh->Comm()->MyPID();
   }
-  if (rank == Teuchos::GlobalMPISession::getRank())
+  if (rank == _mesh->Comm()->MyPID())
   {
-    set<GlobalIndexType> myGlobalDofIndices;
+    vector<GlobalIndexType> myGlobalDofIndicesVector(_myGlobalDofIndexCount);
     GlobalIndexType nextOffset = _myGlobalDofIndexOffset + _myGlobalDofIndexCount;
+    int ordinal = 0;
     for (GlobalIndexType dofIndex = _myGlobalDofIndexOffset; dofIndex < nextOffset; dofIndex++)
     {
-      myGlobalDofIndices.insert(dofIndex);
+      myGlobalDofIndicesVector[ordinal] = dofIndex;
+      ordinal++;
     }
-    return myGlobalDofIndices;
+    return set<GlobalIndexType>(myGlobalDofIndicesVector.begin(),myGlobalDofIndicesVector.end());
   }
   else
   {
