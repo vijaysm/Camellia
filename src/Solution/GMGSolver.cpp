@@ -331,7 +331,8 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   meshesCoarseToFine.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
   
   // TODO: do something to avoid this global construction
-  set<GlobalIndexType> fineCellIndicesGlobal = fineMesh->getActiveCellIDsGlobal();
+//  set<GlobalIndexType> fineCellIndicesGlobal = fineMesh->getActiveCellIDsGlobal();
+  const set<GlobalIndexType>* myFineCellIndices = &fineMesh->cellIDsInPartition();
   
   set<GlobalIndexType> locallyKnownFineCellIndices = fineMeshTopo->getLocallyKnownActiveCellIndices();
   MeshTopologyViewPtr fineMeshTopoView = fineMeshTopo->getView(locallyKnownFineCellIndices);
@@ -359,9 +360,9 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
       }
       
       someCellWasRefined = false;
-      
-      int minPRefinement = INT_MAX;
-      for (GlobalIndexType cellIndex : fineCellIndicesGlobal)
+
+      vector<pair<GlobalIndexTypeToCast,int>> pRefinementsVector; // only store for non-zero p-refinements
+      for (GlobalIndexType cellIndex : *myFineCellIndices)
       {
         ElementTypePtr coarseElemType = meshToPRefine->getElementType(cellIndex);
         int kForCoarseCell = coarseElemType->trialOrderPtr->maxBasisDegreeForVolume();
@@ -381,21 +382,31 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
         
         if (kForCoarseCell + kToAdd < kForFineCell) // if kForCoarseCell + kToAdd == kForFineCell, then the fine mesh will do the job
         {
-          pRefinements[cellIndex] += kToAdd;
-          minPRefinement = min(minPRefinement,pRefinements[cellIndex]);
+          int pRefinement = pRefinements[cellIndex] + kToAdd;
+          pRefinements[cellIndex] = pRefinement;
+          pRefinementsVector.push_back({cellIndex,pRefinement});
           someCellWasRefined = true;
         }
         else
         {
-          if (pRefinements.find(cellIndex) != pRefinements.end())
-            minPRefinement = 0;
-          else
-            minPRefinement = min(minPRefinement,pRefinements[cellIndex]);
+          auto foundEntry = pRefinements.find(cellIndex);
+          if (foundEntry != pRefinements.end())
+          {
+            pRefinementsVector.push_back({cellIndex,foundEntry->second});
+          }
         }
       }
       
+      someCellWasRefined = MPIWrapper::globalOr(*meshToPRefine->Comm(),someCellWasRefined);
+      
       if (someCellWasRefined)
       {
+        // gather the pRefinements
+        vector<int> offsets;
+        vector<pair<GlobalIndexTypeToCast,int>> pRefinementsGathered;
+        MPIWrapper::allGatherVariable(*meshToPRefine->Comm(), pRefinementsGathered, pRefinementsVector, offsets);
+        pRefinements.insert(pRefinementsGathered.begin(),pRefinementsGathered.end());
+        
         meshToPRefine->globalDofAssignment()->setCellPRefinements(pRefinements);
         MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(meshToPRefine,fineMesh);
         meshToPRefine->setPartitionPolicy(inducedPartitionPolicy);

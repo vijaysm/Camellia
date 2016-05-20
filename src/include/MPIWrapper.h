@@ -29,72 +29,29 @@ namespace Camellia
 // (Can be used even with MPI disabled)
 class MPIWrapper
 {
-private:
-  template<typename Scalar>
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               Intrepid::FieldContainer<Scalar> &gatheredValues,
-                               Intrepid::FieldContainer<Scalar> &myValues,
-                               Intrepid::FieldContainer<int> &offsets);
 public:
-  // sum the contents of inValues across all processors, and stores the result in outValues
-  // the rank of outValues determines the nature of the sum:
-  // if outValues has dimensions (D1,D2,D3), say, then inValues must agree in the first three dimensions,
-  // but may be of arbitrary shape beyond that.  All values on all processors with matching address
-  // (d1,d2,d3) will be summed and stored in outValues(d1,d2,d3).
-  //  static void entryWiseSum(FieldContainer<double> &outValues, const FieldContainer<double> &inValues);
-
-  static void allGather(const Epetra_Comm &Comm, Intrepid::FieldContainer<int> &allValues, int myValue);
-  static void allGatherHomogeneous(const Epetra_Comm &Comm,
-                                   Intrepid::FieldContainer<int> &values,
-                                   Intrepid::FieldContainer<int> &myValues); // assumes myValues is same size on every proc.
-
   template<typename Scalar>
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               std::vector<Scalar> &gatheredValues,
-                               std::vector<Scalar> &myValues,
-                               std::vector<int> &offsets);
+  static void allGather(const Epetra_Comm &Comm, std::vector<Scalar> &allValues, Scalar myValue);
   
-  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               Intrepid::FieldContainer<int> &gatheredValues,
-                               Intrepid::FieldContainer<int> &myValues,
-                               Intrepid::FieldContainer<int> &offsets);
+  template<typename Scalar>
+  static void allGather(const Epetra_Comm &Comm, std::vector<Scalar> &allValues, std::vector<Scalar> myValues);
   
-  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               std::vector<int> &gatheredValues,
-                               std::vector<int> &myValues,
-                               std::vector<int> &offsets);
-  
-  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               std::vector<unsigned> &gatheredValues,
-                               std::vector<unsigned> &myValues,
-                               std::vector<int> &offsets);
-  
-  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               std::vector<double> &gatheredValues,
-                               std::vector<double> &myValues,
-                               std::vector<int> &offsets);
+  static void allGather(const Epetra_Comm &Comm, Intrepid::FieldContainer<int> &allValues, int myValue);
+  static void allGather(const Epetra_Comm &Comm,
+                        Intrepid::FieldContainer<int> &values,
+                        Intrepid::FieldContainer<int> &myValues); // assumes myValues is same size on every proc.
 
-  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               std::vector<std::pair<std::pair<unsigned,unsigned>,int>> &gatheredValues,
-                               std::vector<std::pair<std::pair<unsigned,unsigned>,int>> &myValues,
+  template<typename DataType>
+  static void allGatherVariable(const Epetra_Comm &Comm,
+                               std::vector<DataType> &gatheredValues,
+                               std::vector<DataType> &myValues,
                                std::vector<int> &offsets);
   
-  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  static void allGatherCompact(const Epetra_Comm &Comm,
-                               Intrepid::FieldContainer<double> &gatheredValues,
-                               Intrepid::FieldContainer<double> &myValues,
-                               Intrepid::FieldContainer<int> &offsets);
+  template<typename Scalar>
+  static void allGatherVariable(const Epetra_Comm &Comm,
+                                Intrepid::FieldContainer<Scalar> &gatheredValues,
+                                Intrepid::FieldContainer<Scalar> &myValues,
+                                Intrepid::FieldContainer<int> &offsets);
   
   static Teuchos::RCP<Epetra_Distributor> getDistributor(const Epetra_Comm &Comm);
   
@@ -151,6 +108,9 @@ public:
   static void entryWiseSum(const Epetra_Comm &Comm, std::vector<long long> &values);
   static void entryWiseSum(const Epetra_Comm &Comm, std::vector<double> &values);
   
+  static bool globalAnd(const Epetra_Comm &Comm, bool value);
+  static bool globalOr(const Epetra_Comm &Comm, bool value);
+  
   template<typename DataType>
   static void sendDataVectors(Epetra_CommPtr Comm, const std::vector<int> &recipients,
                               const std::vector<std::vector<DataType>> &dataVectors,
@@ -186,6 +146,39 @@ public:
   static GlobalIndexType sum(const Intrepid::FieldContainer<GlobalIndexType> &valuesToSum);
   static GlobalIndexType sum(GlobalIndexType myValue);
 };
+  
+  template<typename Scalar>
+  void MPIWrapper::allGather(const Epetra_Comm &Comm, std::vector<Scalar> &allValues, Scalar myValue)
+  {
+    std::vector<Scalar> myValueVector(1);
+    myValueVector[0] = myValue;
+    MPIWrapper::allGather(Comm, allValues, myValueVector);
+  }
+  
+  template<typename Scalar>
+  void MPIWrapper::allGather(const Epetra_Comm &Comm, std::vector<Scalar> &allValues, std::vector<Scalar> myValues)
+  {
+    int numProcs = Comm.NumProc();
+    if (allValues.size() / numProcs != myValues.size())
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "myValues size invalid");
+    }
+#ifdef HAVE_MPI
+    if (numProcs > 1)
+    {
+      int byteCount = myValues.size() * sizeof(Scalar);
+      const Epetra_MpiComm* mpiComm = dynamic_cast<const Epetra_MpiComm*>(&Comm);
+      TEUCHOS_TEST_FOR_EXCEPTION(mpiComm == NULL, std::invalid_argument, "numProcs > 1, but Comm is not of type Epetra_MpiComm");
+      MPI_Allgather(&myValues[0], byteCount, MPI_BYTE, &allValues[0], byteCount, MPI_BYTE, mpiComm->Comm());
+    }
+    else
+    {
+      allValues = myValues;
+    }
+//    Comm.GatherAll(&myValues[0], &allValues[0], allValues.size()/numProcs);
+#else
+#endif
+  }
   
   //! sum values entry-wise across all processors
   template<typename ScalarType>
@@ -337,30 +330,85 @@ public:
   }
 
   // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
-  //        May be inefficient in terms of communication, but avoids allocating a big array like allGatherHomogeneous would.
-  template<typename Scalar>
-  void MPIWrapper::allGatherCompact(const Epetra_Comm &Comm, std::vector<Scalar> &gatheredValues,
-                                    std::vector<Scalar> &myValues, std::vector<int> &offsets)
+  template<typename DataType>
+  void MPIWrapper::allGatherVariable(const Epetra_Comm &Comm, std::vector<DataType> &gatheredValues,
+                                     std::vector<DataType> &myValues, std::vector<int> &offsets)
   {
-    int mySize = myValues.size();
-    int totalSize;
-    Comm.SumAll(&mySize, &totalSize, 1);
+    std::vector<int> valuesSizes(Comm.NumProc());
     
-    int myOffset = 0;
-    Comm.ScanSum(&mySize,&myOffset,1);
-    myOffset -= mySize;
-    
-    gatheredValues.resize(totalSize);
-    for (int i=0; i<mySize; i++)
-    {
-      gatheredValues[myOffset+i] = myValues[i];
-    }
-//    MPIWrapper::entryWiseSum<Scalar>(Comm, gatheredValues);
-    MPIWrapper::entryWiseSum(Comm, gatheredValues);
+    // sizes will be in bytes
+    int mySize = myValues.size() * sizeof(DataType);
+    MPIWrapper::allGather(Comm, valuesSizes, mySize);
     
     offsets.resize(Comm.NumProc());
-    offsets[Comm.MyPID()] = myOffset;
-    MPIWrapper::entryWiseSum(Comm, offsets);
+    int offset = 0;
+    for (int i=0; i<Comm.NumProc(); i++)
+    {
+      offsets[i] = offset;
+      offset += valuesSizes[i];
+    }
+    int totalSize = offset;
+    gatheredValues.resize(totalSize / sizeof(DataType));
+    
+#ifdef HAVE_MPI
+    if (Comm.NumProc() > 1)
+    {
+      const Epetra_MpiComm* mpiComm = dynamic_cast<const Epetra_MpiComm*>(&Comm);
+      TEUCHOS_TEST_FOR_EXCEPTION(mpiComm == NULL, std::invalid_argument, "numProcs > 1, but Comm is not of type Epetra_MpiComm");
+      MPI_Allgatherv(&myValues[0], mySize, MPI_CHAR, &gatheredValues[0], &valuesSizes[0], &offsets[0], MPI_CHAR, mpiComm->Comm());
+    }
+    else
+    {
+      gatheredValues = myValues;
+    }
+#else
+#endif
+    // now, go through offsets to make the sizes in terms of DataType rather than bytes
+    for (int i=0; i<offsets.size(); i++)
+    {
+      offsets[i] /= sizeof(DataType);
+    }
+  }
+  
+  // \brief Resizes gatheredValues to be the size of the sum of the myValues containers, and fills it with the values from those containers.
+  template<typename Scalar>
+  void MPIWrapper::allGatherVariable(const Epetra_Comm &Comm, Intrepid::FieldContainer<Scalar> &gatheredValues,
+                                     Intrepid::FieldContainer<Scalar> &myValues, Intrepid::FieldContainer<int> &offsets)
+  {
+    std::vector<int> valuesSizes(Comm.NumProc());
+    
+    // sizes will be in bytes
+    int mySize = myValues.size() * sizeof(Scalar);
+    MPIWrapper::allGather(Comm, valuesSizes, mySize);
+    
+    offsets.resize(Comm.NumProc());
+    int offset = 0;
+    for (int i=0; i<Comm.NumProc(); i++)
+    {
+      offsets[i] = offset;
+      offset += valuesSizes[i];
+    }
+    int totalSize = offset;
+    gatheredValues.resize(totalSize / sizeof(Scalar));
+
+#ifdef HAVE_MPI
+    if (Comm.NumProc() > 1)
+    {
+      const Epetra_MpiComm* mpiComm = dynamic_cast<const Epetra_MpiComm*>(&Comm);
+      TEUCHOS_TEST_FOR_EXCEPTION(mpiComm == NULL, std::invalid_argument, "numProcs > 1, but Comm is not of type Epetra_MpiComm");
+      MPI_Allgatherv(&myValues[0], mySize, MPI_CHAR, &gatheredValues[0], &valuesSizes[0], &offsets[0], MPI_CHAR, mpiComm->Comm());
+    }
+    else
+    {
+      gatheredValues = myValues;
+    }
+#else
+#endif
+    // now, go through offsets to make the sizes in Scalar rather than bytes
+    for (int i=0; i<offsets.size(); i++)
+    {
+      offsets[i] /= sizeof(Scalar);
+    }
   }
 }
 

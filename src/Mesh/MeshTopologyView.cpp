@@ -767,7 +767,7 @@ set<IndexType> MeshTopologyView::getGatheredActiveCellsForTime(double t) const
   }
   vector<GlobalIndexTypeToCast> gatheredCellsForTime;
   vector<int> offsets;
-  MPIWrapper::allGatherCompact(*Comm(), gatheredCellsForTime, myCellsForTime, offsets);
+  MPIWrapper::allGatherVariable(*Comm(), gatheredCellsForTime, myCellsForTime, offsets);
   set<GlobalIndexType> gatheredCellSet(gatheredCellsForTime.begin(),gatheredCellsForTime.end());
   return gatheredCellSet;
 }
@@ -783,7 +783,7 @@ MeshTopologyPtr MeshTopologyView::getGatheredCopy() const
   
   vector<char> gatheredGeometryData;
   vector<int> offsets;
-  MPIWrapper::allGatherCompact<char>(*Comm(),gatheredGeometryData,myGeometryData,offsets);
+  MPIWrapper::allGatherVariable<char>(*Comm(),gatheredGeometryData,myGeometryData,offsets);
   
   MeshGeometryInfo gatheredBaseMeshGeometry;
   const char* gatheredDataLocation = &gatheredGeometryData[0];
@@ -806,7 +806,7 @@ MeshTopologyPtr MeshTopologyView::getGatheredCopy() const
 //    
 //    vector<int> gatheredActiveIndicesVector;
 //    vector<int> offsets;
-//    MPIWrapper::allGatherCompact(*Comm(), gatheredActiveIndicesVector, myActiveIndicesVector, offsets);
+//    MPIWrapper::allGatherVariable(*Comm(), gatheredActiveIndicesVector, myActiveIndicesVector, offsets);
 //
 //    set<IndexType> gatheredActiveIndices(gatheredActiveIndicesVector.begin(),gatheredActiveIndicesVector.end());
 //    

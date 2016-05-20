@@ -192,7 +192,7 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
         vector<int> myCellIDs(rankLocalCells.begin(),rankLocalCells.end());
         vector<int> allCellIDs;
         vector<int> offsets;
-        MPIWrapper::allGatherCompact(*mesh->Comm(), allCellIDs, myCellIDs, offsets);
+        MPIWrapper::allGatherVariable(*mesh->Comm(), allCellIDs, myCellIDs, offsets);
         
         vector<set<GlobalIndexType> > partitions(offsets.size());
         for (int rank=0; rank<offsets.size(); rank++)

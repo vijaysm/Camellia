@@ -90,6 +90,8 @@ public:
   //!! MPI-communicating method.  Must be called on all ranks.  Keys are cellIDs (the ones requested), values the global dof indices with support on that cell.
   virtual std::map<GlobalIndexType,std::set<GlobalIndexType>> importGlobalIndicesMap(const std::set<GlobalIndexType> &cellIDs);
   
+  virtual PartitionIndexType partitionForGlobalDofIndex( GlobalIndexType globalDofIndex ) = 0;
+  
   virtual ~DofInterpreter() {}
 };
 }

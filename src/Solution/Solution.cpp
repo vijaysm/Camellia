@@ -1852,14 +1852,14 @@ void TSolution<Scalar>::imposeBCs()
   Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesFC;
   Intrepid::FieldContainer<double> bcGlobalValuesFC;
   
-  _mesh->boundary().bcsToImpose(bcGlobalIndicesFC,bcGlobalValuesFC,*_bc, _mesh->globalDofAssignment().get());
+  _mesh->boundary().bcsToImpose(bcGlobalIndicesFC,bcGlobalValuesFC,*_bc, _dofInterpreter.get());
   
   map<int,vector<pair<GlobalIndexType,double>>> bcValuesToSend; // key to outer map: recipient PID
   vector<pair<GlobalIndexType,double>> bcsToImposeThisRank;
   for (int i=0; i<bcGlobalIndicesFC.size(); i++)
   {
     GlobalIndexType globalIndex = bcGlobalIndicesFC[i];
-    int owner = _mesh->globalDofAssignment()->partitionForGlobalDofIndex(globalIndex);
+    int owner = _dofInterpreter->partitionForGlobalDofIndex(globalIndex);
     if (owner != rank)
     {
       bcValuesToSend[owner].push_back({globalIndex,bcGlobalValuesFC[i]});
@@ -1904,6 +1904,20 @@ void TSolution<Scalar>::imposeBCs()
     }
   }
   
+//  {
+//    // DEBUGGING: check to make sure that all the BCs we've been given actually belong to us
+//    for (auto entry : bcsToImposeThisRank)
+//    {
+//      set<GlobalIndexType> myGlobalDofIndices = _dofInterpreter->globalDofIndicesForPartition(rank);
+//      GlobalIndexType globalIndex = entry.first;
+//      if (myGlobalDofIndices.find(globalIndex) == myGlobalDofIndices.end())
+//      {
+//        cout << "globalIndex " << globalIndex << " does not belong to rank " << rank << endl;
+//        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "globalIndex does not belong to this rank");
+//      }
+//    }
+//  }
+//  
   int numBCs = bcsToImposeThisRank.size()-numDuplicates;
   vector<GlobalIndexTypeToCast> bcGlobalIndices(numBCs);
   vector<double> bcGlobalValues(numBCs);
@@ -1922,6 +1936,7 @@ void TSolution<Scalar>::imposeBCs()
     bcGlobalValues[i_adjusted] = bcsToImposeThisRank[i].second;
     i_adjusted++;
   }
+  TEUCHOS_TEST_FOR_EXCEPTION(numBCs != i_adjusted, std::invalid_argument, "internal error: numBCs != i_adjusted");
   
   Epetra_MultiVector v(partMap,1);
   v.PutScalar(0.0);
@@ -1969,7 +1984,6 @@ void TSolution<Scalar>::imposeBCs()
     ML_Epetra::Apply_OAZToMatrix(&bcLocalIndices[0], numBCs, *_globalStiffMatrix);
   }
 }
-
 
 template <typename Scalar>
 void TSolution<Scalar>::imposeZMCsUsingLagrange()
@@ -2028,12 +2042,12 @@ void TSolution<Scalar>::imposeZMCsUsingLagrange()
 
       Intrepid::FieldContainer<int> offsets;
       Intrepid::FieldContainer<Scalar> allBasisIntegrals;
-      MPIWrapper::allGatherCompact(*_mesh->Comm(),allBasisIntegrals,basisIntegrals,offsets);
+      MPIWrapper::allGatherVariable(*_mesh->Comm(),allBasisIntegrals,basisIntegrals,offsets);
 
 //      if (rank==0) cout << "allBasisIntegrals:\n" << allBasisIntegrals;
 
       Intrepid::FieldContainer<GlobalIndexTypeToCast> allGlobalIndices;
-      MPIWrapper::allGatherCompact(*_mesh->Comm(),allGlobalIndices,globalIndices,offsets);
+      MPIWrapper::allGatherVariable(*_mesh->Comm(),allGlobalIndices,globalIndices,offsets);
 
 //      if (rank==0) cout << "allGlobalIndices:\n" << allGlobalIndices;
 

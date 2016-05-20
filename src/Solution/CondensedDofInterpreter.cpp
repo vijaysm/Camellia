@@ -851,9 +851,12 @@ void CondensedDofInterpreter<Scalar>::initializeGlobalDofIndices()
   _myGlobalDofIndexOffset = myOffset - myCount;
   
   int numRanks = _mesh->Comm()->NumProc();
-  FieldContainer<GlobalIndexTypeToCast> fluxDofCountForRank(numRanks);
-  fluxDofCountForRank(rank) = (GlobalIndexTypeToCast) _myGlobalDofIndexCount;
-  MPIWrapper::entryWiseSum(*_mesh->Comm(), fluxDofCountForRank);
+  _globalDofIndexOffsets.resize(numRanks);
+  MPIWrapper::allGather(*_mesh->Comm(), _globalDofIndexOffsets, _myGlobalDofIndexOffset);
+  
+  vector<GlobalIndexType> fluxDofCountForRank(numRanks);
+//  fluxDofCountForRank(rank) = (GlobalIndexTypeToCast) _myGlobalDofIndexCount;
+  MPIWrapper::allGather(*_mesh->Comm(), fluxDofCountForRank, _myGlobalDofIndexCount);
 
   // initialize _interpretedToGlobalDofIndexMap for the guys we own
   for (map<GlobalIndexType, IndexType>::iterator entryIt = partitionLocalFluxMap.begin(); entryIt != partitionLocalFluxMap.end(); entryIt++)
@@ -1304,6 +1307,15 @@ template <typename Scalar>
 bool CondensedDofInterpreter<Scalar>::isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const
 {
   return (globalDofIndex >= _myGlobalDofIndexOffset) && (globalDofIndex < _myGlobalDofIndexOffset + _myGlobalDofIndexCount);
+}
+
+template <typename Scalar>
+PartitionIndexType CondensedDofInterpreter<Scalar>::partitionForGlobalDofIndex( GlobalIndexType globalDofIndex )
+{
+  // find the first rank whose offset is above globalDofIndex; the one prior to that will be the owner
+  auto upperBoundIt = std::upper_bound(_globalDofIndexOffsets.begin(), _globalDofIndexOffsets.end(), globalDofIndex);
+  int firstRankPastGlobalDofIndex = upperBoundIt - _globalDofIndexOffsets.begin();
+  return firstRankPastGlobalDofIndex - 1;
 }
 
 template <typename Scalar>

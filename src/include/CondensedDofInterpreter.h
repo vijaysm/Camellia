@@ -56,7 +56,9 @@ private:
   map<GlobalIndexType, Teuchos::RCP<Epetra_SerialDenseMatrix> > _fluxToFieldMapForIterativeSolves;
   
   GlobalIndexType _myGlobalDofIndexOffset;
-  IndexType _myGlobalDofIndexCount;
+  GlobalIndexType _myGlobalDofIndexCount;
+  
+  vector<GlobalIndexType> _globalDofIndexOffsets;
 
   set<GlobalIndexType> _interpretedFluxDofIndices; // the "global" dof indices prior to condensation
 
@@ -138,6 +140,8 @@ public:
   GlobalIndexType condensedGlobalIndex(GlobalIndexType meshGlobalIndex); // meshGlobalIndex aka interpretedGlobalIndex
 
   set<int> condensibleVariableIDs();
+  
+  PartitionIndexType partitionForGlobalDofIndex( GlobalIndexType globalDofIndex );
 
   void reinitialize(); // clear stiffness matrices, etc., and rebuild global dof index map
   void setCanSkipLocalFieldInInterpretGlobalCoefficients(bool value);

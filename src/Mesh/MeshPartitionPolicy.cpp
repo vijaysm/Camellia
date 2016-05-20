@@ -93,7 +93,7 @@ MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMes
   // all-gather the entries
   vector<GlobalIndexTypeToCast> allEntries;
   vector<int> offsets;
-  MPIWrapper::allGatherCompact(*inducingRefinedMesh->Comm(), allEntries, myEntries, offsets);
+  MPIWrapper::allGatherVariable(*inducingRefinedMesh->Comm(), allEntries, myEntries, offsets);
   
   map<GlobalIndexType,GlobalIndexType> cellIDMap;
   for (int i=0; i<allEntries.size()/2; i++)

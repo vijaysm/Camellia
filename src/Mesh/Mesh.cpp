@@ -532,7 +532,7 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
     }
     vector<RefinementPatternKey> allRefPatterns;
     vector<int> offsets;
-    MPIWrapper::allGatherCompact(*Comm(), allRefPatterns, myRefPatterns, offsets);
+    MPIWrapper::allGatherVariable(*Comm(), allRefPatterns, myRefPatterns, offsets);
     
     // eliminate duplicates and gather cellIDs to refine
     map<RefinementPatternKey, set<GlobalIndexType> > irregularCellsToRefineGlobal;
@@ -548,7 +548,7 @@ void Mesh::enforceOneIrregularity(bool repartitionAndMigrate)
       }
       vector<GlobalIndexType> cellIDsToRefineGlobal;
       vector<int> offsets;
-      MPIWrapper::allGatherCompact(*Comm(), cellIDsToRefineGlobal, cellIDsToRefineLocal, offsets);
+      MPIWrapper::allGatherVariable(*Comm(), cellIDsToRefineGlobal, cellIDsToRefineLocal, offsets);
       irregularCellsToRefineGlobal[refKey].insert(cellIDsToRefineGlobal.begin(),cellIDsToRefineGlobal.end());
     }
     
