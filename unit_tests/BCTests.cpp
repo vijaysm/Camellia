@@ -118,17 +118,14 @@ void testSpaceTimeTraceBCFunction(int spaceDim, Teuchos::FancyOStream &out, bool
     tagBC->addDirichlet(var, tagID, phi_value);
     SolutionPtr soln = Solution::solution(form.bf(), mesh, tagBC);
     
-    int rank     = Teuchos::GlobalMPISession::getRank();
     Intrepid::FieldContainer<GlobalIndexType> bcGlobalIndicesLegacy, bcGlobalIndicesTags;
     Intrepid::FieldContainer<double> bcGlobalValuesLegacy, bcGlobalValuesTags;
     
     // we can safely assume that the two Solution objects have equivalent DofInterpreter
     Teuchos::RCP<DofInterpreter> dofInterpreter = legacySoln->getDofInterpreter();
     
-    set<GlobalIndexType> myGlobalIndicesSet = dofInterpreter->globalDofIndicesForPartition(rank);
-    
-    mesh->boundary().bcsToImpose(bcGlobalIndicesLegacy,bcGlobalValuesLegacy,*legacyBC, myGlobalIndicesSet, dofInterpreter.get());
-    mesh->boundary().bcsToImpose(bcGlobalIndicesTags,bcGlobalValuesTags,*tagBC, myGlobalIndicesSet, dofInterpreter.get());
+    mesh->boundary().bcsToImpose(bcGlobalIndicesLegacy,bcGlobalValuesLegacy,*legacyBC, dofInterpreter.get());
+    mesh->boundary().bcsToImpose(bcGlobalIndicesTags,bcGlobalValuesTags,*tagBC, dofInterpreter.get());
     
     map<GlobalIndexType,double> bcValueMapLegacy;
     for (int i=0; i<bcGlobalIndicesLegacy.size(); i++)

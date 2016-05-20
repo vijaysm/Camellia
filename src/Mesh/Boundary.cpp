@@ -83,45 +83,6 @@ void Boundary::buildLookupTables()
 }
 
 template <typename Scalar>
-void Boundary::bcsToImpose(FieldContainer<GlobalIndexType> &globalIndices, FieldContainer<Scalar> &globalValues, TBC<Scalar> &bc,
-                           set<GlobalIndexType> &globalIndexFilter, DofInterpreter* dofInterpreter)
-{
-//  int rank = Teuchos::GlobalMPISession::getRank();
-//  ostringstream rankLabel;
-//  rankLabel << "on rank " << rank << ", globalIndexFilter";
-//  Camellia::print(rankLabel.str(), globalIndexFilter);
-
-  FieldContainer<GlobalIndexType> allGlobalIndices; // "all" belonging to cells that belong to us...
-  FieldContainer<double> allGlobalValues;
-  this->bcsToImpose(allGlobalIndices,allGlobalValues,bc, dofInterpreter);
-//  cout << "rank " << rank << " allGlobalIndices:\n" << allGlobalIndices;
-  set<int> matchingFCIndices;
-  int i;
-  for (i=0; i<allGlobalIndices.size(); i++)
-  {
-    int globalIndex = allGlobalIndices(i);
-    if (globalIndexFilter.find(globalIndex) != globalIndexFilter.end() )
-    {
-      matchingFCIndices.insert(i);
-    }
-  }
-  int numIndices = matchingFCIndices.size();
-  globalIndices.resize(numIndices);
-  globalValues.resize(numIndices);
-
-  i=-1;
-  for (set<int>::iterator setIt = matchingFCIndices.begin();
-       setIt != matchingFCIndices.end(); setIt++)
-  {
-    int matchingFCIndex = *setIt;
-    i++;
-    globalIndices(i) = allGlobalIndices(matchingFCIndex);
-    globalValues(i)  =  allGlobalValues(matchingFCIndex);
-//    cout << "BC: " << globalIndices(i) << " = " << globalValues(i) << endl;
-  }
-}
-
-template <typename Scalar>
 void Boundary::bcsToImpose(FieldContainer<GlobalIndexType> &globalIndices,
                            FieldContainer<Scalar> &globalValues, TBC<Scalar> &bc,
                            DofInterpreter* dofInterpreter)
@@ -636,10 +597,6 @@ void Boundary::singletonBCsToImpose(std::map<GlobalIndexType,Scalar> &dofIndexTo
 
 namespace Camellia
 {
-  template void Boundary::bcsToImpose(Intrepid::FieldContainer<GlobalIndexType> &globalIndices,
-                                      Intrepid::FieldContainer<double> &globalValues,
-                                      TBC<double> &bc, set<GlobalIndexType>& globalIndexFilter,
-                                      DofInterpreter* dofInterpreter);
   template void Boundary::bcsToImpose(Intrepid::FieldContainer<GlobalIndexType> &globalIndices,
                                       Intrepid::FieldContainer<double> &globalValues, TBC<double> &bc,
                                       DofInterpreter* dofInterpreter);

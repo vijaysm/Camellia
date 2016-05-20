@@ -59,10 +59,7 @@ class Boundary
 public:
   Boundary();
   void setMesh(MeshPtr mesh);
-  template <typename Scalar>
-  void bcsToImpose(Intrepid::FieldContainer<GlobalIndexType> &globalIndices, Intrepid::FieldContainer<Scalar> &globalValues,
-                   TBC<Scalar> &bc, std::set<GlobalIndexType> &globalIndexFilter,
-                   DofInterpreter* dofInterpreter);
+
   template <typename Scalar>
   void bcsToImpose(Intrepid::FieldContainer<GlobalIndexType> &globalIndices, Intrepid::FieldContainer<Scalar> &globalValues, TBC<Scalar> &bc,
                    DofInterpreter* dofInterpreter);
