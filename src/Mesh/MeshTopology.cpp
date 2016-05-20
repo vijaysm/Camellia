@@ -2087,6 +2087,8 @@ void MeshTopology::getSubEntityIndices(unsigned d, IndexType entityIndex, unsign
 
 const vector<double>& MeshTopology::getVertex(unsigned vertexIndex) const
 {
+  bool vertexOutOfBounds = (vertexIndex >= _vertices.size());
+  TEUCHOS_TEST_FOR_EXCEPTION(vertexOutOfBounds, std::invalid_argument, "vertexIndex is out of bounds");
   return _vertices[vertexIndex];
 }
 
