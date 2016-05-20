@@ -162,6 +162,7 @@ void TBC<Scalar>::removeZeroMeanConstraint( int fieldID )
 template <typename Scalar>
 void TBC<Scalar>::addSinglePointBC( int fieldID, Scalar value, MeshPtr mesh, GlobalIndexType vertexNumber )
 {
+  TEUCHOS_TEST_FOR_EXCEPTION(mesh->getTopology()->isDistributed(), std::invalid_argument, "addSinglePointBC() not supported for distributed MeshTopology.  Use addSpatialPointBC instead");
   if (vertexNumber == -1) vertexNumber = 0;
   FieldContainer<double> vertexCoords = mesh->vertexCoordinates(vertexNumber);
   vector<double> vertex(vertexCoords.size());
