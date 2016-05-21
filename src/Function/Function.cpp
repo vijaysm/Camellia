@@ -866,39 +866,6 @@ TFunctionPtr<double> TFunction<Scalar>::cellCharacteristic(set<GlobalIndexType> 
   return Teuchos::rcp( new CellCharacteristicFunction(cellIDs) );
 }
 
-template <typename Scalar>
-map<int, Scalar> TFunction<Scalar>::cellIntegrals(Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment, bool testVsTest)
-{
-  set<GlobalIndexType> activeCellIDs = mesh->getActiveCellIDsGlobal();
-  vector<GlobalIndexType> cellIDs(activeCellIDs.begin(),activeCellIDs.end());
-  return cellIntegrals(cellIDs,mesh,cubatureDegreeEnrichment,testVsTest);
-}
-
-template <typename Scalar>
-map<int, Scalar> TFunction<Scalar>::cellIntegrals(vector<GlobalIndexType> cellIDs, Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment, bool testVsTest)
-{
-  int myPartition = Teuchos::GlobalMPISession::getRank();
-
-  int numCells = cellIDs.size();
-  Intrepid::FieldContainer<Scalar> integrals(numCells);
-  for (int i = 0; i<numCells; i++)
-  {
-    int cellID = cellIDs[i];
-    if (mesh->partitionForCellID(cellID) == myPartition)
-    {
-      integrals(i) = integrate(cellID,mesh,cubatureDegreeEnrichment,testVsTest);
-    }
-  }
-  MPIWrapper::entryWiseSum(integrals);
-  map<int,Scalar> integralMap;
-  for (int i = 0; i<numCells; i++)
-  {
-    integralMap[cellIDs[i]] = integrals(i);
-  }
-  return integralMap;
-}
-
-
 // added by Jesse - adaptive quadrature rules
 // this only works for doubles at the moment
 // TODO: Fix for complex

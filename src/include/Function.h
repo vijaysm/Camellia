@@ -92,11 +92,6 @@ public:
   //  double integrate(int cellID, Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0);
   Scalar integrate(GlobalIndexType cellID, Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool testVsTest = false);
 
-  // return all cell integrals
-  map<int,Scalar> cellIntegrals( Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool testVsTest = false);
-  // return cell integrals specified in input argument cellIDs
-  map<int,Scalar> cellIntegrals(vector<GlobalIndexType> cellIDs, Teuchos::RCP<Mesh> mesh, int cubatureDegreeEnrichment = 0, bool testVsTest = false);
-
   // ! Returns true if the Function guarantees that the value is zero at each point in the BasisCache
   // ! A false value does not necessarily mean that the Function is anywhere nonzero.
   virtual bool isZero(BasisCachePtr basisCache);
