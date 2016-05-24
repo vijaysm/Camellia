@@ -316,7 +316,7 @@ vector<int> CondensedDofInterpreter<Scalar>::fieldRowIndices(GlobalIndexType cel
       {
         int sideOrdinal = *sideIt;
         vector<int> varIndices = trialOrder->getDofIndices(trialID, sideOrdinal);
-        if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder))
+        if (varDofsAreUsuallyCondensible(trialID, sideOrdinal, trialOrder))
         {
           if (!hasLocalExceptions)
           {
@@ -389,7 +389,7 @@ std::vector<int> CondensedDofInterpreter<Scalar>::fluxIndexLookupLocalCell(Globa
     {
       int sideOrdinal = *sideIt;
       vector<int> varIndices = trialOrder->getDofIndices(trialID, sideOrdinal);
-      if (!varDofsAreCondensible(trialID, sideOrdinal, trialOrder))
+      if (!varDofsAreUsuallyCondensible(trialID, sideOrdinal, trialOrder))
       {
         fluxIndices.insert(varIndices.begin(), varIndices.end());
       }
@@ -513,19 +513,27 @@ set<GlobalIndexType> CondensedDofInterpreter<Scalar>::globalDofIndicesForVarOnSu
 }
 
 template <typename Scalar>
-bool CondensedDofInterpreter<Scalar>::varDofsAreCondensible(int varID, int sideOrdinal, DofOrderingPtr dofOrdering)
+bool CondensedDofInterpreter<Scalar>::varDofsAreCondensible(GlobalIndexType cellID, int varID, int sideOrdinal, DofOrderingPtr dofOrdering)
 {
   // eventually it would be nice to determine which sub-basis ordinals can be condensed, but right now we only
   // condense out the truly discontinuous bases defined for variables on the element interior.
+  return varDofsAreUsuallyCondensible(varID, sideOrdinal, dofOrdering) && (_cellLocalUncondensibleDofIndices.find(cellID) == _cellLocalUncondensibleDofIndices.end());
+}
 
+template <typename Scalar>
+bool CondensedDofInterpreter<Scalar>::varDofsAreUsuallyCondensible(int varID, int sideOrdinal, DofOrderingPtr dofOrdering) const
+{
+  // eventually it would be nice to determine which sub-basis ordinals can be condensed, but right now we only
+  // condense out the truly discontinuous bases defined for variables on the element interior.
+  
   int sideCount = dofOrdering->getSidesForVarID(varID).size();
   if (sideCount != 1) return false;
-
+  
   BasisPtr basis = dofOrdering->getBasis(varID);
   Camellia::EFunctionSpace fs = basis->functionSpace();
-
+  
   bool isDiscontinuous = functionSpaceIsDiscontinuous(fs);
-
+  
   return isDiscontinuous && (sideCount==1) && (_uncondensibleVarIDs.find(varID) == _uncondensibleVarIDs.end());
 }
 
@@ -772,7 +780,7 @@ map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpret
       {
         BasisPtr basis = trialOrder->getBasis(trialID, sideOrdinal);
         set<GlobalIndexType> interpretedDofIndices = _mesh->getGlobalDofIndices(cellID, trialID, sideOrdinal);
-        bool varIsCondensible = varDofsAreCondensible(trialID, sideOrdinal, trialOrder);
+        bool varIsCondensible = varDofsAreUsuallyCondensible(trialID, sideOrdinal, trialOrder);
         for (GlobalIndexType interpretedDofIndex : interpretedDofIndices)
         {
           bool hasSingletonBCImposed = singletonBCsOnMesh.find(interpretedDofIndex) != singletonBCsOnMesh.end();
@@ -991,7 +999,7 @@ void CondensedDofInterpreter<Scalar>::interpretLocalCoefficients(GlobalIndexType
     const vector<int>* sides = &trialOrder->getSidesForVarID(trialID);
     for (int sideOrdinal : *sides)
     {
-      if (varDofsAreCondensible(trialID, sideOrdinal, trialOrder)) continue;
+      if (varDofsAreCondensible(cellID, trialID, sideOrdinal, trialOrder)) continue;
       int basisCardinality = trialOrder->getBasisCardinality(trialID, sideOrdinal);
       basisCoefficients.resize(basisCardinality);
       vector<int> localDofIndices = trialOrder->getDofIndices(trialID, sideOrdinal);

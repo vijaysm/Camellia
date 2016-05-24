@@ -84,6 +84,8 @@ private:
   void getLocalData(GlobalIndexType cellID, Teuchos::RCP<Epetra_SerialDenseSolver> &fieldSolver,
                     Epetra_SerialDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FluxField, Epetra_SerialDenseVector &b_field,
                     Intrepid::FieldContainer<GlobalIndexType> &interpretedDofIndices, set<int> &fieldIndices, set<int> &fluxIndices);
+  
+  bool varDofsAreUsuallyCondensible(int varID, int sideOrdinal, DofOrderingPtr dofOrdering) const;
 public:
   CondensedDofInterpreter(MeshPtr mesh, TIPPtr<Scalar> ip, TRHSPtr<Scalar> rhs, TBCPtr<Scalar> bc,
                           LagrangeConstraints* lagrangeConstraints, const set<int> &fieldIDsToExclude,
@@ -152,7 +154,7 @@ public:
   const Intrepid::FieldContainer<Scalar> & storedLocalLoadForCell(GlobalIndexType cellID);
   const Intrepid::FieldContainer<Scalar> & storedLocalStiffnessForCell(GlobalIndexType cellID);
   
-  bool varDofsAreCondensible(int varID, int sideOrdinal, DofOrderingPtr dofOrdering);
+  bool varDofsAreCondensible(GlobalIndexType cellID, int varID, int sideOrdinal, DofOrderingPtr dofOrdering);
 };
 
 extern template class CondensedDofInterpreter<double>;
