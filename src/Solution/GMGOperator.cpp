@@ -1181,7 +1181,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
       {
         if (condensedDofInterpreterCoarse != NULL)
         {
-          if (condensedDofInterpreterCoarse->varDofsAreCondensible(trialID, 0, coarseTrialOrdering)) continue;
+          if (condensedDofInterpreterCoarse->varDofsAreCondensible(coarseCellID, trialID, 0, coarseTrialOrdering)) continue;
         }
 //        cout << "Warning: for debugging purposes, skipping projection of fields in GMGOperator.\n";
         BasisPtr coarseBasis = coarseTrialOrdering->getBasis(trialID);
@@ -1215,7 +1215,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
           
           if (condensedDofInterpreterCoarse != NULL)
           {
-            if (condensedDofInterpreterCoarse->varDofsAreCondensible(trialID, sideOrdinal, coarseTrialOrdering)) continue;
+            if (condensedDofInterpreterCoarse->varDofsAreCondensible(coarseCellID, trialID, sideOrdinal, coarseTrialOrdering)) continue;
           }
           FunctionPtr sideParity = Function::sideParity();
           
@@ -1457,7 +1457,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
       const vector<int>* fineSidesForVarID = &fineTrialOrdering->getSidesForVarID(trialID);
       if (fineSidesForVarID->size() == 1)   // field variable
       {
-        if ((condensedDofInterpreterCoarse == NULL) || (condensedDofInterpreterCoarse->varDofsAreCondensible(trialID, 0, fineTrialOrdering)))
+        if ((condensedDofInterpreterCoarse == NULL) || (condensedDofInterpreterCoarse->varDofsAreCondensible(coarseCellID, trialID, 0, fineTrialOrdering)))
         {
           vector<int> dofIndices = coarseTrialOrdering->getDofIndices(trialID);
           fittableGlobalDofOrdinalsInVolume.insert(dofIndices.begin(),dofIndices.end());
