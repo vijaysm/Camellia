@@ -830,31 +830,30 @@ void Mesh::hRefine(const vector<GlobalIndexType> &cellIDs, bool repartitionAndRe
 void Mesh::hRefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndRebuild)
 {
   // let the owner of the cellID tell us what the topology of the cell is, so we can choose the right regular refinement pattern
+  vector<pair<GlobalIndexType,CellTopologyKey>> myCellTopologyKeys;
   vector<int> cellTopoKeysAsInts(cellIDs.size() * 2);
   const set<GlobalIndexType> *myCellIDs = &this->cellIDsInPartition();
-  int cellOrdinal = 0;
   for (GlobalIndexType cellID : cellIDs)
   {
     if (myCellIDs->find(cellID) != myCellIDs->end())
     {
       CellTopologyKey cellTopoKey = _meshTopology->getCell(cellID)->topology()->getKey();
-      cellTopoKeysAsInts[cellOrdinal*2] = cellTopoKey.first;
-      cellTopoKeysAsInts[cellOrdinal*2+1] = cellTopoKey.second;
+      myCellTopologyKeys.push_back({cellID,cellTopoKey});
     }
-    cellOrdinal++;
   }
-  MPIWrapper::entryWiseSum(*Comm(), cellTopoKeysAsInts);
+  vector<pair<GlobalIndexType,CellTopologyKey>> gatheredCellTopoKeys;
+  vector<int> offsets;
+  MPIWrapper::allGatherVariable(*Comm(), gatheredCellTopoKeys, myCellTopologyKeys, offsets);
   
   map< CellTopologyKey, set<GlobalIndexType> > cellIDsForTopo;
   
-  cellOrdinal = 0;
-  for (GlobalIndexType cellID : cellIDs)
+  for (auto entry : gatheredCellTopoKeys)
   {
-    CellTopologyKey cellTopoKey = {cellTopoKeysAsInts[cellOrdinal*2], cellTopoKeysAsInts[cellOrdinal*2+1]};
+    GlobalIndexType cellID = entry.first;
+    CellTopologyKey cellTopoKey = entry.second;
     
     CellTopoPtr cellTopo = CellTopology::cellTopology(cellTopoKey);
     cellIDsForTopo[cellTopo->getKey()].insert(cellID);
-    cellOrdinal++;
   }
 
   for (map< CellTopologyKey, set<GlobalIndexType> >::iterator entryIt = cellIDsForTopo.begin();
@@ -1287,14 +1286,15 @@ void Mesh::repartitionAndRebuild()
   
   MeshTopology* meshTopologyInstance = dynamic_cast<MeshTopology*>(_meshTopology.get());
   
-  TEUCHOS_TEST_FOR_EXCEPTION(!meshTopologyInstance, std::invalid_argument, "Mesh::hRefine() called when _meshTopology is not an instance of MeshTopology--likely Mesh initialized with a pure MeshTopologyView, which cannot be h-refined.");
-  
-  MeshTopologyPtr writableMeshTopology = Teuchos::rcp(meshTopologyInstance, false);
-  
-  for (vector< Teuchos::RCP<RefinementObserver> >::iterator observerIt = _registeredObservers.begin();
-       observerIt != _registeredObservers.end(); observerIt++)
+  if (meshTopologyInstance != NULL)
   {
-    (*observerIt)->didRepartition(writableMeshTopology);
+    MeshTopologyPtr writableMeshTopology = Teuchos::rcp(meshTopologyInstance, false);
+    
+    for (vector< Teuchos::RCP<RefinementObserver> >::iterator observerIt = _registeredObservers.begin();
+         observerIt != _registeredObservers.end(); observerIt++)
+    {
+      (*observerIt)->didRepartition(writableMeshTopology);
+    }
   }
 }
 

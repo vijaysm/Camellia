@@ -358,6 +358,7 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
         VarFactoryPtr vf = fineMesh->varFactory();
         meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, vf, H1Order_coarse, delta_k, trialOrderEnhancements) );
       }
+      meshToPRefine->globalDofAssignment()->setCellPRefinements(pRefinements);
       
       someCellWasRefined = false;
 
