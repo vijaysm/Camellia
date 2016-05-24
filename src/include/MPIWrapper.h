@@ -396,7 +396,9 @@ public:
     {
       const Epetra_MpiComm* mpiComm = dynamic_cast<const Epetra_MpiComm*>(&Comm);
       TEUCHOS_TEST_FOR_EXCEPTION(mpiComm == NULL, std::invalid_argument, "numProcs > 1, but Comm is not of type Epetra_MpiComm");
-      MPI_Allgatherv(&myValues[0], mySize, MPI_CHAR, &gatheredValues[0], &valuesSizes[0], &offsets[0], MPI_CHAR, mpiComm->Comm());
+      char* myValuesCharCast = reinterpret_cast<char*>(&myValues[0]);
+      char* gatheredValuesCharCast = reinterpret_cast<char*>(&gatheredValues[0]);
+      MPI_Allgatherv(myValuesCharCast, mySize, MPI_CHAR, gatheredValuesCharCast, &valuesSizes[0], &offsets[0], MPI_CHAR, mpiComm->Comm());
     }
     else
     {
