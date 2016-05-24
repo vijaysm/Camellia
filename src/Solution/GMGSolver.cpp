@@ -336,6 +336,7 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   
   set<GlobalIndexType> locallyKnownFineCellIndices = fineMeshTopo->getLocallyKnownActiveCellIndices();
   MeshTopologyViewPtr fineMeshTopoView = fineMeshTopo->getView(locallyKnownFineCellIndices);
+  MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(fineMesh);
   if (! jumpToCoarsePolyOrder)
   {
     // NOTE: this option is not very well-supported for space-time meshes, because of our lack of anisotropic p-refinement
@@ -351,12 +352,12 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
       BFPtr bf = fineMesh->bilinearForm();
       if (bf != Teuchos::null)
       {
-        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, bf, H1Order_coarse, delta_k, trialOrderEnhancements) );
+        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, bf, H1Order_coarse, delta_k, trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy) );
       }
       else
       {
         VarFactoryPtr vf = fineMesh->varFactory();
-        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, vf, H1Order_coarse, delta_k, trialOrderEnhancements) );
+        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, vf, H1Order_coarse, delta_k, trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy) );
       }
       meshToPRefine->globalDofAssignment()->setCellPRefinements(pRefinements);
       

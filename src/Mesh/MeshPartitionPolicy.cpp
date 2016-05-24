@@ -65,6 +65,11 @@ MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicy(MeshPtr thisM
   return InducedMeshPartitionPolicy::inducedMeshPartitionPolicy(thisMesh, otherMesh, cellIDMap);
 }
 
+MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicy(MeshPtr inducingMesh) // for two meshes that have the same cell indices, uses inducingMesh to define partitioning
+{
+  return inducedPartitionPolicy(Teuchos::null, inducingMesh);
+}
+
 MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(MeshTopologyViewPtr inducedMeshTopo, MeshPtr inducingRefinedMesh)
 {
   // generate using the inducing mesh
