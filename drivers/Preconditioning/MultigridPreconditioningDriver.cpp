@@ -652,26 +652,42 @@ int main(int argc, char *argv[])
   long long approximateMemoryCostInBytes = approximateMemoryCostsForMeshTopologies(meshesCoarseToFine);
   double bytesPerMB = (1024.0 * 1024.0);
   double memoryCostInMB = approximateMemoryCostInBytes / bytesPerMB;
-  
-  GlobalIndexType sampleCellID = 0;
-  ElementTypePtr sampleElementType = solution->mesh()->getElementType(sampleCellID);
-  int totalTrialDofs = sampleElementType->trialOrderPtr->totalDofs();
-  int totalTestDofs = sampleElementType->testOrderPtr->totalDofs();
-  
-  int doubleSizeInBytes = sizeof(double);
-  double B_denseMatrixSize = (totalTrialDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
-  double G_denseMatrixSize = (totalTestDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
-  double K_denseMatrixSize = (totalTrialDofs * totalTrialDofs * doubleSizeInBytes) / bytesPerMB;
 
   BFPtr bf = solution->mesh()->bilinearForm();
-//  bf->setUseSPDSolveForOptimalTestFunctions(true);
+
+  GlobalIndexType sampleCellID = 0;
+  int totalTrialDofs, totalTestDofs;
+  double B_denseMatrixSize, G_denseMatrixSize, K_denseMatrixSize, B_sparseMatrixSize, G_sparseMatrixSize;
+  int rankWithSampleCell = solution->mesh()->Comm()->NumProc();
+  if (solution->mesh()->getTopology()->isValidCellIndex(sampleCellID))
+  {
+    rankWithSampleCell = solution->mesh()->Comm()->MyPID();
+    ElementTypePtr sampleElementType = solution->mesh()->getElementType(sampleCellID);
+    totalTrialDofs = sampleElementType->trialOrderPtr->totalDofs();
+    totalTestDofs = sampleElementType->testOrderPtr->totalDofs();
+    
+    int doubleSizeInBytes = sizeof(double);
+    B_denseMatrixSize = (totalTrialDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
+    G_denseMatrixSize = (totalTestDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
+    K_denseMatrixSize = (totalTrialDofs * totalTrialDofs * doubleSizeInBytes) / bytesPerMB;
+    B_sparseMatrixSize = ( bf->nonZeroEntryCount(sampleElementType->trialOrderPtr, sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
+    G_sparseMatrixSize = ( ip->nonZeroEntryCount(sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
+  }
+
+  int minRankWithSampleCell;
+  solution->mesh()->Comm()->MinAll(&rankWithSampleCell, &minRankWithSampleCell, 1);
+  solution->mesh()->Comm()->Broadcast(&totalTestDofs, 1, minRankWithSampleCell);
+  solution->mesh()->Comm()->Broadcast(&totalTrialDofs, 1, minRankWithSampleCell);
   
+  solution->mesh()->Comm()->Broadcast(&B_denseMatrixSize, 1, minRankWithSampleCell);
+  solution->mesh()->Comm()->Broadcast(&G_denseMatrixSize, 1, minRankWithSampleCell);
+  solution->mesh()->Comm()->Broadcast(&K_denseMatrixSize, 1, minRankWithSampleCell);
+  solution->mesh()->Comm()->Broadcast(&B_sparseMatrixSize, 1, minRankWithSampleCell);
+  solution->mesh()->Comm()->Broadcast(&G_sparseMatrixSize, 1, minRankWithSampleCell);
+
   int coarseMeshGlobalDofs = meshesCoarseToFine[0]->numGlobalDofs();
   int coarseMeshNumElements = meshesCoarseToFine[0]->numElements();
   int coarseMeshTraceDofs = meshesCoarseToFine[0]->numFluxDofs();
-  
-  double B_sparseMatrixSize = ( bf->nonZeroEntryCount(sampleElementType->trialOrderPtr, sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
-  double G_sparseMatrixSize = ( ip->nonZeroEntryCount(sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
   
   if (rank==0)
   {
