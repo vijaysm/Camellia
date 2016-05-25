@@ -196,10 +196,10 @@ void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
   
   static bool haveWarned = false;
   
-  int rank = _mesh->Comm()->MyPID();
-  if ((!haveWarned) && (rank == 0))
+  int commWorldMPIRank = MPIWrapper::CommWorld()->MyPID();
+  if ((!haveWarned) && (commWorldMPIRank == 0))
   {
-    cout << "\n\n\n****************   WARNING: determinePolynomialOrderForConstrainingParents() method is incomplete!  ****************\n\n\n";
+    cout << "\n\n\n****************   WARNING: determinePolynomialOrderForConstrainingParents() method is incomplete!****************\n\n\n";
     haveWarned = true;
   }
   
