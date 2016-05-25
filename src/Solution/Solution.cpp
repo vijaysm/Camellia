@@ -1899,6 +1899,7 @@ void TSolution<Scalar>::imposeBCs()
         {
           cout << "WARNING: inconsistent values for BC: " << firstValue << " and ";
           cout << secondValue << " prescribed for global dof index " << bcsToImposeThisRank[i].first;
+          cout << " on rank " << rank << endl;
         }
       }
     }
