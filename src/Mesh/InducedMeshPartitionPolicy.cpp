@@ -26,29 +26,38 @@ Teuchos::RCP<InducedMeshPartitionPolicy> InducedMeshPartitionPolicy::inducedMesh
 InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr otherMesh)
 : MeshPartitionPolicy(otherMesh->Comm())
 {
-  _thisMesh = Teuchos::rcp(thisMesh.get(), false); // weak RCP to avoid circular references
   _otherMesh = otherMesh;
   
-  set<GlobalIndexType> cellIDs = thisMesh->getActiveCellIDsGlobal();
   set<GlobalIndexType> otherCellIDs = otherMesh->getActiveCellIDsGlobal();
   
-  TEUCHOS_TEST_FOR_EXCEPTION(cellIDs.size() != otherCellIDs.size(), std::invalid_argument, "thisMesh and otherMesh must match in their activeCellIDs");
-  set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin();
-  set<GlobalIndexType>::iterator otherCellIDIt = otherCellIDs.begin();
-  for (int i=0; i<cellIDs.size(); i++)
+  if (_thisMesh != Teuchos::null)
   {
-    TEUCHOS_TEST_FOR_EXCEPTION(*cellIDIt != *otherCellIDIt, std::invalid_argument, "thisMesh and otherMesh must match in their activeCellIDs");
-    cellIDIt++;
-    otherCellIDIt++;
+    _thisMesh = Teuchos::rcp(thisMesh.get(), false); // weak RCP to avoid circular references
+    
+    set<GlobalIndexType> cellIDs = thisMesh->getActiveCellIDsGlobal();
+    set<GlobalIndexType> otherCellIDs = otherMesh->getActiveCellIDsGlobal();
+    
+    TEUCHOS_TEST_FOR_EXCEPTION(cellIDs.size() != otherCellIDs.size(), std::invalid_argument, "thisMesh and otherMesh must match in their activeCellIDs");
+    set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin();
+    set<GlobalIndexType>::iterator otherCellIDIt = otherCellIDs.begin();
+    for (int i=0; i<cellIDs.size(); i++)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(*cellIDIt != *otherCellIDIt, std::invalid_argument, "thisMesh and otherMesh must match in their activeCellIDs");
+      cellIDIt++;
+      otherCellIDIt++;
+    }
   }
   
-  for (GlobalIndexType cellID : cellIDs)
+  for (GlobalIndexType cellID : otherCellIDs)
   {
     _cellIDMap[cellID] = cellID;
   }
   
   Teuchos::RCP<RefinementObserver> thisObserver = Teuchos::rcp(this,false); // weak RCP
-  _thisMesh->registerObserver(thisObserver);
+  if (_thisMesh != Teuchos::null)
+  {
+    _thisMesh->registerObserver(thisObserver);
+  }
   _otherMesh->registerObserver(thisObserver);
 }
 
