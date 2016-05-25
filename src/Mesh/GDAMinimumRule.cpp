@@ -196,7 +196,8 @@ void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
   
   static bool haveWarned = false;
   
-  if (!haveWarned)
+  int rank = _mesh->Comm()->MyPID();
+  if ((!haveWarned) && (rank == 0))
   {
     cout << "\n\n\n****************   WARNING: determinePolynomialOrderForConstrainingParents() method is incomplete!  ****************\n\n\n";
     haveWarned = true;
