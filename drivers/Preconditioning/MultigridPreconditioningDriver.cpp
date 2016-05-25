@@ -266,23 +266,27 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
   bool useGMGSolverForMeshes = true; // use static method from GMGSolver to generate meshesCoarseToFine
   if (useGMGSolverForMeshes)
   {
+    mesh = Teuchos::rcp(new Mesh(meshTopo, bf, H1Order, delta_k, trialOrderEnhancements));
+
     Epetra_Time hRefinementTimer(Comm);
     int meshWidthCells = rootMeshNumCells;
     while (meshWidthCells < numCells)
     {
       vector<IndexType> activeCellIDs = meshTopo->getActiveCellIndicesGlobal();
+      
+      mesh->hRefine(activeCellIDs);
 //      if (rank==0)
 //      {
 //        print("h-refining cells", activeCellIDs);
+////      }
+//      IndexType nextCellID = meshTopo->cellCount();
+//      for (IndexType activeCellID : activeCellIDs)
+//      {
+//        CellTopoPtr cellTopo = meshTopo->getCell(activeCellID)->topology();
+//        RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
+//        meshTopo->refineCell(activeCellID, refPattern, nextCellID);
+//        nextCellID += refPattern->numChildren();
 //      }
-      IndexType nextCellID = meshTopo->cellCount();
-      for (IndexType activeCellID : activeCellIDs)
-      {
-        CellTopoPtr cellTopo = meshTopo->getCell(activeCellID)->topology();
-        RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
-        meshTopo->refineCell(activeCellID, refPattern, nextCellID);
-        nextCellID += refPattern->numChildren();
-      }
       meshWidthCells *= 2;
     }
     if (meshWidthCells != numCells)
@@ -295,16 +299,16 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     if (rank==0)
     {
       int refinementTime = hRefinementTimer.ElapsedTime();
-      cout << "h refinements (MeshTopology) completed in " << refinementTime << " seconds.\n";
+      cout << "h refinements (Mesh/MeshTopology construction) completed in " << refinementTime << " seconds.\n";
       hRefinementTimer.ResetStartTime();
     }
-    if (setupMeshTopologyAndQuit) return;
-    mesh = Teuchos::rcp(new Mesh(meshTopo, bf, H1Order, delta_k, trialOrderEnhancements));
-    if (rank==0)
-    {
-      int meshConstructionTime = hRefinementTimer.ElapsedTime();
-      cout << "Mesh construction completed in " << meshConstructionTime << " seconds.\n";
-    }
+//    if (setupMeshTopologyAndQuit) return;
+//    mesh = Teuchos::rcp(new Mesh(meshTopo, bf, H1Order, delta_k, trialOrderEnhancements));
+//    if (rank==0)
+//    {
+//      int meshConstructionTime = hRefinementTimer.ElapsedTime();
+//      cout << "Mesh construction completed in " << meshConstructionTime << " seconds.\n";
+//    }
   }
   else
   {
