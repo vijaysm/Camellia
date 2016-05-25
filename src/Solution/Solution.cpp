@@ -3293,8 +3293,12 @@ void TSolution<Scalar>::condensedSolve(TSolverPtr<Scalar> globalSolver, bool red
   set< int > fieldsToExclude;
   for (int trialID : trialIDs)
   {
-    // NVR: change 4-26-16; now *don't* exclude fields with a single point BC
     if (_bc->shouldImposeZeroMeanConstraint(trialID))
+    {
+      fieldsToExclude.insert(trialID);
+    }
+    // disable the following for a speedup (which doesn't yet work with MultigridPreconditioningDriver)
+    else if (_bc->singlePointBC(trialID))
     {
       fieldsToExclude.insert(trialID);
     }
@@ -4257,10 +4261,11 @@ void TSolution<Scalar>::setUseCondensedSolve(bool value, set<GlobalIndexType> of
         {
           fieldsToExclude.insert(trialID);
         }
-//        if (_bc->shouldImposeZeroMeanConstraint(trialID) || _bc->singlePointBC(trialID) )
-//        {
-//          fieldsToExclude.insert(trialID);
-//        }
+        // disable the following for a speedup (which doesn't yet work with MultigridPreconditioningDriver)
+        else if (_bc->singlePointBC(trialID))
+        {
+          fieldsToExclude.insert(trialID);
+        }
       }
 
       // override reduceMemoryFootprint for now (since CondensedDofInterpreter doesn't yet support a true value)
