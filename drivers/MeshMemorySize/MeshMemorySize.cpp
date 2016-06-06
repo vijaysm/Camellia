@@ -1,4 +1,8 @@
 #include "MeshTopology.h"
+#include "MPIWrapper.h"
+#include "PoissonFormulation.h"
+
+#include <Teuchos_GlobalMPISession.hpp>
 
 using namespace Camellia;
 using namespace std;
@@ -55,7 +59,7 @@ MeshTopologyPtr makeQuadMesh(double x0, double y0, double width, double height,
                              unsigned horizontalCells, unsigned verticalCells)
 {
   unsigned spaceDim = 2;
-  Teuchos::RCP<MeshTopology> mesh = Teuchos::rcp( new MeshTopology(spaceDim) );
+  Teuchos::RCP<MeshTopology> meshTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
   double dx = width / horizontalCells;
   double dy = height / verticalCells;
   CellTopoPtrLegacy quadTopo = Teuchos::rcp( new shards::CellTopology(shards::getCellTopologyData<shards::Quadrilateral<4> >() ) );
@@ -66,17 +70,17 @@ MeshTopologyPtr makeQuadMesh(double x0, double y0, double width, double height,
     {
       double y = y0 + dy * j;
       vector< vector<double> > vertices = quadPoints(x, y, dx, dy);
-      mesh->addCell(quadTopo, vertices);
+      meshTopo->addCell(quadTopo, vertices);
     }
   }
-  return mesh;
+  return meshTopo;
 }
 
 MeshTopologyPtr makeHexMesh(double x0, double y0, double z0, double width, double height, double depth,
                             unsigned horizontalCells, unsigned verticalCells, unsigned depthCells)
 {
   unsigned spaceDim = 3;
-  Teuchos::RCP<MeshTopology> mesh = Teuchos::rcp( new MeshTopology(spaceDim) );
+  Teuchos::RCP<MeshTopology> meshTopo = Teuchos::rcp( new MeshTopology(spaceDim) );
   double dx = width / horizontalCells;
   double dy = height / verticalCells;
   double dz = depth / depthCells;
@@ -91,42 +95,47 @@ MeshTopologyPtr makeHexMesh(double x0, double y0, double z0, double width, doubl
       {
         double z = z0 + dz * k;
         vector< vector<double> > vertices = hexPoints(x, y, z, dx, dy, dz);
-        mesh->addCell(hexTopo, vertices);
+        meshTopo->addCell(hexTopo, vertices);
       }
     }
   }
-  return mesh;
+  return meshTopo;
 }
 
-void refineUniformly(MeshTopologyPtr mesh)
+void refineUniformly(MeshTopologyPtr meshTopo)
 {
-  vector<IndexType> cellIndices = mesh->getActiveCellIndicesGlobal();
+  vector<IndexType> cellIndices = meshTopo->getActiveCellIndicesGlobal();
   for (IndexType cellID : cellIndices)
   {
-    mesh->refineCell(cellID, RefinementPattern::regularRefinementPatternHexahedron(), mesh->cellCount());
+    meshTopo->refineCell(cellID, RefinementPattern::regularRefinementPatternHexahedron(), meshTopo->cellCount());
   }
 }
 
 int main(int argc, char *argv[])
 {
+  Teuchos::GlobalMPISession mpiSession(&argc, &argv, NULL);
+
+  Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+  int rank = Comm->MyPID();
+  
   {
     // 2D
     int horizontalCells = 128;
     int verticalCells = 128;
-    MeshTopologyPtr mesh = makeQuadMesh(0,0,1,1,horizontalCells,verticalCells);
+    MeshTopologyPtr meshTopo = makeQuadMesh(0,0,1,1,horizontalCells,verticalCells);
 
-    cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " mesh is ";
+    if (rank == 0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " meshTopo is ";
 
-    long long memoryFootprintInBytes = mesh->approximateMemoryFootprint();
+    long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
     double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
     cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
 
-    mesh->printApproximateMemoryReport();
+    meshTopo->printApproximateMemoryReport();
 
-    CellPtr cell = mesh->getCell(0);
+    CellPtr cell = meshTopo->getCell(0);
     cell->printApproximateMemoryReport();
 
-    mesh = Teuchos::null;
+    meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
   {
@@ -137,21 +146,21 @@ int main(int argc, char *argv[])
 
     double x0 = 0.0, y0 = 0.0, z0 = 0.0;
     int width = 1.0, height = 1.0, depth = 1.0;
-    MeshTopologyPtr mesh = makeHexMesh(x0, y0, z0, width, height, depth,
+    MeshTopologyPtr meshTopo = makeHexMesh(x0, y0, z0, width, height, depth,
                                        horizontalCells, verticalCells, depthCells);
 
-    cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " mesh is ";
+    if (rank == 0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " meshTopo is ";
 
-    long long memoryFootprintInBytes = mesh->approximateMemoryFootprint();
+    long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
     double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
-    cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
+    if (rank == 0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
 
-    mesh->printApproximateMemoryReport();
+    if (rank==0) meshTopo->printApproximateMemoryReport();
 
-    CellPtr cell = mesh->getCell(0);
-    cell->printApproximateMemoryReport();
+    CellPtr cell = meshTopo->getCell(0);
+    if (rank==0) cell->printApproximateMemoryReport();
 
-    mesh = Teuchos::null;
+    meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
 
@@ -159,7 +168,7 @@ int main(int argc, char *argv[])
     // 2D
     int horizontalCells = 1;
     int verticalCells = 1;
-    MeshTopologyPtr mesh = makeQuadMesh(0,0,1,1,horizontalCells,verticalCells);
+    MeshTopologyPtr meshTopo = makeQuadMesh(0,0,1,1,horizontalCells,verticalCells);
 
     while (horizontalCells < 128)
     {
@@ -167,28 +176,28 @@ int main(int argc, char *argv[])
 
       RefinementPatternPtr regularQuadRefPattern = RefinementPattern::regularRefinementPatternQuad();
 
-      vector<IndexType> activeCells = mesh->getActiveCellIndicesGlobal();
+      vector<IndexType> activeCells = meshTopo->getActiveCellIndicesGlobal();
       for (IndexType cellID : activeCells)
       {
-        mesh->refineCell(cellID, regularQuadRefPattern, mesh->cellCount());
+        meshTopo->refineCell(cellID, regularQuadRefPattern, meshTopo->cellCount());
       }
 
       horizontalCells *= 2;
       verticalCells *= 2;
     }
 
-    cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " mesh produced by refinements is ";
+    if (rank == 0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " meshTopo produced by refinements is ";
 
-    long long memoryFootprintInBytes = mesh->approximateMemoryFootprint();
+    long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
     double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
-    cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
+    if (rank==0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
 
-    mesh->printApproximateMemoryReport();
+    if (rank==0) meshTopo->printApproximateMemoryReport();
 
-    CellPtr cell = mesh->getCell(0);
+    CellPtr cell = meshTopo->getCell(0);
     cell->printApproximateMemoryReport();
 
-    mesh = Teuchos::null;
+    meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
   {
@@ -199,21 +208,21 @@ int main(int argc, char *argv[])
 
     double x0 = 0.0, y0 = 0.0, z0 = 0.0;
     int width = 1.0, height = 1.0, depth = 1.0;
-    MeshTopologyPtr mesh = makeHexMesh(x0, y0, z0, width, height, depth,
+    MeshTopologyPtr meshTopo = makeHexMesh(x0, y0, z0, width, height, depth,
                                        horizontalCells, verticalCells, depthCells);
 
-    cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " mesh is ";
+    if (rank==0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " meshTopo is ";
 
-    long long memoryFootprintInBytes = mesh->approximateMemoryFootprint();
+    long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
     double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
-    cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
+    if (rank==0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
 
-    mesh->printApproximateMemoryReport();
+    if (rank==0) meshTopo->printApproximateMemoryReport();
 
-    CellPtr cell = mesh->getCell(0);
-    cell->printApproximateMemoryReport();
+    CellPtr cell = meshTopo->getCell(0);
+    if (rank==0) cell->printApproximateMemoryReport();
 
-    mesh = Teuchos::null;
+    meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
 
@@ -225,7 +234,7 @@ int main(int argc, char *argv[])
 
     double x0 = 0.0, y0 = 0.0, z0 = 0.0;
     int width = 1.0, height = 1.0, depth = 1.0;
-    MeshTopologyPtr mesh = makeHexMesh(x0, y0, z0, width, height, depth,
+    MeshTopologyPtr meshTopo = makeHexMesh(x0, y0, z0, width, height, depth,
                                        horizontalCells, verticalCells, depthCells);
 
     while (horizontalCells < 32)
@@ -234,10 +243,10 @@ int main(int argc, char *argv[])
 
       RefinementPatternPtr regularHexRefPattern = RefinementPattern::regularRefinementPatternHexahedron();
 
-      vector<IndexType> activeCells = mesh->getActiveCellIndicesGlobal();
+      vector<IndexType> activeCells = meshTopo->getActiveCellIndicesGlobal();
       for (IndexType cellID : activeCells)
       {
-        mesh->refineCell(cellID, regularHexRefPattern, mesh->cellCount());
+        meshTopo->refineCell(cellID, regularHexRefPattern, meshTopo->cellCount());
       }
 
       horizontalCells *= 2;
@@ -245,28 +254,55 @@ int main(int argc, char *argv[])
       depthCells *= 2;
     }
 
-    cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " mesh arrived at by refinements is ";
+    if (rank==0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " meshTopo arrived at by refinements is ";
 
-    long long memoryFootprintInBytes = mesh->approximateMemoryFootprint();
+    long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
     double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
-    cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
+    if (rank==0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
 
-    mesh->printApproximateMemoryReport();
+    if (rank==0) meshTopo->printApproximateMemoryReport();
 
-//    CellPtr cell = mesh->getCell(0);
+//    CellPtr cell = meshTopo->getCell(0);
 //    cell->printApproximateMemoryReport();
 
-    IndexType someActiveCell = *mesh->cellIDsInPartition().begin();
-    int vertexDim = 0;
-    mesh->pruneToInclude({someActiveCell}, vertexDim);
+//    Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+//    int minRankWithActiveCell = Comm->NumProc();
     
-    cout << "Approximate size of same mesh, but pruned to include first active cell, is ";
-    memoryFootprintInBytes = mesh->approximateMemoryFootprint();
-    double memoryFootprintInKilobytes = (double)memoryFootprintInBytes / 1024;
-    cout << setprecision(4) << memoryFootprintInKilobytes << " KB.\n";
-    mesh->printApproximateMemoryReport();
+//    IndexType someActiveCell = *meshTopo->cellIDsInPartition().begin();
+//    int vertexDim = 0;
+//    meshTopo->pruneToInclude({someActiveCell}, vertexDim);
+//    
+//    cout << "Approximate size of same meshTopo, but pruned to include first active cell, is ";
+//    memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
+//    double memoryFootprintInKilobytes = (double)memoryFootprintInBytes / 1024;
+//    cout << setprecision(4) << memoryFootprintInKilobytes << " KB.\n";
+//    meshTopo->printApproximateMemoryReport();
     
-    mesh = Teuchos::null;
+    bool conformingTraces = true;
+    int spaceDim = meshTopo->getDimension();
+    int H1Order = 2, delta_k = 2;
+    
+    PoissonFormulation form(spaceDim, conformingTraces);
+    MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) );
+    
+    memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
+    memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
+    
+    double maximumMemoryFootprintInMegabytes;
+    Comm->MaxAll(&memoryFootprintInMegabytes, &maximumMemoryFootprintInMegabytes, 1);
+    double minimumMemoryFootprintInMegabytes;
+    Comm->MinAll(&memoryFootprintInMegabytes, &minimumMemoryFootprintInMegabytes, 1);
+    
+    if (rank == 0) cout << "After distributing, maximum memory footprint: " << maximumMemoryFootprintInMegabytes << " MB";
+    if (rank == 0) cout << " (minimum: " << minimumMemoryFootprintInMegabytes << " MB).\n";
+    
+    if (rank == 0)
+    {
+      cout << "Rank 0 Memory Report, after distributing:\n";
+      meshTopo->printApproximateMemoryReport();
+    }
+    
+    meshTopo = Teuchos::null;
   }
 
 }
