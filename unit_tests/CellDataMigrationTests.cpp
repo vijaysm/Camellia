@@ -139,16 +139,20 @@ namespace
       int sizeRead = constDataLocation - &dataBuffer[0];
       TEST_EQUALITY(sizeRead, size);
       vector<RootedLabeledRefinementBranch> expectedBranch;
-      CellDataMigration::getCellHaloGeometry(mesh.get(), cellID, expectedBranch);
       
-      {
-        // DEBUGGING
-        if (!rootedRefBranchVectorEquals(unpackedBranch, expectedBranch))
-        {
-          // repeat the call so we can see why it's false...
-          rootedRefBranchVectorEquals(unpackedBranch, expectedBranch);
-        }
-      }
+      // new 6-6-16: we don't expect any geometry to be included for non-distributed MeshTopology:
+      bool isDistributed = mesh->getTopology()->isDistributed();
+      
+      if (isDistributed) CellDataMigration::getCellHaloGeometry(mesh.get(), cellID, expectedBranch);
+      
+//      {
+//        // DEBUGGING
+//        if (!rootedRefBranchVectorEquals(unpackedBranch, expectedBranch))
+//        {
+//          // repeat the call so we can see why it's false...
+//          rootedRefBranchVectorEquals(unpackedBranch, expectedBranch);
+//        }
+//      }
       
       TEST_ASSERT(rootedRefBranchVectorEquals(unpackedBranch, expectedBranch));
     }

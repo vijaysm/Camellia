@@ -82,9 +82,10 @@ int CellDataMigration::dataSize(Mesh *mesh, GlobalIndexType cellID)
 int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
 {
   int size = 0;
+  bool geometryIsDistributed = mesh->getTopology()->isDistributed(); // otherwise, redundantly stored, and we don't need to send
   
   vector<RootedLabeledRefinementBranch> cellHaloGeometry;
-  getCellHaloGeometry(mesh, cellID, cellHaloGeometry);
+  if (geometryIsDistributed) getCellHaloGeometry(mesh, cellID, cellHaloGeometry);
   int numLabeledBranches = cellHaloGeometry.size();
   size += sizeof(numLabeledBranches);
   
@@ -110,7 +111,8 @@ int CellDataMigration::geometryDataSize(Mesh* mesh, GlobalIndexType cellID)
   // entity sets
   int spaceDim = mesh->getDimension();
   const MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
-  vector<EntityHandle> entityHandles = meshTopo->getEntityHandlesForCell(cellID);
+  vector<EntityHandle> entityHandles;
+  if (geometryIsDistributed) entityHandles = meshTopo->getEntityHandlesForCell(cellID);
   int numHandles = entityHandles.size();
   size += sizeof(numHandles);
   for (int handleOrdinal=0; handleOrdinal<numHandles; handleOrdinal++)
@@ -237,8 +239,10 @@ void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packPa
 
 void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, char* &dataLocation, int size)
 {
+  bool geometryIsDistributed = mesh->getTopology()->isDistributed(); // otherwise, redundantly stored, and we don't need to send
+  
   vector<RootedLabeledRefinementBranch> cellHaloGeometry;
-  getCellHaloGeometry(mesh, cellID, cellHaloGeometry);
+  if (geometryIsDistributed) getCellHaloGeometry(mesh, cellID, cellHaloGeometry);
   int numLabeledBranches = cellHaloGeometry.size();
   
   memcpy(dataLocation, &numLabeledBranches, sizeof(numLabeledBranches));
@@ -283,7 +287,8 @@ void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, cha
   int spaceDim = mesh->getDimension();
   // entity sets
   const MeshTopology* meshTopo = mesh->getTopology()->baseMeshTopology();
-  vector<EntityHandle> entityHandles = meshTopo->getEntityHandlesForCell(cellID);
+  vector<EntityHandle> entityHandles;
+  if (geometryIsDistributed) entityHandles = meshTopo->getEntityHandlesForCell(cellID);
   int numHandles = entityHandles.size();
   memcpy(dataLocation, &numHandles, sizeof(numHandles));
   dataLocation += sizeof(numHandles);
