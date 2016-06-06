@@ -330,8 +330,6 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
   // repeat the last one:
   meshesCoarseToFine.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
   
-  // TODO: do something to avoid this global construction
-//  set<GlobalIndexType> fineCellIndicesGlobal = fineMesh->getActiveCellIDsGlobal();
   const set<GlobalIndexType>* myFineCellIndices = &fineMesh->cellIDsInPartition();
   
   set<GlobalIndexType> locallyKnownFineCellIndices = fineMeshTopo->getLocallyKnownActiveCellIndices();
