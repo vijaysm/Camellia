@@ -750,6 +750,39 @@ void TLinearTerm<Scalar>::integrate(Intrepid::FieldContainer<Scalar> &values, Do
   lt->integrate(values, thisOrdering, basisCache, forceBoundaryTerm);
 }
 
+  template<typename Scalar>
+  bool TLinearTerm<Scalar>::isPureBoundaryTerm() const
+  {
+    for (typename vector< TLinearSummand<Scalar> >::const_iterator lsIt = _summands.begin(); lsIt != _summands.end(); lsIt++)
+    {
+      TLinearSummand<Scalar> ls = *lsIt;
+      TFunctionPtr<Scalar> f = ls.first;
+      VarPtr var = ls.second;
+      if (!f->boundaryValueOnly() && var->isDefinedOnVolume())
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  template<typename Scalar>
+  bool TLinearTerm<Scalar>::isPureVolumeTerm() const
+  {
+    for (typename vector< TLinearSummand<Scalar> >::const_iterator lsIt = _summands.begin(); lsIt != _summands.end(); lsIt++)
+    {
+      TLinearSummand<Scalar> ls = *lsIt;
+      TFunctionPtr<Scalar> f = ls.first;
+      VarPtr var = ls.second;
+      if (f->boundaryValueOnly() || !var->isDefinedOnVolume())
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  
 template<typename Scalar>
 bool TLinearTerm<Scalar>::isZero() const   // true if the TLinearTerm is identically zero
 {

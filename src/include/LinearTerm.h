@@ -101,6 +101,9 @@ public:
   TLinearTermPtr<Scalar> getNonBoundaryOnlyPart();
   TLinearTermPtr<Scalar> getPart(bool boundaryOnlyPart);
   TLinearTermPtr<Scalar> getPartMatchingVariable( VarPtr var );
+  
+  bool isPureBoundaryTerm() const;
+  bool isPureVolumeTerm() const;
 
   // integrate into values FieldContainers:
   void integrate(Intrepid::FieldContainer<Scalar> &values, DofOrderingPtr thisOrdering,

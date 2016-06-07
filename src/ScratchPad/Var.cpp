@@ -348,6 +348,11 @@ VarPtr Var::curl(int spaceDim) const
   }
 }
 
+bool Var::isDefinedOnVolume() const
+{
+  return (_varType != TRACE) && (_varType != FLUX);
+}
+
 VarPtr Var::laplacian() const
 {
   TEUCHOS_TEST_FOR_EXCEPTION( _op !=  Camellia::OP_VALUE, std::invalid_argument, "operators can only be applied to raw vars, not vars that have been operated on.");
