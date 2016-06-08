@@ -110,20 +110,21 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
 
       zz->Set_Param( "IMBALANCE_TOL", "1.1"); // the default is 1.1; measured as the max. load divided by the average load -- worth noting that this is sometimes clearly unattainable (if you have e.g. 5 elements and 4 MPI ranks, you will have an average load of 1.25, and a maximum load of at least 2), and even in such cases zoltan issues a warning.  If we wanted to eliminate such warnings, it would be easy enough to compute the best case as determined by the pigeonhole principle (assuming equal weights, as we have now), and take the more tolerant of the best case versus e.g. 1.1.  But if you think of the warning as simply saying hey your work is imbalanced, that's true, even if that's totally unavoidable.
 
-      Mesh* myData = mesh;
+      MigrationData myData;
+      myData.mesh = mesh;
 
       // Testing query functions
-      zz->Set_Num_Obj_Fn(&get_number_of_objects, myData);
-      zz->Set_Obj_List_Fn(&get_object_list, myData);
+      zz->Set_Num_Obj_Fn(&get_number_of_objects, &myData);
+      zz->Set_Obj_List_Fn(&get_object_list, &myData);
 
       // HSFC query functions
-      zz->Set_Num_Geom_Fn(&get_num_geom, myData);
-      zz->Set_Geom_Multi_Fn(&get_geom_list, myData);
+      zz->Set_Num_Geom_Fn(&get_num_geom, &myData);
+      zz->Set_Geom_Multi_Fn(&get_geom_list, &myData);
 
       // object sizing/packing functions:
-      zz->Set_Obj_Size_Fn( &get_elem_data_size, myData);
-      zz->Set_Pack_Obj_Fn( &pack_elem_data, myData);
-      zz->Set_Unpack_Obj_Fn( &unpack_elem_data, myData);
+      zz->Set_Obj_Size_Fn( &get_elem_data_size, &myData);
+      zz->Set_Pack_Obj_Fn( &pack_elem_data, &myData);
+      zz->Set_Unpack_Obj_Fn( &unpack_elem_data, &myData);
 
       int changes;
       int numGidEntries;
@@ -270,7 +271,7 @@ int ZoltanMeshPartitionPolicy::get_number_of_objects(void *data, int *ierr)
 //  int myNode = Teuchos::GlobalMPISession::getRank();
 //  int numNodes = Teuchos::GlobalMPISession::getNProc();
 
-  Mesh* mesh = (Mesh*) data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
   MeshTopologyViewPtr meshTopo = mesh->getTopology();
 
   *ierr = ZOLTAN_OK;
@@ -293,11 +294,11 @@ void ZoltanMeshPartitionPolicy::get_object_list(void *data, int sizeGID, int siz
     ZOLTAN_ID_PTR globalID, ZOLTAN_ID_PTR localID,
     int wgt_dim, float *obj_wgts, int *ierr)
 {
-  Mesh* mesh = (Mesh*) data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
 
   set<GlobalIndexType> rankLocalCellIDs = getRankLocalCellIDs(mesh);
   int i=0;
-  for (set<unsigned>::const_iterator cellIDIt = rankLocalCellIDs.begin(); cellIDIt != rankLocalCellIDs.end(); cellIDIt++)
+  for (set<GlobalIndexType>::const_iterator cellIDIt = rankLocalCellIDs.begin(); cellIDIt != rankLocalCellIDs.end(); cellIDIt++)
   {
     globalID[i]= *cellIDIt;
     i++;
@@ -310,7 +311,7 @@ void ZoltanMeshPartitionPolicy::get_object_list(void *data, int sizeGID, int siz
 
 int ZoltanMeshPartitionPolicy::get_num_geom(void *data, int *ierr)
 {
-  Mesh *mesh = (Mesh*)data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
   MeshTopologyViewPtr meshTopology = mesh->getTopology();
   *ierr = ZOLTAN_OK;
   /*
@@ -324,8 +325,7 @@ int ZoltanMeshPartitionPolicy::get_num_geom(void *data, int *ierr)
 // get a single coordinate identifying an element
 void ZoltanMeshPartitionPolicy::get_geom_list(void *data, int num_gid_entries, int num_lid_entries, int num_obj, ZOLTAN_ID_PTR global_ids, ZOLTAN_ID_PTR local_ids, int num_dim, double *geom_vec, int *ierr)
 {
-
-  Mesh *mesh = (Mesh*) data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
 
   // loop thru all objects
   for (int i=0; i<num_obj; i++)
@@ -500,7 +500,7 @@ int ZoltanMeshPartitionPolicy::get_elem_data_size(void *data,
 {
 
   // returns size in bytes
-  Mesh *mesh = (Mesh*) data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
   GlobalIndexType cellID = *global_id;
   *ierr = ZOLTAN_OK; // CellDataMigration throws exceptions if it's not OK
   return CellDataMigration::dataSize(mesh, cellID);
@@ -515,7 +515,7 @@ void ZoltanMeshPartitionPolicy::pack_elem_data(void *data,
     char *buf,
     int *ierr)
 {
-  Mesh *mesh = (Mesh*) data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
   GlobalIndexType cellID = *global_id;
   CellPtr cell = mesh->getTopology()->getCell(cellID);
   bool isChild = cell->getParent().get() != NULL;
@@ -536,7 +536,7 @@ void ZoltanMeshPartitionPolicy::unpack_elem_data(void *data,
     char *buf,
     int *ierr)
 {
-  Mesh *mesh = (Mesh*) data;
+  Mesh* mesh = ((MigrationData*) data)->mesh;
   GlobalIndexType cellID = *global_id;
   CellDataMigration::unpackData(mesh, cellID, buf, size);
   *ierr = ZOLTAN_OK; // CellDataMigration throws exceptions if it's not OK

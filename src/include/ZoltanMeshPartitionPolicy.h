@@ -24,6 +24,12 @@ private:
   string _ZoltanPartitioner; // default to block
   string _debug_level;
 
+  struct MigrationData
+  {
+    Mesh* mesh;
+    vector<pair<GlobalIndexType,PartitionIndexType>> migratedCells; // cellID, owner pairs
+  };
+  
   //helper functions for query functions
   //  int getNextActiveIndex(Intrepid::FieldContainer<int> &partitionedActiveCells);
   //  static GlobalIndexType getIndexOfGID(int myNode, Intrepid::FieldContainer<GlobalIndexType> &partitionedActiveCells,GlobalIndexType globalID);
