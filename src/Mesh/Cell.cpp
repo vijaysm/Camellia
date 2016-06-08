@@ -104,109 +104,10 @@ vector<IndexType> Cell::entitiesOnNeighborInterfaces(unsigned dimensionOfInteres
   {
     vector<IndexType> subEntityIndices;
     _meshTopo->getSubEntityIndices(sideDim, sideEntityIndex, dimensionOfInterest, subEntityIndices);
-//    int subcellCount = _meshTopo->getSubEntityCount(sideDim, sideEntityIndex, dimensionOfInterest);
-//    for (int subcord=0; subcord<subcellCount; subcord++)
-//    {
-//      IndexType entityIndex = _meshTopo->getSubEntityIndex(sideDim, sideEntityIndex, dimensionOfInterest, subcord);
-//      entitiesToMatchSet.insert(entityIndex);
-//    }
     entitiesToMatchSet.insert(subEntityIndices.begin(),subEntityIndices.end());
   }
   
   return vector<IndexType>(entitiesToMatchSet.begin(),entitiesToMatchSet.end());
-  
-//  for (int d=dimensionForNeighborRelation; d<spaceDim; d++)
-//  {
-//    int numSubcells = _cellTopo->getSubcellCount(d);
-//    for (int subcellOrdinal=0; subcellOrdinal<numSubcells; subcellOrdinal++)
-//    {
-//      IndexType subcellEntityIndex = entityIndex(d, subcellOrdinal);
-//      if (subcellEntityIndex != -1)
-//        entitiesToMatch.insert({d,subcellEntityIndex});
-//      else
-//        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
-//      
-//      CellPtr ancestor = ancestralCellForSubcell(d, subcellOrdinal, meshTopoViewForCellValidity);
-//      if (ancestor->cellIndex() != _cellIndex)
-//      {
-//        pair<unsigned, unsigned> ancestralInfo = ancestralSubcellOrdinalAndDimension(d, subcellOrdinal,
-//                                                                                     meshTopoViewForCellValidity);
-//        unsigned ancestorDim = ancestralInfo.second;
-//        unsigned ancestorSubcellOrdinal = ancestralInfo.first;
-//        IndexType ancestralEntityIndex = ancestor->entityIndex(ancestorDim, ancestorSubcellOrdinal);
-//        if (ancestralEntityIndex != -1)
-//          entitiesToMatch.insert({ancestorDim,ancestralEntityIndex});
-//        else
-//        {
-//          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Not found");
-//        }
-//      }
-//    }
-//  }
-//  
-//  const MeshTopology* baseMeshTopology = meshTopoViewForCellValidity->baseMeshTopology();
-//  // add to entitiesToMatch any descendants of the entities to match:
-//  set< pair<unsigned, IndexType> > descendantEntitiesToMatch;
-//  
-//  std::function<bool(pair<unsigned, IndexType>)> entityIsNew;
-//  entityIsNew = [entitiesToMatch, descendantEntitiesToMatch](pair<unsigned, IndexType> entityInfo) {
-//    return (descendantEntitiesToMatch.find(entityInfo) == descendantEntitiesToMatch.end())
-//    && (entitiesToMatch.find(entityInfo) == entitiesToMatch.end());
-//  };
-//  
-//  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
-//  {
-//    unsigned entityDim = entityInfo.first;
-//    IndexType entityIndex = entityInfo.second;
-//    TEUCHOS_TEST_FOR_EXCEPTION(entityIndex == -1, std::invalid_argument, "entityIndex out of bounds");
-//    
-//    set< pair<unsigned, IndexType> > newEntitiesToMatch = {{entityDim,entityIndex}};
-//    
-//    while (newEntitiesToMatch.size() > 0)
-//    {
-//      descendantEntitiesToMatch.insert(newEntitiesToMatch.begin(),newEntitiesToMatch.end());
-//      set< pair<unsigned, IndexType> > previousNewEntities = newEntitiesToMatch;
-//      newEntitiesToMatch.clear();
-//      
-//      for (pair<unsigned,IndexType> newEntityInfo : previousNewEntities)
-//      {
-//        unsigned newEntityDim = newEntityInfo.first;
-//        IndexType newEntityIndex = newEntityInfo.second;
-//        
-//        bool isParent = baseMeshTopology->entityHasChildren(newEntityDim,newEntityIndex);
-//        if (isParent)
-//        {
-//          vector<IndexType> childEntities = baseMeshTopology->getChildEntities(newEntityDim,newEntityIndex);
-//          for (IndexType childEntityIndex : childEntities)
-//          {
-//            if (childEntityIndex == -1) continue;
-//            pair<unsigned,IndexType> childEntityInfo = {newEntityDim,childEntityIndex};
-//            if (entityIsNew(childEntityInfo))
-//            {
-//              newEntitiesToMatch.insert(childEntityInfo);
-//            }
-//            // take subcells, too
-//            for (int d=dimensionForNeighborRelation; d<newEntityDim; d++)
-//            {
-//              int subcellCount = baseMeshTopology->getSubEntityCount(newEntityDim, childEntityIndex, d);
-//              for (int subcellOrdinal=0; subcellOrdinal<subcellCount; subcellOrdinal++)
-//              {
-//                IndexType subcellEntityIndex = baseMeshTopology->getSubEntityIndex(newEntityDim, childEntityIndex, d, subcellOrdinal);
-//                pair<unsigned,IndexType> childEntitySubcellInfo = {d,subcellEntityIndex};
-//                if (entityIsNew(childEntitySubcellInfo))
-//                {
-//                  newEntitiesToMatch.insert(childEntitySubcellInfo);
-//                }
-//              }
-//            }
-//          }
-//        }
-//      }
-//    }
-//  }
-//  
-//  entitiesToMatch.insert(descendantEntitiesToMatch.begin(),descendantEntitiesToMatch.end());
-//  return entitiesToMatch;
 }
 
 set<GlobalIndexType> Cell::getActiveNeighborIndices(unsigned dimensionForNeighborRelation, ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
@@ -378,8 +279,8 @@ vector< pair< GlobalIndexType, unsigned> > Cell::getDescendantsForSide(int sideO
   return descendantsForSide;
 }
 
-Cell::Cell(CellTopoPtr cellTopo, const vector<unsigned> &vertices, const vector< vector< unsigned > > &subcellPermutations,
-           unsigned cellIndex, MeshTopology* meshTopo)
+Cell::Cell(CellTopoPtr cellTopo, const vector<IndexType> &vertices, const vector< vector< unsigned > > &subcellPermutations,
+           GlobalIndexType cellIndex, MeshTopology* meshTopo)
 {
   _cellTopo = cellTopo;
   _vertices = vertices;
@@ -388,7 +289,7 @@ Cell::Cell(CellTopoPtr cellTopo, const vector<unsigned> &vertices, const vector<
   _meshTopo = meshTopo;
   int sideCount = cellTopo->getSideCount();
   _level = 0;
-  _neighbors = vector< pair<GlobalIndexType, unsigned> >(sideCount,{-1,-1});
+  _neighbors = vector< pair<GlobalIndexType, IndexType> >(sideCount,{-1,-1});
 }
 
 map<string, long long> Cell::approximateMemoryCosts()
@@ -440,7 +341,7 @@ long long Cell::approximateMemoryFootprint()
   return memSize;
 }
 
-unsigned Cell::cellIndex()
+GlobalIndexType Cell::cellIndex()
 {
   return _cellIndex;
 }
@@ -482,16 +383,16 @@ void Cell::setChildren(const vector<GlobalIndexType> &childIndices)
   }
 }
 
-vector<unsigned> Cell::getChildIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
+vector<IndexType> Cell::getChildIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity)
 {
   // if the mesh topo doesn't think we're a parent, then no children
   if (! isParent(meshTopoViewForCellValidity))
-    return vector<unsigned>();
+    return vector<IndexType>();
   
   return _childIndices;
 }
 
-unsigned Cell::entityIndex(unsigned subcdim, unsigned subcord)
+IndexType Cell::entityIndex(unsigned subcdim, unsigned subcord)
 {
   int spaceDim = _cellTopo->getDimension();
   if ((subcdim == spaceDim) && (subcord == 0))
@@ -514,7 +415,7 @@ unsigned Cell::entityIndex(unsigned subcdim, unsigned subcord)
     return _entityIndices[subcdim][subcord];
   }
   
-  set< unsigned > nodes;
+  set< IndexType > nodes;
   if (subcdim != 0)
   {
     int entityNodeCount = _cellTopo->getNodeCount(subcdim, subcord);
@@ -533,9 +434,9 @@ unsigned Cell::entityIndex(unsigned subcdim, unsigned subcord)
   return _entityIndices[subcdim][subcord];
 }
 
-vector<unsigned> Cell::getEntityVertexIndices(unsigned int subcdim, unsigned int subcord)
+vector<IndexType> Cell::getEntityVertexIndices(unsigned int subcdim, unsigned int subcord)
 {
-  vector< unsigned > nodes;
+  vector< IndexType > nodes;
   if (subcdim != 0)
   {
     int entityNodeCount = _cellTopo->getNodeCount(subcdim, subcord);
@@ -552,14 +453,14 @@ vector<unsigned> Cell::getEntityVertexIndices(unsigned int subcdim, unsigned int
   return nodes;
 }
 
-vector<unsigned> Cell::getEntityIndices(unsigned subcdim)
+vector<IndexType> Cell::getEntityIndices(unsigned subcdim)
 {
   int entityCount = _cellTopo->getSubcellCount(subcdim);
-  vector<unsigned> cellEntityIndices(entityCount);
+  vector<IndexType> cellEntityIndices(entityCount);
   for (int j=0; j<entityCount; j++)
   {
-    unsigned entityIndex;
-    set< unsigned > nodes;
+    IndexType entityIndex;
+    set< IndexType > nodes;
     if (subcdim != 0)
     {
       int entityNodeCount = _cellTopo->getNodeCount(subcdim, j);
@@ -595,7 +496,7 @@ unsigned Cell::findSubcellOrdinal(unsigned subcdim, IndexType subcEntityIndex)
   int entityCount = _cellTopo->getSubcellCount(subcdim);
   for (int scord=0; scord<entityCount; scord++)
   {
-    unsigned scEntityIndex = entityIndex(subcdim, scord);
+    IndexType scEntityIndex = entityIndex(subcdim, scord);
     if (scEntityIndex == subcEntityIndex)
     {
       return scord;
@@ -958,7 +859,7 @@ void Cell::setRefinementPattern(RefinementPatternPtr refPattern)
   _refPattern = refPattern;
 }
 
-void Cell::setVertices(const vector<unsigned> &vertexIndices)
+void Cell::setVertices(const vector<IndexType> &vertexIndices)
 {
   _vertices = vertexIndices;
   _entityIndices.clear();
@@ -1125,7 +1026,7 @@ const vector< vector< unsigned > > &Cell::subcellPermutations()
   return _subcellPermutations;
 }
 
-const vector< unsigned > & Cell::vertices()
+const vector< IndexType > & Cell::vertices()
 {
   return _vertices;
 }

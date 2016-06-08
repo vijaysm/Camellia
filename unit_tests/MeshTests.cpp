@@ -44,8 +44,8 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     spaceTimeVertices.push_back(v11); // 4
     spaceTimeVertices.push_back(v21); // 5
 
-    vector<unsigned> spaceTimeLine1VertexList;
-    vector<unsigned> spaceTimeLine2VertexList;
+    vector<IndexType> spaceTimeLine1VertexList;
+    vector<IndexType> spaceTimeLine2VertexList;
     spaceTimeLine1VertexList.push_back(0);
     spaceTimeLine1VertexList.push_back(1);
     spaceTimeLine1VertexList.push_back(3);
@@ -55,7 +55,7 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
     spaceTimeLine2VertexList.push_back(4);
     spaceTimeLine2VertexList.push_back(5);
 
-    vector< vector<unsigned> > spaceTimeElementVertices;
+    vector< vector<IndexType> > spaceTimeElementVertices;
     spaceTimeElementVertices.push_back(spaceTimeLine1VertexList);
     spaceTimeElementVertices.push_back(spaceTimeLine2VertexList);
 
@@ -470,7 +470,7 @@ void testSaveAndLoad2D(BFPtr bf, Teuchos::FancyOStream &out, bool &success)
     mesh->hRefine(activeCells, quadRefinement);
   }
   
-  string meshFile = "SavedMesh.HDF5";
+  string meshFile = "/tmp/SavedMesh.HDF5";
   mesh->saveToHDF5(meshFile);
 
   MeshPtr loadedMesh = MeshFactory::loadFromHDF5(bf, meshFile);

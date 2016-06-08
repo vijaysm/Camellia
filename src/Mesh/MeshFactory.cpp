@@ -288,7 +288,7 @@ MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr
     bool useConformingTraces = parameters.get<bool>("useConformingTraces", true);
 //  cout << "periodicBCs size is " << periodicBCs->size() << endl;
     vector<vector<double> > vertices;
-    vector< vector<unsigned> > allElementVertices;
+    vector< vector<IndexType> > allElementVertices;
 
     int numElements = divideIntoTriangles ? horizontalElements * verticalElements * 2 : horizontalElements * verticalElements;
 
@@ -341,7 +341,7 @@ MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr
       {
         if (!divideIntoTriangles)
         {
-          vector<unsigned> elemVertices;
+          vector<IndexType> elemVertices;
           elemVertices.push_back(vertexIndices[i][j]);
           elemVertices.push_back(vertexIndices[i+1][j]);
           elemVertices.push_back(vertexIndices[i+1][j+1]);
@@ -350,7 +350,7 @@ MeshPtr MeshFactory::quadMesh(Teuchos::ParameterList &parameters, Epetra_CommPtr
         }
         else
         {
-          vector<unsigned> elemVertices1, elemVertices2; // elem1 is SE of quad, elem2 is NW
+          vector<IndexType> elemVertices1, elemVertices2; // elem1 is SE of quad, elem2 is NW
           elemVertices1.push_back(vertexIndices[i][j]);     // SIDE1 is SOUTH side of quad
           elemVertices1.push_back(vertexIndices[i+1][j]);   // SIDE2 is EAST
           elemVertices1.push_back(vertexIndices[i+1][j+1]); // SIDE3 is diagonal
@@ -418,8 +418,8 @@ MeshPtr MeshFactory::quadMesh(TBFPtr<double> bf, int H1Order, FieldContainer<dou
     vertex[1] = quadNodes[2*i+1];
     vertices.push_back(vertex);
   }
-  vector< vector<unsigned> > elementVertices;
-  vector<unsigned> cell0;
+  vector< vector<IndexType> > elementVertices;
+  vector<IndexType> cell0;
   cell0.push_back(0);
   cell0.push_back(1);
   cell0.push_back(2);
@@ -484,7 +484,7 @@ MeshTopologyPtr MeshFactory::quadMeshTopology(double width, double height, int h
     double x0, double y0, vector<PeriodicBCPtr> periodicBCs)
 {
   vector<vector<double> > vertices;
-  vector< vector<unsigned> > allElementVertices;
+  vector< vector<IndexType> > allElementVertices;
 
   int numElements = divideIntoTriangles ? horizontalElements * verticalElements * 2 : horizontalElements * verticalElements;
 
@@ -539,7 +539,7 @@ MeshTopologyPtr MeshFactory::quadMeshTopology(double width, double height, int h
     {
       if (!divideIntoTriangles)
       {
-        vector<unsigned> elemVertices;
+        vector<IndexType> elemVertices;
         elemVertices.push_back(vertexIndices[i][j]);
         elemVertices.push_back(vertexIndices[i+1][j]);
         elemVertices.push_back(vertexIndices[i+1][j+1]);
@@ -548,7 +548,7 @@ MeshTopologyPtr MeshFactory::quadMeshTopology(double width, double height, int h
       }
       else
       {
-        vector<unsigned> elemVertices1, elemVertices2; // elem1 is SE of quad, elem2 is NW
+        vector<IndexType> elemVertices1, elemVertices2; // elem1 is SE of quad, elem2 is NW
         elemVertices1.push_back(vertexIndices[i][j]);
         elemVertices1.push_back(vertexIndices[i+1][j]);
         elemVertices1.push_back(vertexIndices[i+1][j+1]);
@@ -692,7 +692,7 @@ MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, 
   }
   vector< CellTopoPtr > cellTopos(numElements, topo);
 
-  map< vector<int>, unsigned> vertexLookup;
+  map< vector<int>, IndexType> vertexLookup;
   vector< vector<double> > vertices;
 
   for (int i=0; i<elementCounts[0]+1; i++)
@@ -723,7 +723,7 @@ MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, 
     }
   }
 
-  vector< vector<unsigned> > elementVertices;
+  vector< vector<IndexType> > elementVertices;
   for (int i=0; i<elementCounts[0]; i++)
   {
     for (int j=0; j<elementCounts[1]; j++)
@@ -756,7 +756,7 @@ MeshTopologyPtr MeshFactory::rectilinearMeshTopology(vector<double> dimensions, 
         vertexIntCoords[7][1] = j+1;
         vertexIntCoords[7][2] = k+1;
 
-        vector<unsigned> elementVertexOrdinals;
+        vector<IndexType> elementVertexOrdinals;
         for (int n=0; n<8; n++)
         {
           elementVertexOrdinals.push_back(vertexLookup[vertexIntCoords[n]]);
@@ -794,14 +794,14 @@ MeshGeometryPtr MeshFactory::shiftedSquareCylinderGeometry(double xLeft, double 
     }
   }
 
-  vector< vector<unsigned> > elementVertices;
+  vector< vector<IndexType> > elementVertices;
   vector< CellTopoPtr > cellTopos;
   CellTopoPtr quad_4 = Camellia::CellTopology::quad();
   for (unsigned j=0; j < 3; j++)
   {
     for (unsigned i=0; i < 3; i++)
     {
-      vector<unsigned> elVertex;
+      vector<IndexType> elVertex;
       elVertex.push_back(4*j+i);
       elVertex.push_back(4*j+i+1);
       elVertex.push_back(4*(j+1)+i+1);
@@ -848,7 +848,7 @@ MeshPtr MeshFactory::readMesh(string filePath, TBFPtr<double> bilinearForm, int 
   mshFile >> numElems;
   int elemType;
   int numTags;
-  vector< vector<unsigned> > elementIndices;
+  vector< vector<IndexType> > elementIndices;
   for (int i=0; i < numElems; i++)
   {
     mshFile >> dummy >> elemType >> numTags;
@@ -856,7 +856,7 @@ MeshPtr MeshFactory::readMesh(string filePath, TBFPtr<double> bilinearForm, int 
       mshFile >> dummy;
     if (elemType == 2)
     {
-      vector<unsigned> elemIndices(3);
+      vector<IndexType> elemIndices(3);
       mshFile >> elemIndices[0] >> elemIndices[1] >> elemIndices[2];
       elemIndices[0]--;
       elemIndices[1]--;
@@ -865,7 +865,7 @@ MeshPtr MeshFactory::readMesh(string filePath, TBFPtr<double> bilinearForm, int 
     }
     if (elemType == 4)
     {
-      vector<unsigned> elemIndices(3);
+      vector<IndexType> elemIndices(3);
       mshFile >> elemIndices[0] >> elemIndices[1] >> elemIndices[2];
       elemIndices[0]--;
       elemIndices[1]--;
@@ -913,8 +913,8 @@ MeshPtr MeshFactory::readTriangle(string filePath, TBFPtr<double> bilinearForm, 
   int numElems;
   eleFile >> numElems;
   getline(eleFile, line);
-  vector< vector<unsigned> > elementIndices;
-  vector<unsigned> el(3);
+  vector< vector<IndexType> > elementIndices;
+  vector<IndexType> el(3);
   for (int i=0; i < numElems; i++)
   {
     eleFile >> dummy >> el[0] >> el[1] >> el[2];
@@ -986,7 +986,7 @@ MeshPtr MeshFactory::buildQuadMeshHybrid(const FieldContainer<double> &quadBound
   // rectBoundaryPoints dimensions: (4,2) -- and should be in counterclockwise order
 
   vector<vector<double> > vertices;
-  vector< vector<unsigned> > allElementVertices;
+  vector< vector<IndexType> > allElementVertices;
 
   TEUCHOS_TEST_FOR_EXCEPTION( ( quadBoundaryPoints.dimension(0) != 4 ) || ( quadBoundaryPoints.dimension(1) != 2 ),
                               std::invalid_argument,
@@ -1030,7 +1030,7 @@ MeshPtr MeshFactory::buildQuadMeshHybrid(const FieldContainer<double> &quadBound
       bool triangulate = (i >= horizontalElements / 2); // triangles on right half of mesh
       if ( ! triangulate )
       {
-        vector<unsigned> elemVertices;
+        vector<IndexType> elemVertices;
         elemVertices.push_back(vertexIndices[i][j]);
         elemVertices.push_back(vertexIndices[i+1][j]);
         elemVertices.push_back(vertexIndices[i+1][j+1]);
@@ -1039,7 +1039,7 @@ MeshPtr MeshFactory::buildQuadMeshHybrid(const FieldContainer<double> &quadBound
       }
       else
       {
-        vector<unsigned> elemVertices1, elemVertices2; // elem1 is SE of quad, elem2 is NW
+        vector<IndexType> elemVertices1, elemVertices2; // elem1 is SE of quad, elem2 is NW
         elemVertices1.push_back(vertexIndices[i][j]);     // SIDE1 is SOUTH side of quad
         elemVertices1.push_back(vertexIndices[i+1][j]);   // SIDE2 is EAST
         elemVertices1.push_back(vertexIndices[i+1][j+1]); // SIDE3 is diagonal

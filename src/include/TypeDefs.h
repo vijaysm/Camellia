@@ -26,10 +26,9 @@
 namespace Camellia
 {
 // Basic typedefs
-typedef unsigned IndexType;
-typedef unsigned GlobalIndexType;
-typedef unsigned PartitionIndexType; // for partition numbering
-typedef unsigned CellIDType;
+typedef int IndexType;
+typedef int GlobalIndexType;
+typedef int PartitionIndexType; // for partition numbering
 typedef int GlobalIndexTypeToCast; // for constructing Epetra_Maps, etc.  (these like either int or long long)
   
 // MOAB-compatible definitions:
@@ -183,9 +182,6 @@ using TMatrixPtr = Teuchos::RCP< Tpetra::CrsMatrix<Scalar,IndexType,GlobalIndexT
 template <typename Scalar>
 using TVectorPtr = Teuchos::RCP< Tpetra::MultiVector<Scalar,IndexType,GlobalIndexType> >;
 // typedef TVectorPtr<double> VectorPtr;
-  
-  
 }
-
 
 #endif

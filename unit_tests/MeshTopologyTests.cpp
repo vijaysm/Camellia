@@ -71,11 +71,9 @@ void testConstraints( MeshTopology* mesh, unsigned entityDim, map<unsigned,pair<
   for (IndexType cellIndex : activeCells)
   {
     CellPtr cell = mesh->getCell(cellIndex);
-    vector<unsigned> entitiesForCell = cell->getEntityIndices(entityDim);
-    for (vector<unsigned>::iterator entityIt = entitiesForCell.begin(); entityIt != entitiesForCell.end(); entityIt++)
+    vector<IndexType> entitiesForCell = cell->getEntityIndices(entityDim);
+    for (IndexType entityIndex : entitiesForCell)
     {
-      unsigned entityIndex = *entityIt;
-
       pair<IndexType,unsigned> constrainingEntity = mesh->getConstrainingEntity(entityDim, entityIndex);
 
       unsigned constrainingEntityIndex = constrainingEntity.first;
@@ -593,7 +591,7 @@ TEUCHOS_UNIT_TEST( MeshTopology, InitialMeshEntitiesActiveCellCount)
   {
     IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
 
-    vector< pair<unsigned,unsigned> > activeCellInfoForSide = meshTopo->getActiveCellIndices(sideDim, sideEntityIndex);
+    vector< pair<IndexType,unsigned> > activeCellInfoForSide = meshTopo->getActiveCellIndices(sideDim, sideEntityIndex);
 
     TEST_EQUALITY(activeCellInfoForSide.size(), 1);
     TEST_EQUALITY(meshTopo->getActiveCellCount(sideDim, sideEntityIndex), activeCellInfoForSide.size());
@@ -605,7 +603,7 @@ TEUCHOS_UNIT_TEST( MeshTopology, InitialMeshEntitiesActiveCellCount)
   {
     IndexType vertexEntityIndex = cell->entityIndex(vertexDim, vertexOrdinal);
 
-    vector< pair<unsigned,unsigned> > activeCellInfoForVertex = meshTopo->getActiveCellIndices(vertexDim, vertexEntityIndex);
+    vector< pair<IndexType,unsigned> > activeCellInfoForVertex = meshTopo->getActiveCellIndices(vertexDim, vertexEntityIndex);
 
     TEST_EQUALITY(activeCellInfoForVertex.size(), 1);
     TEST_EQUALITY(meshTopo->getActiveCellCount(vertexDim, vertexEntityIndex), activeCellInfoForVertex.size());
@@ -622,7 +620,7 @@ TEUCHOS_UNIT_TEST( MeshTopology, InitialMeshEntitiesActiveCellCount)
     int entityCount = meshTopo->getEntityCount(d);
     for (IndexType entityIndex=0; entityIndex < entityCount; entityIndex++)
     {
-      vector< pair<unsigned,unsigned> > activeCellInfoForEntity = meshTopo->getActiveCellIndices(d, entityIndex);
+      vector< pair<IndexType,unsigned> > activeCellInfoForEntity = meshTopo->getActiveCellIndices(d, entityIndex);
       TEST_ASSERT((activeCellInfoForEntity.size() == 1) || (activeCellInfoForEntity.size() == 2));
       TEST_EQUALITY(meshTopo->getActiveCellCount(d, entityIndex), activeCellInfoForEntity.size());
 
@@ -663,7 +661,7 @@ TEUCHOS_UNIT_TEST( MeshTopology, DeactivateCellOnRefinement)
   {
     IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
 
-    vector< pair<unsigned,unsigned> > activeCellInfoForSide = meshTopo->getActiveCellIndices(sideDim, sideEntityIndex);
+    vector< pair<IndexType,unsigned> > activeCellInfoForSide = meshTopo->getActiveCellIndices(sideDim, sideEntityIndex);
 
     TEST_EQUALITY(activeCellInfoForSide.size(), 0);
   }
@@ -701,7 +699,7 @@ TEUCHOS_UNIT_TEST( MeshTopology, ConstrainingSideAncestryUniformMesh)
     {
       IndexType sideEntityIndex = cell->entityIndex(sideDim, sideOrdinal);
 
-      vector< pair<unsigned,unsigned> > constrainingSideAncestry = meshTopo->getConstrainingSideAncestry(sideEntityIndex);
+      vector< pair<IndexType,unsigned> > constrainingSideAncestry = meshTopo->getConstrainingSideAncestry(sideEntityIndex);
 
       TEST_EQUALITY(constrainingSideAncestry.size(), 0);
     }
@@ -731,7 +729,7 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetEntityGeneralizedParent_LineRefinement)
 
   double xMiddle = (xLeft + xRight) / 2.0;
 
-  unsigned vertexOrdinal;
+  IndexType vertexOrdinal;
   meshTopo->getVertexIndex(vector<double>(1,xMiddle), vertexOrdinal);
 
   int vertexDim = 0, lineDim = 1;
@@ -813,8 +811,8 @@ TEUCHOS_UNIT_TEST(MeshTopology, GetRootMeshTopology)
       CellPtr originalCell = originalMeshTopology->getCell(cellID);
       CellPtr rootCell = rootMeshTopology->getCell(cellID);
 
-      vector<unsigned> originalVertexIndices = originalCell->vertices();
-      vector<unsigned> rootVertexIndices = rootCell->vertices();
+      vector<IndexType> originalVertexIndices = originalCell->vertices();
+      vector<IndexType> rootVertexIndices = rootCell->vertices();
 
       TEST_EQUALITY(originalVertexIndices.size(), rootVertexIndices.size());
       for (int i=0; i<originalVertexIndices.size(); i++)

@@ -336,7 +336,7 @@ public:
   MeshTopologyViewPtr getTopology();
 
   vector< vector<double> > verticesForCell(GlobalIndexType cellID);
-  vector<unsigned> vertexIndicesForCell(GlobalIndexType cellID);
+  vector<IndexType> vertexIndicesForCell(GlobalIndexType cellID);
   Intrepid::FieldContainer<double> vertexCoordinates(GlobalIndexType vertexIndex);
 
   void verticesForCell(Intrepid::FieldContainer<double>& vertices, GlobalIndexType cellID);

@@ -66,8 +66,8 @@ MeshPtr MeshUtilities::buildRampMesh(double rampHeight, BFPtr bilinearForm, int 
   int E_index = 4;
   vertices.push_back(F);
   int F_index = 5;
-  vector< vector<unsigned> > elementVertices;
-  vector<unsigned> el1, el2;
+  vector< vector<IndexType> > elementVertices;
+  vector<IndexType> el1, el2;
   // left patch:
   el1.push_back(A_index);
   el1.push_back(B_index);
@@ -127,8 +127,8 @@ MeshPtr MeshUtilities::buildLongRampMesh(double rampHeight, BFPtr bilinearForm, 
   int G_index = 6;
   vertices.push_back(H);
   int H_index = 7;
-  vector< vector<unsigned> > elementVertices;
-  vector<unsigned> el1, el2, el3;
+  vector< vector<IndexType> > elementVertices;
+  vector<IndexType> el1, el2, el3;
   // left patch:
   el1.push_back(A_index);
   el1.push_back(B_index);
@@ -196,8 +196,8 @@ MeshPtr MeshUtilities::buildFrontFacingStep(BFPtr bilinearForm, int H1Order, int
   int G_index = 6;
   vertices.push_back(H);
   int H_index = 7;
-  vector< vector<unsigned> > elementVertices;
-  vector<unsigned> el1, el2, el3;
+  vector< vector<IndexType> > elementVertices;
+  vector<IndexType> el1, el2, el3;
   // left patch:
   el1.push_back(A_index);
   el1.push_back(B_index);

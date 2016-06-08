@@ -1316,8 +1316,8 @@ namespace
     spaceTimeVertices.push_back(v11); // 4
     spaceTimeVertices.push_back(v21); // 5
     
-    vector<unsigned> spaceTimeLine1VertexList;
-    vector<unsigned> spaceTimeLine2VertexList;
+    vector<IndexType> spaceTimeLine1VertexList;
+    vector<IndexType> spaceTimeLine2VertexList;
     spaceTimeLine1VertexList.push_back(0);
     spaceTimeLine1VertexList.push_back(1);
     spaceTimeLine1VertexList.push_back(3);
@@ -1327,7 +1327,7 @@ namespace
     spaceTimeLine2VertexList.push_back(4);
     spaceTimeLine2VertexList.push_back(5);
     
-    vector< vector<unsigned> > spaceTimeElementVertices;
+    vector< vector<IndexType> > spaceTimeElementVertices;
     spaceTimeElementVertices.push_back(spaceTimeLine1VertexList);
     spaceTimeElementVertices.push_back(spaceTimeLine2VertexList);
     
@@ -1460,7 +1460,7 @@ namespace
     spaceTimeVertices.push_back(v31);
     spaceTimeVertices.push_back(v41);
     
-    vector<unsigned> spaceTimeQuadVertexList;
+    vector<IndexType> spaceTimeQuadVertexList;
     spaceTimeQuadVertexList.push_back(0);
     spaceTimeQuadVertexList.push_back(1);
     spaceTimeQuadVertexList.push_back(2);
@@ -1469,7 +1469,7 @@ namespace
     spaceTimeQuadVertexList.push_back(6);
     spaceTimeQuadVertexList.push_back(7);
     spaceTimeQuadVertexList.push_back(8);
-    vector<unsigned> spaceTimeTriVertexList;
+    vector<IndexType> spaceTimeTriVertexList;
     spaceTimeTriVertexList.push_back(3);
     spaceTimeTriVertexList.push_back(2);
     spaceTimeTriVertexList.push_back(4);
@@ -1477,7 +1477,7 @@ namespace
     spaceTimeTriVertexList.push_back(7);
     spaceTimeTriVertexList.push_back(9);
     
-    vector< vector<unsigned> > spaceTimeElementVertices;
+    vector< vector<IndexType> > spaceTimeElementVertices;
     spaceTimeElementVertices.push_back(spaceTimeQuadVertexList);
     spaceTimeElementVertices.push_back(spaceTimeTriVertexList);
     
@@ -1582,7 +1582,7 @@ namespace
     spaceTimeVertices.push_back(v61);
     spaceTimeVertices.push_back(v71);
     
-    vector<unsigned> spaceTimeHexVertexList;
+    vector<IndexType> spaceTimeHexVertexList;
     spaceTimeHexVertexList.push_back(0);
     spaceTimeHexVertexList.push_back(1);
     spaceTimeHexVertexList.push_back(2);
@@ -1600,7 +1600,7 @@ namespace
     spaceTimeHexVertexList.push_back(14);
     spaceTimeHexVertexList.push_back(15);
     
-    vector< vector<unsigned> > spaceTimeElementVertices;
+    vector< vector<IndexType> > spaceTimeElementVertices;
     spaceTimeElementVertices.push_back(spaceTimeHexVertexList);
     
     vector< CellTopoPtr > spaceTimeCellTopos;

@@ -135,8 +135,8 @@ bool MeshTransferFunction::findAncestralPairForNewMeshCellSide(const CellSide &n
       originalVertexIndices = originalMeshTopology->getEntityVertexIndices(sideDim, originalMeshActiveSideEntityIndex);
 
       // determine permutation:
-      vector<unsigned> originalOrder(originalVertexIndices.size()); // order in originalMesh
-      vector<unsigned> permutedOrder = newVertexIndices; // order in the newMesh
+      vector<IndexType> originalOrder(originalVertexIndices.size()); // order in originalMesh
+      vector<IndexType> permutedOrder = newVertexIndices; // order in the newMesh
       for (int vertexOrdinal=0; vertexOrdinal<originalVertexIndices.size(); vertexOrdinal++)
       {
         IndexType originalVertexIndex = originalVertexIndices[vertexOrdinal];

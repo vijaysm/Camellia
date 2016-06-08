@@ -190,7 +190,7 @@ public:
   IndexType getEntityParentForSide(unsigned d, IndexType entityIndex, IndexType parentSideEntityIndex) const;   // returns the entity index for the parent (which might be the entity itself) of entity (d,entityIndex) that is a subcell of side parentSideEntityIndex
   vector<IndexType> getEntityVertexIndices(unsigned d, IndexType entityIndex) const;
   CellTopoPtr getEntityTopology(unsigned d, IndexType entityIndex) const;
-  IndexType getFaceEdgeIndex(unsigned faceIndex, unsigned edgeOrdinalInFace) const;
+  IndexType getFaceEdgeIndex(IndexType faceIndex, unsigned edgeOrdinalInFace) const;
 
   unsigned getCellCountForSide(IndexType sideEntityIndex) const; // 1 or 2
   pair<IndexType, unsigned> getFirstCellForSide(IndexType sideEntityIndex) const;
@@ -206,7 +206,7 @@ public:
 //  RefinementBranch getSideConstraintRefinementBranch(IndexType sideEntityIndex); // Returns a RefinementBranch that goes from the constraining side to the side indicated.
 
   unsigned getDimension() const;
-  unsigned getSubEntityCount(unsigned int d, IndexType entityIndex, unsigned subEntityDim) const;
+  IndexType getSubEntityCount(unsigned int d, IndexType entityIndex, unsigned subEntityDim) const;
   IndexType getSubEntityIndex(unsigned d, IndexType entityIndex, unsigned subEntityDim, unsigned subEntityOrdinal) const;
   // ! getSubEntityIndices() vector is not guaranteed to be in any particular order
   void getSubEntityIndices(unsigned d, IndexType entityIndex, unsigned subEntityDim, vector<IndexType> &subEntityIndices) const;
@@ -219,7 +219,7 @@ public:
   bool isBoundarySide(IndexType sideEntityIndex) const;
   bool isValidCellIndex(IndexType cellIndex) const;
   
-  Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false) const;
+  Intrepid::FieldContainer<double> physicalCellNodesForCell(IndexType cellIndex, bool includeCellDimension = false) const;
   void refineCell(IndexType cellIndex, RefinementPatternPtr refPattern, IndexType firstChildCellIndex);
   
   // ! Returns the global cell count.
@@ -258,7 +258,7 @@ public:
   // ! maxConstraint made public for the sake of MeshTopologyView; not intended for general use
   IndexType maxConstraint(unsigned d, IndexType entityIndex1, IndexType entityIndex2) const;
   
-  pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, unsigned constrainingEntityIndex) const;
+  pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const;
 
   // 2D only:
   vector< ParametricCurvePtr > parametricEdgesForCell(IndexType cellID, bool neglectCurves) const;

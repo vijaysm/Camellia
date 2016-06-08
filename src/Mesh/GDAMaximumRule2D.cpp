@@ -366,7 +366,7 @@ void GDAMaximumRule2D::buildTypeLookups()
 //  }
 //}
 
-vector<GlobalIndexType> GDAMaximumRule2D::cellIDsOfElementType(unsigned partitionNumber, ElementTypePtr elemTypePtr)
+vector<GlobalIndexType> GDAMaximumRule2D::cellIDsOfElementType(PartitionIndexType partitionNumber, ElementTypePtr elemTypePtr)
 {
   map<ElementType*, vector<GlobalIndexType> >::iterator cellIDsIt = _cellIDsForElementType[partitionNumber].find(elemTypePtr.get());
   if (cellIDsIt == _cellIDsForElementType[partitionNumber].end())
@@ -509,7 +509,7 @@ void GDAMaximumRule2D::determineDofPairings()
     }
   }
   // now that we have all the dofPairings, reduce the map so that all the pairings point at the earliest paired index
-  for (set<unsigned>::iterator cellIDIt = activeCellIDs.begin(); cellIDIt != activeCellIDs.end(); cellIDIt++)
+  for (set<IndexType>::iterator cellIDIt = activeCellIDs.begin(); cellIDIt != activeCellIDs.end(); cellIDIt++)
   {
     int cellID = *cellIDIt;
     CellPtr cell = _meshTopology->getCell(cellID);
@@ -1166,7 +1166,7 @@ void GDAMaximumRule2D::interpretLocalBasisCoefficients(GlobalIndexType cellID, i
   }
 }
 
-unsigned GDAMaximumRule2D::localDofCount()
+IndexType GDAMaximumRule2D::localDofCount()
 {
   // TODO: implement this
   cout << "WARNING: localDofCount() unimplemented.\n";

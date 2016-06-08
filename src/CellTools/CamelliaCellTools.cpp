@@ -618,7 +618,7 @@ void CamelliaCellTools::mapToPhysicalFrame(FieldContainer<double> &physPoints, c
   }
 }
 
-unsigned CamelliaCellTools::permutationMatchingOrder( CellTopoPtr cellTopo, const vector<unsigned> &fromOrder, const vector<unsigned> &toOrder)
+unsigned CamelliaCellTools::permutationMatchingOrder( CellTopoPtr cellTopo, const vector<int> &fromOrder, const vector<int> &toOrder)
 {
   if (cellTopo->getDimension() == 0)
   {
@@ -650,7 +650,7 @@ unsigned CamelliaCellTools::permutationMatchingOrder( CellTopoPtr cellTopo, cons
   return permutationCount; // an impossible (out of bounds) answer: this line just to satisfy compilers that warn about missing return values.
 }
 
-unsigned CamelliaCellTools::permutationMatchingOrder( const shards::CellTopology &cellTopo, const vector<unsigned> &fromOrder, const vector<unsigned> &toOrder)
+unsigned CamelliaCellTools::permutationMatchingOrder( const shards::CellTopology &cellTopo, const vector<int> &fromOrder, const vector<int> &toOrder)
 {
   if (cellTopo.getDimension() == 0)
   {
@@ -707,8 +707,8 @@ unsigned CamelliaCellTools::permutationComposition( CellTopoPtr cellTopo, unsign
   {
     int permCount = cellTopo->getNodePermutationCount();
     int nodeCount = cellTopo->getNodeCount();
-    vector<unsigned> identityOrder;
-    for (unsigned node=0; node<nodeCount; node++)
+    vector<int> identityOrder;
+    for (int node=0; node<nodeCount; node++)
     {
       identityOrder.push_back(node);
     }
@@ -716,12 +716,12 @@ unsigned CamelliaCellTools::permutationComposition( CellTopoPtr cellTopo, unsign
     {
       for (int j=0; j<permCount; j++)
       {
-        vector<unsigned> composedOrder(nodeCount);
+        vector<int> composedOrder(nodeCount);
         PermutationPair ijPair = make_pair(i,j);
-        for (unsigned node=0; node<nodeCount; node++)
+        for (int node=0; node<nodeCount; node++)
         {
-          unsigned j_of_node = cellTopo->getNodePermutation(j, node);
-          unsigned i_of_j_of_node = cellTopo->getNodePermutation(i, j_of_node);
+          int j_of_node = cellTopo->getNodePermutation(j, node);
+          int i_of_j_of_node = cellTopo->getNodePermutation(i, j_of_node);
           composedOrder[node] = i_of_j_of_node;
         }
         compositionMap[cellTopo->getKey()][ijPair] = permutationMatchingOrder(cellTopo, identityOrder, composedOrder);
@@ -752,9 +752,9 @@ unsigned CamelliaCellTools::permutationFromSubsubcellToParent(CellTopoPtr cellTo
 
   CellTopoPtr subcell = cellTopo->getSubcell(subcdim, subcord);
   int subsubcellNodeCount = subcell->getNodeCount(subsubcdim,subsubcord);
-  vector<unsigned> subcellOrder(subsubcellNodeCount), parentOrder(subsubcellNodeCount);
+  vector<int> subcellOrder(subsubcellNodeCount), parentOrder(subsubcellNodeCount);
   unsigned subsubcordInParent = subcellOrdinalMap(cellTopo, subcdim, subcord, subsubcdim, subsubcord);
-  for (unsigned node=0; node<subsubcellNodeCount; node++)
+  for (int node=0; node<subsubcellNodeCount; node++)
   {
     parentOrder[node] = cellTopo->getNodeMap(subsubcdim, subsubcordInParent, node);
     unsigned nodeInSubcell = subcell->getNodeMap(subsubcdim, subsubcord, node);
@@ -777,17 +777,17 @@ unsigned CamelliaCellTools::permutationInverse( CellTopoPtr cellTopo, unsigned p
   {
     int permCount = cellTopo->getNodePermutationCount();
     int nodeCount = cellTopo->getNodeCount();
-    vector<unsigned> identityOrder;
-    for (unsigned node=0; node<nodeCount; node++)
+    vector<int> identityOrder;
+    for (int node=0; node<nodeCount; node++)
     {
       identityOrder.push_back(node);
     }
     for (int i=0; i<permCount; i++)
     {
-      vector<unsigned> inverseOrder(nodeCount);
-      for (unsigned node=0; node<nodeCount; node++)
+      vector<int> inverseOrder(nodeCount);
+      for (int node=0; node<nodeCount; node++)
       {
-        unsigned i_inverse_of_node = cellTopo->getNodePermutationInverse(i, node);
+        int i_inverse_of_node = cellTopo->getNodePermutationInverse(i, node);
         inverseOrder[node] = i_inverse_of_node;
       }
       inverseMap[cellTopo->getKey()][i] = permutationMatchingOrder(cellTopo, identityOrder, inverseOrder);
@@ -823,17 +823,17 @@ unsigned CamelliaCellTools::permutationInverse( const shards::CellTopology &cell
   {
     int permCount = cellTopo.getNodePermutationCount();
     int nodeCount = cellTopo.getNodeCount();
-    vector<unsigned> identityOrder;
-    for (unsigned node=0; node<nodeCount; node++)
+    vector<int> identityOrder;
+    for (int node=0; node<nodeCount; node++)
     {
       identityOrder.push_back(node);
     }
     for (int i=0; i<permCount; i++)
     {
-      vector<unsigned> inverseOrder(nodeCount);
-      for (unsigned node=0; node<nodeCount; node++)
+      vector<int> inverseOrder(nodeCount);
+      for (int node=0; node<nodeCount; node++)
       {
-        unsigned i_inverse_of_node = cellTopo.getNodePermutationInverse(i, node);
+        int i_inverse_of_node = cellTopo.getNodePermutationInverse(i, node);
         inverseOrder[node] = i_inverse_of_node;
       }
       inverseMap[cellTopo.getKey()][i] = permutationMatchingOrder(cellTopo, identityOrder, inverseOrder);

@@ -171,17 +171,17 @@ RefinementPattern::RefinementPattern(CellTopoPtr cellTopoPtr, FieldContainer<dou
   for (int sideIndex = 0; sideIndex < sideCount; sideIndex++)   // sideIndex: side ordinal in parent
   {
 //    cout << "sideIndex " << sideIndex << endl;
-    int sideEntityIndex = parentCell->entityIndex(sideDim, sideIndex);
+    IndexType sideEntityIndex = parentCell->entityIndex(sideDim, sideIndex);
 //    cout << "sideEntityIndex " << sideEntityIndex << endl;
     // determine which sides are children (refinements) of the side:
-    set<unsigned> sideChildEntities = _refinementTopology->getChildEntitiesSet(sideDim, sideEntityIndex);
+    set<IndexType> sideChildEntities = _refinementTopology->getChildEntitiesSet(sideDim, sideEntityIndex);
     if (sideChildEntities.size() == 0)   // unrefined side; for our purposes it is its own parent
     {
       sideChildEntities.insert(sideEntityIndex);
     }
 //    print("sideChildEntities", sideChildEntities);
     // search for these entities within the (volume) children
-    vector<unsigned> childCellIndices = parentCell->getChildIndices(_refinementTopology);
+    vector<IndexType> childCellIndices = parentCell->getChildIndices(_refinementTopology);
 //    print("childCellIndices", childCellIndices);
     for (int childIndexInParent = 0; childIndexInParent<childCellIndices.size(); childIndexInParent++)
     {
@@ -204,7 +204,7 @@ RefinementPattern::RefinementPattern(CellTopoPtr cellTopoPtr, FieldContainer<dou
   }
   
   // look for any children that do not share sides with parent
-  vector<unsigned> childCellIndices = parentCell->getChildIndices(_refinementTopology);
+  vector<IndexType> childCellIndices = parentCell->getChildIndices(_refinementTopology);
   for (int childOrdinal = 0; childOrdinal<childCellIndices.size(); childOrdinal++)
   {
     if (childrenThatShareSideWithParent.find(childOrdinal) == childrenThatShareSideWithParent.end())
@@ -216,20 +216,19 @@ RefinementPattern::RefinementPattern(CellTopoPtr cellTopoPtr, FieldContainer<dou
   _sideRefinementChildIndices = vector< vector<unsigned> >(sideCount); // maps from index of child in side refinement to the index in volume refinement pattern
   for (int sideIndex = 0; sideIndex < sideCount; sideIndex++)   // sideIndices in parent
   {
-    int sideEntityIndex = parentCell->entityIndex(sideDim, sideIndex);
-    vector<unsigned> sideChildEntities = _refinementTopology->getChildEntities(sideDim, sideEntityIndex); // these are in the order of the side refinement pattern
+    IndexType sideEntityIndex = parentCell->entityIndex(sideDim, sideIndex);
+    vector<IndexType> sideChildEntities = _refinementTopology->getChildEntities(sideDim, sideEntityIndex); // these are in the order of the side refinement pattern
     if (sideChildEntities.size() == 0)   // unrefined side; for our purposes it is its own parent
     {
       sideChildEntities.push_back(sideEntityIndex);
     }
-    for (vector<unsigned>::iterator sideEntityIndexIt = sideChildEntities.begin(); sideEntityIndexIt != sideChildEntities.end(); sideEntityIndexIt++)
+    for (IndexType sideChildEntityIndex : sideChildEntities)
     {
-      unsigned sideChildEntityIndex = *sideEntityIndexIt;
       // need to find the volume child that has this side
-      vector<unsigned> childCellIndices = parentCell->getChildIndices(_refinementTopology);
+      vector<IndexType> childCellIndices = parentCell->getChildIndices(_refinementTopology);
       for (int childIndexInParent = 0; childIndexInParent<childCellIndices.size(); childIndexInParent++)
       {
-        unsigned childCellIndex = childCellIndices[childIndexInParent];
+        IndexType childCellIndex = childCellIndices[childIndexInParent];
         CellPtr childCell = _refinementTopology->getCell(childCellIndex);
         int childSideCount = childCell->getSideCount();
         for (int childSideIndex=0; childSideIndex<childSideCount; childSideIndex++)
@@ -2172,11 +2171,11 @@ FieldContainer<double> RefinementPattern::descendantNodes(RefinementBranch refin
 {
   // NOTE: this is definitely not the most efficient way to compute this...
   vector< vector<double> > vertices;
-  vector< vector<unsigned> > elementVertices;
+  vector< vector<IndexType> > elementVertices;
   int numNodes = ancestorNodes.dimension(0);
   int spaceDim = ancestorNodes.dimension(1);
 
-  vector<unsigned> ancestorVertexIndices;
+  vector<IndexType> ancestorVertexIndices;
   for (int nodeIndex = 0; nodeIndex < numNodes; nodeIndex++)
   {
     vector<double> node;

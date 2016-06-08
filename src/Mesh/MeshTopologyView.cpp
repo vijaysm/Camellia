@@ -425,7 +425,7 @@ vector<double> MeshTopologyView::getCellCentroid(IndexType cellIndex) const
 
 // getCellsContainingEntity() copied from MeshTopology; could possibly eliminate it in MeshTopology
 // ! pairs are (cellIndex, sideOrdinal) where the sideOrdinal is a side that contains the entity
-set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsigned d, unsigned entityIndex) const  // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.
+set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsigned d, IndexType entityIndex) const  // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.
 {
   if (d==getDimension())
   {
@@ -613,7 +613,7 @@ pair<IndexType, unsigned> MeshTopologyView::getConstrainingEntity(unsigned d, In
 // copied from MeshTopology; once that's a subclass of MeshTopologyView, could possibly eliminate it in MeshTopology
 IndexType MeshTopologyView::getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex) const
 {
-  unsigned constrainingEntityIndex = entityIndex;
+  IndexType constrainingEntityIndex = entityIndex;
   
   if (d==0)   // one vertex can't constrain another...
   {
@@ -632,56 +632,23 @@ IndexType MeshTopologyView::getConstrainingEntityIndexOfLikeDimension(unsigned d
     }
   }
   
-  //  vector<unsigned> sidesForEntity;
-  //  unsigned sideDim = _spaceDim - 1;
-  //  if (d==sideDim)
-  //  {
-  //    sidesForEntity.push_back(entityIndex);
-  //  }
-  //  else
-  //  {
-  //    sidesForEntity = _sidesForEntities[d][entityIndex];
-  //  }
-  //  for (vector<unsigned>::iterator sideEntityIt = sidesForEntity.begin(); sideEntityIt != sidesForEntity.end(); sideEntityIt++)
-  //  {
-  //    unsigned sideEntityIndex = *sideEntityIt;
-  //    vector< pair<unsigned,unsigned> > sideAncestry = getConstrainingSideAncestry(sideEntityIndex);
-  //    unsigned constrainingEntityIndexForSide = entityIndex;
-  //    if (sideAncestry.size() > 0)
-  //    {
-  //      // need to find the subcellEntity for the constraining side that overlaps with the one on our present side
-  //      for (vector< pair<unsigned,unsigned> >::iterator entryIt=sideAncestry.begin(); entryIt != sideAncestry.end(); entryIt++)
-  //      {
-  //        // need to map constrained entity index from the current side to its parent in sideAncestry
-  //        unsigned parentSideEntityIndex = entryIt->first;
-  //        if (_parentEntities[d].find(constrainingEntityIndexForSide) == _parentEntities[d].end())
-  //        {
-  //          // no parent for this entity (may be that it was a refinement-interior edge, e.g.)
-  //          break;
-  //        }
-  //        constrainingEntityIndexForSide = getEntityParentForSide(d,constrainingEntityIndexForSide,parentSideEntityIndex);
-  //        sideEntityIndex = parentSideEntityIndex;
-  //      }
-  //    }
-  //    constrainingEntityIndex = maxConstraint(d, constrainingEntityIndex, constrainingEntityIndexForSide);
-  //  }
   return constrainingEntityIndex;
 }
 
 // getConstrainingSideAncestry() copied from MeshTopology; once that's a subclass of MeshTopologyView, could possibly eliminate it in MeshTopology
 // pair: first is the sideEntityIndex of the ancestor; second is the refinementIndex of the refinement to get from parent to child (see _parentEntities and _childEntities)
-vector< pair<IndexType,unsigned> > MeshTopologyView::getConstrainingSideAncestry(unsigned int sideEntityIndex) const
+vector< pair<IndexType,unsigned> > MeshTopologyView::getConstrainingSideAncestry(IndexType sideEntityIndex) const
 {
   // three possibilities: 1) compatible side, 2) side is parent, 3) side is child
   // 1) and 2) mean unconstrained.  3) means constrained (by parent)
   unsigned sideDim = getDimension() - 1;
-  vector< pair<unsigned, unsigned> > ancestry;
+  vector< pair<IndexType, unsigned> > ancestry;
   if (_meshTopo->isBoundarySide(sideEntityIndex))
   {
     return ancestry; // sides on boundary are unconstrained...
   }
   
-  vector< pair<unsigned,unsigned> > sideCellEntries = getActiveCellIndices(sideDim, sideEntityIndex); //_activeCellsForEntities[sideDim][sideEntityIndex];
+  vector< pair<IndexType,unsigned> > sideCellEntries = getActiveCellIndices(sideDim, sideEntityIndex); //_activeCellsForEntities[sideDim][sideEntityIndex];
   int activeCellCountForSide = sideCellEntries.size();
   if (activeCellCountForSide == 2)
   {
@@ -961,7 +928,7 @@ bool MeshTopologyView::isValidCellIndex(IndexType cellIndex) const
   return _allKnownCells.find(cellIndex) != _allKnownCells.end();
 }
 
-Intrepid::FieldContainer<double> MeshTopologyView::physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension) const
+Intrepid::FieldContainer<double> MeshTopologyView::physicalCellNodesForCell(IndexType cellIndex, bool includeCellDimension) const
 {
   return _meshTopo->physicalCellNodesForCell(cellIndex,includeCellDimension);
 }

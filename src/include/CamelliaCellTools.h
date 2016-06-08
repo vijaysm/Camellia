@@ -216,9 +216,9 @@ public:
 
   static void pointsFCFromVector(Intrepid::FieldContainer<double> &pointsFC, const std::vector< vector<double> > &pointsVector);
 
-  static unsigned permutationMatchingOrder( CellTopoPtr cellTopo, const vector<unsigned> &fromOrder, const vector<unsigned> &toOrder);
+  static unsigned permutationMatchingOrder( CellTopoPtr cellTopo, const vector<int> &fromOrder, const vector<int> &toOrder);
 
-  static unsigned permutationMatchingOrder( const shards::CellTopology &cellTopo, const vector<unsigned> &fromOrder, const vector<unsigned> &toOrder);
+  static unsigned permutationMatchingOrder( const shards::CellTopology &cellTopo, const vector<int> &fromOrder, const vector<int> &toOrder);
 
   static unsigned permutationComposition( CellTopoPtr cellTopo, unsigned a_permutation, unsigned b_permutation );
 

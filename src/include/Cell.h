@@ -26,10 +26,10 @@ typedef Teuchos::RCP<shards::CellTopology> CellTopoPtrLegacy;
 // "elements" are cells endowed with a (local) functional discretization
 class Cell
 {
-  unsigned _cellIndex;
+  GlobalIndexType _cellIndex;
   int _level;
   CellTopoPtr _cellTopo;
-  vector< unsigned > _vertices;
+  vector<IndexType> _vertices;
   vector< vector< unsigned > > _subcellPermutations; // permutation to get from local ordering to the canonical one
   vector<vector<IndexType>> _entityIndices;
 
@@ -44,7 +44,7 @@ class Cell
   CellPtr _parent; // doesn't own memory (avoid circular reference issues)
 
   //neighbors:
-  vector< pair<GlobalIndexType, unsigned> > _neighbors; // cellIndex, neighborSideIndex (which may not refer to the same side)
+  vector< pair<GlobalIndexType, IndexType> > _neighbors; // cellIndex, neighborSideIndex (which may not refer to the same side)
   /* rules for neighbors:
      - hanging node sides point to the constraining neighbor (which may not be active)
      - cells with broken neighbors point to their peer, the ancestor of the active neighbors
@@ -52,7 +52,7 @@ class Cell
 
   map<string, long long> approximateMemoryCosts(); // for each private variable
 public:
-  Cell(CellTopoPtr cellTopo, const vector<unsigned> &vertices, const vector< vector< unsigned > > &subcellPermutations,
+  Cell(CellTopoPtr cellTopo, const vector<IndexType> &vertices, const vector< vector< unsigned > > &subcellPermutations,
        IndexType cellIndex, MeshTopology* meshTopo);
 
   Teuchos::RCP<Cell> ancestralCellForSubcell(unsigned subcdim, unsigned subcord, ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
@@ -66,7 +66,7 @@ public:
 
   vector<unsigned> boundarySides();
 
-  IndexType cellIndex();
+  GlobalIndexType cellIndex();
   const vector< Teuchos::RCP< Cell > > &children();
   void setChildren(const vector<GlobalIndexType> &childIndices);
   vector<IndexType> getChildIndices(ConstMeshTopologyViewPtr meshTopoViewForCellValidity);
@@ -77,10 +77,10 @@ public:
 
   set<IndexType> getDescendants(ConstMeshTopologyViewPtr meshTopoViewForCellValidity, bool leafNodesOnly = true);
   vector< pair< IndexType, unsigned> > getDescendantsForSide(int sideOrdinal, ConstMeshTopologyViewPtr meshTopoViewForCellValidity, bool leafNodesOnly = true);
-  unsigned entityIndex(unsigned subcdim, unsigned subcord);
-  vector<unsigned> getEntityIndices(unsigned subcdim);
+  IndexType entityIndex(unsigned subcdim, unsigned subcord);
+  vector<IndexType> getEntityIndices(unsigned subcdim);
 
-  vector<unsigned> getEntityVertexIndices(unsigned subcdim, unsigned subcord);
+  vector<IndexType> getEntityVertexIndices(unsigned subcdim, unsigned subcord);
 
   Teuchos::RCP<Cell> getParent();
   void setParent(Teuchos::RCP<Cell> parent);
@@ -139,9 +139,9 @@ public:
 
   const vector< vector< unsigned > > &subcellPermutations();
 
-  const vector<unsigned> &vertices();
+  const vector<IndexType> &vertices();
   
-  void setVertices(const vector<unsigned> &vertexIndices);
+  void setVertices(const vector<IndexType> &vertexIndices);
 };
 }
 

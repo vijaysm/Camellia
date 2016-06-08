@@ -187,7 +187,7 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, int H1
   this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
-Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<unsigned> > &elementVertices,
+Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<IndexType> > &elementVertices,
            TBFPtr<double> bilinearForm, int H1Order, int pToAddTest, bool useConformingTraces,
            map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements, vector<PeriodicBCPtr> periodicBCs,
            Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
@@ -222,7 +222,7 @@ Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<unsigned> > &
   {
     vector<double> vertex = _meshTopology->getVertex(vertexIndex);
 
-    unsigned assignedVertexIndex;
+    IndexType assignedVertexIndex;
     bool vertexFound = _meshTopology->getVertexIndex(vertex, assignedVertexIndex);
 
     if (!vertexFound)
@@ -291,9 +291,9 @@ Mesh::Mesh(MeshPtr mesh, GlobalIndexType cellID, Epetra_CommPtr Comm) : DofInter
   int vertexCount = cell->vertices().size();
   vector<vector<double> > cellVertices(vertexCount);
 
-  const vector<unsigned>* vertexIndices = &cell->vertices();
+  const vector<IndexType>* vertexIndices = &cell->vertices();
   int i=0;
-  for (unsigned vertexIndex : *vertexIndices)
+  for (IndexType vertexIndex : *vertexIndices)
   {
     cellVertices[i] = mesh->getTopology()->getVertex(vertexIndex);
     i++;
@@ -1227,10 +1227,10 @@ FieldContainer<double> Mesh::physicalCellNodesForCell( GlobalIndexType cellID )
   FieldContainer<double> physicalCellNodes(numCells,vertexCount,spaceDim);
 
   FieldContainer<double> cellVertices(vertexCount,spaceDim);
-  vector<unsigned> vertexIndices = _meshTopology->getCell(cellID)->vertices();
+  vector<IndexType> vertexIndices = _meshTopology->getCell(cellID)->vertices();
   for (int vertex=0; vertex<vertexCount; vertex++)
   {
-    unsigned vertexIndex = vertexIndices[vertex];
+    IndexType vertexIndex = vertexIndices[vertex];
     for (int i=0; i<spaceDim; i++)
     {
       physicalCellNodes(0,vertex,i) = _meshTopology->getVertex(vertexIndex)[i];
@@ -1502,7 +1502,7 @@ VarFactoryPtr Mesh::varFactory() const
   return _varFactory;
 }
 
-vector<unsigned> Mesh::vertexIndicesForCell(GlobalIndexType cellID)
+vector<IndexType> Mesh::vertexIndicesForCell(GlobalIndexType cellID)
 {
   return _meshTopology->getCell(cellID)->vertices();
 }
@@ -1521,12 +1521,12 @@ FieldContainer<double> Mesh::vertexCoordinates(GlobalIndexType vertexIndex)
 vector< vector<double> > Mesh::verticesForCell(GlobalIndexType cellID)
 {
   CellPtr cell = _meshTopology->getCell(cellID);
-  vector<unsigned> vertexIndices = cell->vertices();
+  vector<IndexType> vertexIndices = cell->vertices();
   int numVertices = vertexIndices.size();
 
   vector< vector<double> > vertices(numVertices);
   //vertices.resize(numVertices,dimension);
-  for (unsigned vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
+  for (IndexType vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
   {
     vertices[vertexIndex] = _meshTopology->getVertex(vertexIndices[vertexIndex]);
   }
@@ -1549,7 +1549,7 @@ void Mesh::verticesForCells(FieldContainer<double>& vertices, vector<GlobalIndex
     vertices.resize(0,0,0);
     return;
   }
-  unsigned firstCellID = cellIDs[0];
+  IndexType firstCellID = cellIDs[0];
   int numVertices = _meshTopology->getCell(firstCellID)->vertices().size();
 
   vertices.resize(numCells,numVertices,spaceDim);
@@ -1571,13 +1571,13 @@ void Mesh::verticesForSide(FieldContainer<double>& vertices, GlobalIndexType cel
   CellPtr cell = _meshTopology->getCell(cellID);
   int spaceDim = _meshTopology->getDimension();
   int sideDim = spaceDim - 1;
-  unsigned sideEntityIndex = cell->entityIndex(sideDim, sideIndex);
-  vector<unsigned> vertexIndices = _meshTopology->getEntityVertexIndices(sideDim, sideEntityIndex);
+  IndexType sideEntityIndex = cell->entityIndex(sideDim, sideIndex);
+  vector<IndexType> vertexIndices = _meshTopology->getEntityVertexIndices(sideDim, sideEntityIndex);
 
   int numVertices = vertexIndices.size();
   vertices.resize(numVertices,spaceDim);
 
-  for (unsigned vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
+  for (IndexType vertexIndex = 0; vertexIndex < numVertices; vertexIndex++)
   {
     for (int d=0; d<spaceDim; d++)
     {

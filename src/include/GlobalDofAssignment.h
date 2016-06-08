@@ -93,7 +93,7 @@ public:
   void assignParities( GlobalIndexType cellID );
   
 //  virtual GlobalIndexType cellID(ElementTypePtr elemTypePtr, IndexType cellIndex, PartitionIndexType partitionNumber);
-  virtual vector<GlobalIndexType> cellIDsOfElementType(unsigned partitionNumber, ElementTypePtr elemTypePtr);
+  virtual vector<GlobalIndexType> cellIDsOfElementType(PartitionIndexType partitionNumber, ElementTypePtr elemTypePtr);
   const set< GlobalIndexType > &cellsInPartition(PartitionIndexType partitionNumber) const;
   Intrepid::FieldContainer<double> cellSideParitiesForCell( GlobalIndexType cellID );
 

@@ -558,8 +558,8 @@ TEUCHOS_UNIT_TEST( CamelliaCellTools, PermutationMatchingOrder_Space ) // tensor
 
     for (int permutation=0; permutation<permutationCount; permutation++)
     {
-      vector<unsigned> fromOrder(nodeCount);
-      vector<unsigned> toOrder(nodeCount);
+      vector<int> fromOrder(nodeCount);
+      vector<int> toOrder(nodeCount);
 
       for (unsigned node=0; node<nodeCount; node++)
       {
@@ -594,8 +594,8 @@ TEUCHOS_UNIT_TEST( CamelliaCellTools, PermutationMatchingOrder_SpaceTime_Slow ) 
 
     for (int permutation=0; permutation<permutationCount; permutation++)
     {
-      vector<unsigned> fromOrder(nodeCount);
-      vector<unsigned> toOrder(nodeCount);
+      vector<int> fromOrder(nodeCount);
+      vector<int> toOrder(nodeCount);
 
       for (unsigned node=0; node<nodeCount; node++)
       {

@@ -89,7 +89,7 @@ namespace Camellia {
     
     virtual CellPtr getCell(IndexType cellIndex) const;
     virtual std::vector<double> getCellCentroid(IndexType cellIndex) const;
-    virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, unsigned entityIndex) const;
+    virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, IndexType entityIndex) const;
     virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingEntities(unsigned d, const std::vector<IndexType> &entities) const;
     
     virtual std::set< std::pair<IndexType, unsigned> > getCellsContainingSides(const std::vector<IndexType> &sideEntityIndices) const;
@@ -98,7 +98,7 @@ namespace Camellia {
 
     virtual std::pair<IndexType, unsigned> getConstrainingEntity(unsigned d, IndexType entityIndex) const;
     virtual IndexType getConstrainingEntityIndexOfLikeDimension(unsigned d, IndexType entityIndex) const;
-    virtual std::vector< std::pair<IndexType,unsigned> > getConstrainingSideAncestry(unsigned int sideEntityIndex) const;
+    virtual std::vector< std::pair<IndexType,unsigned> > getConstrainingSideAncestry(IndexType sideEntityIndex) const;
     
     virtual unsigned getDimension() const;
     
@@ -120,11 +120,11 @@ namespace Camellia {
     
     virtual std::vector<IndexType> getVertexIndicesMatching(const std::vector<double> &vertexInitialCoordinates, double tol=1e-14) const;
 
-    virtual Intrepid::FieldContainer<double> physicalCellNodesForCell(unsigned cellIndex, bool includeCellDimension = false) const;
+    virtual Intrepid::FieldContainer<double> physicalCellNodesForCell(IndexType cellIndex, bool includeCellDimension = false) const;
     
     virtual Teuchos::RCP<MeshTransformationFunction> transformationFunction() const;
     
-    virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, unsigned constrainingEntityIndex) const;
+    virtual std::pair<IndexType,IndexType> owningCellIndexForConstrainingEntity(unsigned d, IndexType constrainingEntityIndex) const;
     
     virtual void setGlobalDofAssignment(GlobalDofAssignment* gda); // for cubature degree lookups
     

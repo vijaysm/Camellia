@@ -139,12 +139,6 @@ public:
   //! sum value across communicator
   template<typename ScalarType>
   static ScalarType sum(const Epetra_Comm &Comm, ScalarType value);
-
-  static void entryWiseSum(Intrepid::FieldContainer<GlobalIndexType> &values); // sums values entry-wise across all processors
-  // sum the contents of valuesToSum across all processors, and returns the result:
-  // (valuesToSum may vary in length across processors)
-  static GlobalIndexType sum(const Intrepid::FieldContainer<GlobalIndexType> &valuesToSum);
-  static GlobalIndexType sum(GlobalIndexType myValue);
 };
   
   template<typename Scalar>
