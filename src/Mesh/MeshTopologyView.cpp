@@ -13,6 +13,8 @@
 #include "MeshTopology.h"
 #include "MPIWrapper.h"
 
+#include "Epetra_Time.h"
+
 using namespace Camellia;
 using namespace std;
 
@@ -81,6 +83,8 @@ void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set
   // we keep more than that; we keep all ancestors and siblings of the cells, as well as all cells that share
   // dimForNeighborRelation-dimensional entities with the cells or their ancestors.
   
+  Epetra_Time timer(*MPIWrapper::CommSerial());
+  
   ConstMeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
   
   // for all the original cells, also add the peer neighbors of their ancestors
@@ -146,40 +150,6 @@ void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set
       }
     }
   }
-
-  // old code that determined peer neighbors on a per-cell basis:
-  //  for (GlobalIndexType cellID : cellIndices)
-  //  {
-  //    CellPtr cell = getCell(cellID);
-  //    while (cell->getParent() != Teuchos::null)
-  //    {
-  //      cell = cell->getParent();
-  //      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
-  //      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
-  //    }
-  //  }
-
-  
-//  {
-//    // DEBUGGING: with the old code, do we find any peer neighbors we don't with the new?
-//    for (GlobalIndexType cellID : cellIndices)
-//    {
-//      CellPtr cell = getCell(cellID);
-//      while (cell->getParent() != Teuchos::null)
-//      {
-//        cell = cell->getParent();
-//        set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
-//        for (IndexType peerNeighborCellID : peerNeighbors)
-//        {
-//          if (cellsThatMatch.find(peerNeighborCellID) == cellsThatMatch.end())
-//          {
-//            cout << "peer neighbor cell " << peerNeighborCellID << " not found by the revised cellHalo() code.\n";
-//            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "peer neighbor not found by revised cellHalo()");
-//          }
-//        }
-//      }
-//    }
-//  }
   
   // now, let's find all the entities that these cells touch
   set<IndexType> entitiesToMatchSet;
@@ -211,6 +181,8 @@ void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set
       haloCellIndices.insert(cell->cellIndex());
     }
   }
+  
+  _cellHaloTimeTotal += timer.ElapsedTime();
 }
 
 std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const
@@ -966,6 +938,11 @@ void MeshTopologyView::printCellAncestors(IndexType cellID) const
   ostringstream cellLabel;
   cellLabel << cellID;
   print(cellLabel.str(),cellAncestors);
+}
+
+double MeshTopologyView::totalTimeComputingCellHalos() const
+{
+  return _cellHaloTimeTotal;
 }
 
 Teuchos::RCP<MeshTransformationFunction> MeshTopologyView::transformationFunction() const

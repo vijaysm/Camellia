@@ -37,6 +37,9 @@ namespace Camellia {
     IndexType _globalCellCount;
     IndexType _globalActiveCellCount;
     
+    // timing concern: how long do we spend computing cell halos?
+    mutable double _cellHaloTimeTotal = 0;
+    
     void buildLookups(); // _rootCellIndices and _ancestralCells
   protected:
     std::set<IndexType> _activeCells;
@@ -142,6 +145,8 @@ namespace Camellia {
     
     void printActiveCellAncestors() const;
     void printCellAncestors(IndexType cellIndex) const;
+    
+    double totalTimeComputingCellHalos() const;
     
     // distributed read/write methods (for HDF5 support, e.g.)
     // ! returns the size, in bytes, of the serialization of this rank's view of the MeshTopologyView object.  Includes the base MeshTopology's serialization.  (While potentially inefficient, this makes exported MeshTopologyViews self-contained.)
