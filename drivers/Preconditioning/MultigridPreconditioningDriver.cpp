@@ -629,10 +629,7 @@ int main(int argc, char *argv[])
   
   if (setUpMeshTopologyAndQuit)
   {
-#ifdef HAVE_MPI
-    MPI_Finalize();
-#endif
-    exit(0);
+    return 0;
   }
   
   if (numGrids != -1)
@@ -693,6 +690,10 @@ int main(int argc, char *argv[])
   int coarseMeshNumElements = meshesCoarseToFine[0]->numElements();
   int coarseMeshTraceDofs = meshesCoarseToFine[0]->numFluxDofs();
   
+  double cellHaloTime = solution->mesh()->getTopology()->totalTimeComputingCellHalos();
+  double maxCellHaloTime;
+  solution->mesh()->Comm()->MaxAll(&cellHaloTime, &maxCellHaloTime, 1);
+  
   if (rank==0)
   {
     int numLevels = meshesCoarseToFine.size();
@@ -707,6 +708,8 @@ int main(int argc, char *argv[])
     cout << totalTrialDofs << " trial dofs per element; " << totalTestDofs << " test dofs.\n";
     
     cout << "Approximate memory cost per element (assuming sparse storage): G = " << G_sparseMatrixSize << " MB, B = " << B_sparseMatrixSize << " MB.\n";
+    
+    cout << "Maximum time spent determining cell halos: " << maxCellHaloTime << " seconds.\n";
     
     if (setUpMeshesAndQuit)
       cout << "***** setUpMeshesAndQuit option selected; now exiting *****\n";
@@ -726,10 +729,7 @@ int main(int argc, char *argv[])
   
   if (setUpMeshesAndQuit)
   {
-#ifdef HAVE_MPI
-    MPI_Finalize();
-#endif
-    exit(0);
+    return 0;
   }
   
   double gmgSolverInitializationTime = 0, solveTime;
