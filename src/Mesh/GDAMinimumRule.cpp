@@ -15,6 +15,7 @@
 #include "MPIWrapper.h"
 #include "SerialDenseWrapper.h"
 #include "Solution.h"
+#include "TimeLogger.h"
 
 using namespace std;
 using namespace Camellia;
@@ -349,6 +350,8 @@ void GDAMinimumRule::didHUnrefine(const set<GlobalIndexType> &parentCellIDs)
 void GDAMinimumRule::distributeCellGlobalDofs(const map<GlobalIndexType, SubcellDofIndices> &myCellGlobalDofs,
                                               const set<GlobalIndexType> &remoteCellIDs)
 {
+  int timerHandle = TimeLogger::sharedInstance()->startTimer("distributeCellGlobalDofs");
+  
   int rank = _mesh->Comm()->MyPID();
   map<GlobalIndexType,PartitionIndexType> remoteCellOwners;
   for (GlobalIndexType remoteCellID : remoteCellIDs)
@@ -373,12 +376,16 @@ void GDAMinimumRule::distributeCellGlobalDofs(const map<GlobalIndexType, Subcell
     }
     _globalDofIndicesForCellCache[cellID] = remoteCellGlobalDofs[cellID];
   }
+  
+  TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }
 
 
 void GDAMinimumRule::distributeGlobalDofOwnership(const map<GlobalIndexType, SubcellDofIndices> &myOwnedGlobalDofs,
                                                   const set<GlobalIndexType> &remoteCellIDs)
 {
+  int timerHandle = TimeLogger::sharedInstance()->startTimer("distributeGlobalDofOwnership");
+  
   int rank = _mesh->Comm()->MyPID();
   {
     // DEBUGGING: barrier for breakpoint.
@@ -428,12 +435,15 @@ void GDAMinimumRule::distributeGlobalDofOwnership(const map<GlobalIndexType, Sub
     }
     _ownedGlobalDofIndicesCache[cellID] = remotelyOwnedGlobalDofs[cellID];
   }
+  TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }
 
 void GDAMinimumRule::distributeSubcellDofIndices(Epetra_CommPtr Comm, const map<GlobalIndexType, SubcellDofIndices> &myOwnedGlobalDofs,
                                                  const map<GlobalIndexType, PartitionIndexType> &remoteCellOwners,
                                                  map<GlobalIndexType, SubcellDofIndices> &remotelyOwnedGlobalDofs)
 {
+  int timerHandle = TimeLogger::sharedInstance()->startTimer("distributeSubcellDofIndices");
+  
   // sort by partition # using map
   map<PartitionIndexType,set<GlobalIndexType>> requestMap;
   for (auto remoteCellEntry : remoteCellOwners)
@@ -524,6 +534,8 @@ void GDAMinimumRule::distributeSubcellDofIndices(Epetra_CommPtr Comm, const map<
   if( cellIDsToExport != 0 ) delete [] cellIDsToExport;
   if( exportRecipients != 0 ) delete [] exportRecipients;
   if (globalData != 0 ) delete [] globalData;
+  
+  TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }
 
 GlobalIndexType GDAMinimumRule::globalDofCount()
@@ -3370,6 +3382,8 @@ void GDAMinimumRule::printGlobalDofInfo()
 
 void GDAMinimumRule::rebuildLookups()
 {
+  int timerHandle = TimeLogger::sharedInstance()->startTimer("rebuildLookups");
+  
   _constraintsCache.clear(); // to free up memory, could clear this again after the lookups are rebuilt.  Having the cache is most important during the construction below.
   _dofMapperCache.clear();
   _dofMapperForVariableOnSideCache.clear();
@@ -3544,6 +3558,8 @@ void GDAMinimumRule::rebuildLookups()
     myCellGlobalDofs[cellID] = getGlobalDofIndices(cellID);
   }
   distributeCellGlobalDofs(myCellGlobalDofs, nonLocalCellNeighbors);
+  
+  TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }
 
 namespace Camellia
