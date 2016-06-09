@@ -411,7 +411,6 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
         MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(meshToPRefine,fineMesh);
         meshToPRefine->setPartitionPolicy(inducedPartitionPolicy);
         
-        meshToPRefine->repartitionAndRebuild();
         meshesCoarseToFine.push_back(meshToPRefine);
       }
     }
