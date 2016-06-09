@@ -12,8 +12,7 @@
 #include "CellDataMigration.h"
 #include "MeshTopology.h"
 #include "MPIWrapper.h"
-
-#include "Epetra_Time.h"
+#include "TimeLogger.h"
 
 using namespace Camellia;
 using namespace std;
@@ -83,7 +82,7 @@ void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set
   // we keep more than that; we keep all ancestors and siblings of the cells, as well as all cells that share
   // dimForNeighborRelation-dimensional entities with the cells or their ancestors.
   
-  Epetra_Time timer(*MPIWrapper::CommSerial());
+  int timerHandle = TimeLogger::sharedInstance()->startTimer("cellHalo");
   
   ConstMeshTopologyViewPtr thisPtr = Teuchos::rcp(this,false);
   
@@ -182,7 +181,7 @@ void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set
     }
   }
   
-  _cellHaloTimeTotal += timer.ElapsedTime();
+  TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }
 
 std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const
@@ -942,7 +941,7 @@ void MeshTopologyView::printCellAncestors(IndexType cellID) const
 
 double MeshTopologyView::totalTimeComputingCellHalos() const
 {
-  return _cellHaloTimeTotal;
+  return TimeLogger::sharedInstance()->totalTime("cellHalo");
 }
 
 Teuchos::RCP<MeshTransformationFunction> MeshTopologyView::transformationFunction() const

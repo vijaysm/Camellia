@@ -37,9 +37,6 @@ namespace Camellia {
     IndexType _globalCellCount;
     IndexType _globalActiveCellCount;
     
-    // timing concern: how long do we spend computing cell halos?
-    mutable double _cellHaloTimeTotal = 0;
-    
     void buildLookups(); // _rootCellIndices and _ancestralCells
   protected:
     std::set<IndexType> _activeCells;
