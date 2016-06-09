@@ -424,7 +424,17 @@ Epetra_CommPtr& Mesh::Comm()
 
 MeshPtr Mesh::deepCopy()
 {
-  MeshTopologyViewPtr meshTopoCopy = _meshTopology->deepCopy();
+  MeshTopologyViewPtr meshTopoCopy;
+  
+  if (dynamic_cast<MeshTopology*>(_meshTopology.get()) == NULL)
+  {
+    // presumably pure MeshTopologyView: we allow shallow copy of MeshTopologyView
+    meshTopoCopy = _meshTopology;
+  }
+  else
+  {
+    meshTopoCopy = _meshTopology->deepCopy();
+  }
   GlobalDofAssignmentPtr gdaCopy = _gda->deepCopy();
 
   MeshPtr meshCopy = Teuchos::rcp( new Mesh(meshTopoCopy, gdaCopy, _bilinearForm, _pToAddToTest, _useConformingTraces, _usePatchBasis, _enforceMBFluxContinuity ));
