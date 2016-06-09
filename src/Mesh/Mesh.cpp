@@ -1478,7 +1478,8 @@ void Mesh::setEnforceMultiBasisFluxContinuity( bool value )
 
 void Mesh::setPartitionPolicy(  Teuchos::RCP< MeshPartitionPolicy > partitionPolicy )
 {
-  _gda->setPartitionPolicy(partitionPolicy);
+  _gda->setPartitionPolicy(partitionPolicy, false);
+  repartitionAndRebuild();
 }
 
 void Mesh::setUsePatchBasis( bool value )
