@@ -75,6 +75,9 @@ namespace Camellia
     print<key_type,value_type>(cout,name,data);
   }
   
+  template void print<int,double>(string name, map<int, double> &data);
+  template void print<string,double>(string name, map<string, double> &data);
+  
   void print(string name, map<int, double> data)
   {
     print<int, double>(name, data);
