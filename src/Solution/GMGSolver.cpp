@@ -343,20 +343,22 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
     bool someCellWasRefined = true;
 
     map<GlobalIndexType,int> pRefinements; // relative to H1OrderCoarse
+
+    MeshPtr meshToPRefine;
+    BFPtr bf = fineMesh->bilinearForm();
+    if (bf != Teuchos::null)
+    {
+      meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, bf, H1Order_coarse, delta_k, trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy) );
+    }
+    else
+    {
+      VarFactoryPtr vf = fineMesh->varFactory();
+      meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, vf, H1Order_coarse, delta_k, trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy) );
+    }
     
     while (someCellWasRefined)
     {
-      MeshPtr meshToPRefine;
-      BFPtr bf = fineMesh->bilinearForm();
-      if (bf != Teuchos::null)
-      {
-        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, bf, H1Order_coarse, delta_k, trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy) );
-      }
-      else
-      {
-        VarFactoryPtr vf = fineMesh->varFactory();
-        meshToPRefine = Teuchos::rcp( new Mesh(fineMeshTopoView, vf, H1Order_coarse, delta_k, trialOrderEnhancements, map<int,int>(), inducedPartitionPolicy) );
-      }
+      meshToPRefine = meshToPRefine->deepCopy();
       meshToPRefine->globalDofAssignment()->setCellPRefinements(pRefinements);
       
       someCellWasRefined = false;
