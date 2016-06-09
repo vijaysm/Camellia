@@ -13,6 +13,7 @@
 #include "Solver.h"
 #include "StokesVGPFormulation.h"
 #include "SuperLUDistSolver.h"
+#include "TimeLogger.h"
 #include "TrigFunctions.h"
 #include "TypeDefs.h"
 
@@ -689,6 +690,13 @@ int main(int argc, char *argv[])
   int coarseMeshGlobalDofs = meshesCoarseToFine[0]->numGlobalDofs();
   int coarseMeshNumElements = meshesCoarseToFine[0]->numElements();
   int coarseMeshTraceDofs = meshesCoarseToFine[0]->numFluxDofs();
+  
+  map<string,double> timings = TimeLogger::sharedInstance()->totalTimes();
+  
+  if (rank == 0)
+  {
+    Camellia::print<string,double>("selected timings on rank 0", timings);
+  }
   
   double cellHaloTime = solution->mesh()->getTopology()->totalTimeComputingCellHalos();
   double maxCellHaloTime;
