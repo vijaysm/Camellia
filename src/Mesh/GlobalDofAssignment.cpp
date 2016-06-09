@@ -870,10 +870,13 @@ void GlobalDofAssignment::setPartitions(std::vector<std::set<GlobalIndexType> > 
   }
 }
 
-void GlobalDofAssignment::setPartitionPolicy( MeshPartitionPolicyPtr partitionPolicy )
+void GlobalDofAssignment::setPartitionPolicy( MeshPartitionPolicyPtr partitionPolicy, bool shouldRepartitionAndMigrate )
 {
   _partitionPolicy = partitionPolicy;
-  repartitionAndMigrate();
+  if (shouldRepartitionAndMigrate)
+  {
+    repartitionAndMigrate();
+  }
 }
 
 PartitionIndexType GlobalDofAssignment::partitionForCellID( GlobalIndexType cellID )

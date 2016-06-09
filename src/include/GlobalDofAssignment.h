@@ -196,7 +196,7 @@ public:
 
   void setPartitions(std::vector< std::set<IndexType> > &partitions, bool rebuildLookups=true);
   void setPartitions(Intrepid::FieldContainer<GlobalIndexType> &partitions, bool rebuildLookups=true);
-  void setPartitionPolicy( MeshPartitionPolicyPtr partitionPolicy );
+  void setPartitionPolicy( MeshPartitionPolicyPtr partitionPolicy, bool repartitionAndMigrate=true );
 
   // static constructors:
   static GlobalDofAssignmentPtr maximumRule2D(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderingFactoryPtr dofOrderingFactory,
