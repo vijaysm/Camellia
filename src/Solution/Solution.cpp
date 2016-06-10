@@ -97,6 +97,7 @@
 #include "RHS.h"
 #include "SerialDenseWrapper.h"
 #include "Solver.h"
+#include "TimeLogger.h"
 #include "Var.h"
 
 #include "AztecOO_ConditionNumber.h"
@@ -1061,6 +1062,7 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
   double testMatrixAssemblyTime = 0, testMatrixInversionTime = 0, localStiffnessDeterminationFromTestsTime = 0;
   double localStiffnessInterpretationTime = 0, rhsIntegrationAgainstOptimalTestsTime = 0, filterApplicationTime = 0;
 
+  int localStiffnessTimerHandle = TimeLogger::sharedInstance()->startTimer("local stiffness/load");
   //  cout << "Computing local matrices" << endl;
   for (elemTypeIt = elementTypes.begin(); elemTypeIt != elementTypes.end(); elemTypeIt++)
   {
@@ -1193,6 +1195,7 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
         cout << "filterApplicationTime: " << filterApplicationTime << " seconds.\n";*/
   }
 
+  TimeLogger::sharedInstance()->stopTimer(localStiffnessTimerHandle);
   double timeLocalStiffness = timer.ElapsedTime();
   //  cout << "Done computing local matrices" << endl;
   Epetra_Vector timeLocalStiffnessVector(timeMap);
