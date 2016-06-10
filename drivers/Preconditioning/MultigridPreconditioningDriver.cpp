@@ -418,6 +418,63 @@ long long approximateMemoryCostsForMeshTopologies(vector<MeshPtr> meshes)
   return memoryCostTotal;
 }
 
+void printTimings()
+{
+  Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+
+  int rank = Comm->MyPID();
+  
+  map<string,double> timings = TimeLogger::sharedInstance()->totalTimes();
+  // let's take the maximum timings -- but first let's just do a sanity check that all
+  // ranks agree on the number of timing entries.  (This is true today, but depending on
+  // what timings are added going forward, it might not be true in the future.)
+  
+  int numTimings = timings.size();
+  int maxNumTimings, minNumTimings;
+  Comm->MaxAll(&numTimings, &maxNumTimings, 1);
+  Comm->MinAll(&numTimings, &minNumTimings, 1);
+  
+  if (maxNumTimings != minNumTimings)
+  {
+    if (rank == 0)
+    {
+      cout << "WARNING: Timings lists do not agree on all ranks; instead of taking maximums, just printing rank 0's timings:\n";
+      Camellia::print<string,double>("selected timings on rank 0", timings);
+    }
+  }
+  else
+  {
+    // otherwise, we take it the lists are the same.  Might be better later to identify which timings are actually of interest to us,
+    // and identify them by name...
+    vector<double> timingValues;
+    for (auto entry : timings)
+    {
+      timingValues.push_back(entry.second);
+    }
+    vector<double> maxTimingValues(numTimings);
+    Comm->MaxAll(&timingValues[0], &maxTimingValues[0], numTimings);
+    if (rank == 0)
+    {
+      cout << "************************************************\n";
+      cout << " Selected timings, max values across all ranks:\n";
+      
+      cout << setprecision(2);
+      cout << std::scientific;
+      
+      int i=0;
+      for (auto entry : timings)
+      {
+        cout.setf(std::ios::left, std::ios::adjustfield);
+        cout << std::setw(30) << entry.first;
+        cout.setf(std::ios::right, std::ios::adjustfield);
+        cout << std::setw(8);
+        cout << maxTimingValues[i++] << " sec." << endl;
+      }
+      cout << "************************************************\n";
+    }
+  }
+}
+
 int main(int argc, char *argv[])
 {
   Teuchos::GlobalMPISession mpiSession(&argc, &argv, NULL);
@@ -614,6 +671,8 @@ int main(int argc, char *argv[])
   
   Epetra_Time timer(*Comm);
 
+  int meshInitTimerHandle = TimeLogger::sharedInstance()->startTimer("Mesh Init.");
+  
   SolutionPtr solution;
   MeshPtr coarseMesh;
   IPPtr ip;
@@ -644,6 +703,8 @@ int main(int argc, char *argv[])
     }
     meshesCoarseToFine = newMeshesCoarseToFine;
   }
+  
+  TimeLogger::sharedInstance()->stopTimer(meshInitTimerHandle);
   
   double meshInitializationTime = timer.ElapsedTime();
 
@@ -676,27 +737,22 @@ int main(int argc, char *argv[])
     G_sparseMatrixSize = ( ip->nonZeroEntryCount(sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
   }
 
-  int minRankWithSampleCell;
-  solution->mesh()->Comm()->MinAll(&rankWithSampleCell, &minRankWithSampleCell, 1);
-  solution->mesh()->Comm()->Broadcast(&totalTestDofs, 1, minRankWithSampleCell);
-  solution->mesh()->Comm()->Broadcast(&totalTrialDofs, 1, minRankWithSampleCell);
+  Comm = solution->mesh()->Comm();
   
-  solution->mesh()->Comm()->Broadcast(&B_denseMatrixSize, 1, minRankWithSampleCell);
-  solution->mesh()->Comm()->Broadcast(&G_denseMatrixSize, 1, minRankWithSampleCell);
-  solution->mesh()->Comm()->Broadcast(&K_denseMatrixSize, 1, minRankWithSampleCell);
-  solution->mesh()->Comm()->Broadcast(&B_sparseMatrixSize, 1, minRankWithSampleCell);
-  solution->mesh()->Comm()->Broadcast(&G_sparseMatrixSize, 1, minRankWithSampleCell);
+  int minRankWithSampleCell;
+  Comm->MinAll(&rankWithSampleCell, &minRankWithSampleCell, 1);
+  Comm->Broadcast(&totalTestDofs, 1, minRankWithSampleCell);
+  Comm->Broadcast(&totalTrialDofs, 1, minRankWithSampleCell);
+  
+  Comm->Broadcast(&B_denseMatrixSize, 1, minRankWithSampleCell);
+  Comm->Broadcast(&G_denseMatrixSize, 1, minRankWithSampleCell);
+  Comm->Broadcast(&K_denseMatrixSize, 1, minRankWithSampleCell);
+  Comm->Broadcast(&B_sparseMatrixSize, 1, minRankWithSampleCell);
+  Comm->Broadcast(&G_sparseMatrixSize, 1, minRankWithSampleCell);
 
   int coarseMeshGlobalDofs = meshesCoarseToFine[0]->numGlobalDofs();
   int coarseMeshNumElements = meshesCoarseToFine[0]->numElements();
   int coarseMeshTraceDofs = meshesCoarseToFine[0]->numFluxDofs();
-  
-  map<string,double> timings = TimeLogger::sharedInstance()->totalTimes();
-  
-  if (rank == 0)
-  {
-    Camellia::print<string,double>("selected timings on rank 0", timings);
-  }
   
   double cellHaloTime = solution->mesh()->getTopology()->totalTimeComputingCellHalos();
   double maxCellHaloTime;
@@ -735,6 +791,8 @@ int main(int argc, char *argv[])
     }
   }
   
+  printTimings();
+  
   if (setUpMeshesAndQuit)
   {
     return 0;
@@ -743,6 +801,7 @@ int main(int argc, char *argv[])
   double gmgSolverInitializationTime = 0, solveTime;
   
   timer.ResetStartTime();
+  int gmgSolverInitTimerHandle = TimeLogger::sharedInstance()->startTimer("GMGSolver Init.");
   if (!solveDirectly)
   {
     bool reuseFactorization = true;
@@ -756,6 +815,8 @@ int main(int argc, char *argv[])
     gmgSolver->gmgOperator()->setNarrateOnRankZero(logFineOperator,"finest GMGOperator");
     
     gmgSolver->gmgOperator()->setClearFinestCondensedDofInterpreterAfterProlongation(clearFinestCondensedDofInterpreterAfterProlongation);
+    
+    TimeLogger::sharedInstance()->stopTimer(gmgSolverInitTimerHandle);
     
     gmgSolverInitializationTime = timer.ElapsedTime();
     if (rank==0)
@@ -781,7 +842,9 @@ int main(int argc, char *argv[])
     
     timer.ResetStartTime();
     
+    int totalSolveTimerHandle = TimeLogger::sharedInstance()->startTimer("Total solve");
     solution->solve(gmgSolver);
+    TimeLogger::sharedInstance()->stopTimer(totalSolveTimerHandle);
     solveTime = timer.ElapsedTime();
 
     if (useCondensedSolve)
@@ -851,6 +914,8 @@ int main(int argc, char *argv[])
 //    cout << "Solve completed in " << solveTime << " seconds.\n";
 //    cout << "Total time, including GMGSolver initialization (but not mesh construction): " << solveTime + gmgSolverInitializationTime << " seconds.\n";
   }
+  
+  printTimings();
   
   return 0;
 }
