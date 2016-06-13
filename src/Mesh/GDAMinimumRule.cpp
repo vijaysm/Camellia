@@ -121,9 +121,21 @@ void GDAMinimumRule::setCheckConstraintConsistency(bool value)
   _checkConstraintConsistency = value;
 }
 
+void GDAMinimumRule::clearCaches()
+{
+  _constraintsCache.clear(); // to free up memory, could clear this again after the lookups are rebuilt.  Having the cache is most important during the construction in rebuildLookups().
+  _dofMapperCache.clear();
+  _dofMapperForVariableOnSideCache.clear();
+  _ownedGlobalDofIndicesCache.clear();
+  _globalDofIndicesForCellCache.clear();
+  _fittableGlobalIndicesCache.clear();
+}
+
 GlobalDofAssignmentPtr GDAMinimumRule::deepCopy()
 {
-  return Teuchos::rcp(new GDAMinimumRule(*this) );
+  Teuchos::RCP<GDAMinimumRule> copy = Teuchos::rcp(new GDAMinimumRule(*this) );
+  copy->clearCaches();
+  return copy;
 }
 
 void GDAMinimumRule::determinePolynomialOrderForConstrainingParents()
@@ -3384,12 +3396,7 @@ void GDAMinimumRule::rebuildLookups()
 {
   int timerHandle = TimeLogger::sharedInstance()->startTimer("rebuildLookups");
   
-  _constraintsCache.clear(); // to free up memory, could clear this again after the lookups are rebuilt.  Having the cache is most important during the construction below.
-  _dofMapperCache.clear();
-  _dofMapperForVariableOnSideCache.clear();
-  _ownedGlobalDofIndicesCache.clear();
-  _globalDofIndicesForCellCache.clear();
-  _fittableGlobalIndicesCache.clear();
+  clearCaches();
   determineMinimumSubcellDimensionForContinuityEnforcement();
   
   int spaceDim = _meshTopology->getDimension();

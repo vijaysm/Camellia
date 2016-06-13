@@ -252,6 +252,8 @@ class GDAMinimumRule : public GlobalDofAssignment
 
   RefinementBranch volumeRefinementsForSideEntity(IndexType sideEntityIndex);
 
+protected:
+  void clearCaches();
 public:
   // these are public just for easier testing:
   BasisMap getBasisMap(GlobalIndexType cellID, SubcellDofIndices& dofOwnershipInfo, VarPtr var);
