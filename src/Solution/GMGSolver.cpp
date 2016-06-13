@@ -6,6 +6,7 @@
 //
 //
 
+#include "CamelliaDebugUtility.h"
 #include "GDAMinimumRule.h"
 #include "GMGSolver.h"
 #include "MPIWrapper.h"
@@ -407,6 +408,7 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
         vector<int> offsets;
         vector<pair<GlobalIndexTypeToCast,int>> pRefinementsGathered;
         MPIWrapper::allGatherVariable(*meshToPRefine->Comm(), pRefinementsGathered, pRefinementsVector, offsets);
+        pRefinements.clear();
         pRefinements.insert(pRefinementsGathered.begin(),pRefinementsGathered.end());
         
         meshToPRefine->globalDofAssignment()->setCellPRefinements(pRefinements);
