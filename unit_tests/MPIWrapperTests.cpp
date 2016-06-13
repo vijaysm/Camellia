@@ -18,7 +18,7 @@ using namespace std;
 #include "Teuchos_UnitTestHarness.hpp"
 namespace
 {
-TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( MPIWrapper, AllGatherCompact, Scalar )
+TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( MPIWrapper, AllGatherVariable, Scalar )
 {
   int myRank = Teuchos::GlobalMPISession::getRank();
   int numProcs = Teuchos::GlobalMPISession::getNProc();
@@ -64,9 +64,38 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( MPIWrapper, AllGatherCompact, Scalar )
   TEST_COMPARE_ARRAYS(allValuesExpected, allValues);
 }
 
-TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( MPIWrapper, AllGatherCompact, int );
-TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( MPIWrapper, AllGatherCompact, double );
+TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( MPIWrapper, AllGatherVariable, int );
+TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( MPIWrapper, AllGatherVariable, double );
 
+  TEUCHOS_UNIT_TEST(MPIWrapper, AllGatherVariable_Pair)
+  {
+    int myRank = Teuchos::GlobalMPISession::getRank();
+    int numProcs = Teuchos::GlobalMPISession::getNProc();
+
+    vector<pair<int,int>> myValues, expectedGatheredValues, gatheredValues;
+    int numEntriesPerRank = 4;
+    int value = 3;
+    for (int i=0; i<numEntriesPerRank; i++)
+    {
+      int id = myRank + i * numProcs;
+      myValues.push_back({id,value});
+    }
+    int numTotalEntries = numEntriesPerRank * numProcs;
+    for (int i=0; i<numTotalEntries; i++)
+    {
+      expectedGatheredValues.push_back({i,value});
+    }
+    vector<int> offsets;
+    MPIWrapper::allGatherVariable(*MPIWrapper::CommWorld(),gatheredValues,myValues,offsets);
+    std::sort(gatheredValues.begin(), gatheredValues.end());
+    
+    for (int i=0; i<expectedGatheredValues.size(); i++)
+    {
+      TEST_EQUALITY(expectedGatheredValues[i].first, gatheredValues[i].first);
+      TEST_EQUALITY(expectedGatheredValues[i].second, gatheredValues[i].second);
+    }
+  }
+  
   TEUCHOS_UNIT_TEST(MPIWrapper, SendDataVector)
   {
     Epetra_CommPtr Comm = MPIWrapper::CommWorld();
