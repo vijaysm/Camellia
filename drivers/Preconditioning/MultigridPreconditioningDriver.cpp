@@ -521,6 +521,8 @@ int main(int argc, char *argv[])
   bool setUpMeshesAndQuit = false;
   bool setUpMeshTopologyAndQuit = false;
   
+  bool useFactoredCholeskyForOptimalTests = true;
+  
   string multigridStrategyString = "V-cycle";
   
   bool pauseOnRankZero = false;
@@ -555,6 +557,7 @@ int main(int argc, char *argv[])
   
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
   cmdp.setOption("useConformingTraces", "useNonConformingTraces", &conformingTraces);
+  cmdp.setOption("useFactoredCholesky", "useStandardCholesky", &useFactoredCholeskyForOptimalTests, "Use factored cholesky for optimal test solve");
   cmdp.setOption("enhanceFieldsForH1TracesWhenConforming", "equalOrderFieldsForH1TracesWhenConforming", &enhanceFieldsForH1TracesWhenConforming);
 
   cmdp.setOption("spaceDim", &spaceDim, "space dimensions (1, 2, or 3)");
@@ -572,6 +575,7 @@ int main(int argc, char *argv[])
 
   cmdp.setOption("useDiagonalSchwarzWeighting","dontUseDiagonalSchwarzWeighting",&useDiagonalSchwarzWeighting);
   cmdp.setOption("useZeroMeanConstraint", "usePointConstraint", &useZeroMeanConstraints, "Use a zero-mean constraint for the pressure (otherwise, use a vertex constraint at the origin)");
+  
   
   cmdp.setOption("writeOpToFile", "dontWriteOpToFile", &writeOpToFile);
 
@@ -796,6 +800,18 @@ int main(int argc, char *argv[])
   if (setUpMeshesAndQuit)
   {
     return 0;
+  }
+  
+//  if (rank==0) cout << "Setting optimal test solve to QR\n";
+  if (useFactoredCholeskyForOptimalTests)
+  {
+    if (rank==0) cout << "Setting optimal test solve to *factored* Cholesky\n";
+    solution->mesh()->bilinearForm()->setOptimalTestSolver(TBF<>::FACTORED_CHOLESKY);
+  }
+  else
+  {
+    if (rank==0) cout << "Setting optimal test solve to standard Cholesky\n";
+    solution->mesh()->bilinearForm()->setOptimalTestSolver(TBF<>::CHOLESKY);
   }
   
   double gmgSolverInitializationTime = 0, solveTime;
