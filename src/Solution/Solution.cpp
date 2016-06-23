@@ -1096,10 +1096,16 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
     Teuchos::Array<int> nodeDimensions, parityDimensions;
     myPhysicalCellNodesForType.dimensions(nodeDimensions);
     myCellSideParitiesForType.dimensions(parityDimensions);
+    
+    Intrepid::FieldContainer<Scalar> localStiffness(maxCellBatch,numTrialDofs,numTrialDofs);
+    Intrepid::FieldContainer<Scalar> localRHSVector(maxCellBatch,numTrialDofs);
+    
     while (startCellIndexForBatch < totalCellsForType)
     {
       int cellsLeft = totalCellsForType - startCellIndexForBatch;
       int numCells = min(maxCellBatch,cellsLeft);
+      localStiffness.resize(numCells,numTrialDofs,numTrialDofs);
+      localRHSVector.resize(numCells,numTrialDofs);
 
       vector<GlobalIndexType> cellIDs;
       for (int cellIndex=0; cellIndex<numCells; cellIndex++)
@@ -1122,9 +1128,6 @@ void TSolution<Scalar>::populateStiffnessAndLoad()
       // hard-coding creating side cache for IP for now, since _ip->hasBoundaryTerms() only recognizes terms explicitly passed in as boundary terms:
       ipBasisCache->setPhysicalCellNodes(physicalCellNodes,cellIDs,true);//_ip->hasBoundaryTerms()); // create side cache if ip has boundary values
       ipBasisCache->setCellSideParities(cellSideParities); // I don't anticipate these being needed, though
-
-      Intrepid::FieldContainer<Scalar> localStiffness(numCells,numTrialDofs,numTrialDofs);
-      Intrepid::FieldContainer<Scalar> localRHSVector(numCells,numTrialDofs);
 
       if (_bf != Teuchos::null)
         _bf->localStiffnessMatrixAndRHS(localStiffness, localRHSVector, _ip, ipBasisCache, _rhs, basisCache);
@@ -1862,14 +1865,15 @@ void TSolution<Scalar>::imposeBCs()
   for (int i=0; i<bcGlobalIndicesFC.size(); i++)
   {
     GlobalIndexType globalIndex = bcGlobalIndicesFC[i];
+    double value = bcGlobalValuesFC[i];
     int owner = _dofInterpreter->partitionForGlobalDofIndex(globalIndex);
     if (owner != rank)
     {
-      bcValuesToSend[owner].push_back({globalIndex,bcGlobalValuesFC[i]});
+      bcValuesToSend[owner].push_back({globalIndex,value});
     }
     else
     {
-      bcsToImposeThisRank.push_back({globalIndex,bcGlobalValuesFC[i]});
+      bcsToImposeThisRank.push_back({globalIndex,value});
     }
   }
   vector<pair<GlobalIndexType,double>> offRankBCs;
@@ -1903,6 +1907,7 @@ void TSolution<Scalar>::imposeBCs()
           cout << "WARNING: inconsistent values for BC: " << firstValue << " and ";
           cout << secondValue << " prescribed for global dof index " << bcsToImposeThisRank[i].first;
           cout << " on rank " << rank << endl;
+          print("initialH1Order for inconsistent BC mesh",this->mesh()->globalDofAssignment()->getInitialH1Order());
         }
       }
     }
