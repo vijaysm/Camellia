@@ -399,7 +399,7 @@ std::vector<int> CondensedDofInterpreter<Scalar>::fluxIndexLookupLocalCell(Globa
   }
   
   /*
-   If the cell has a singleton BC imposed on it (for example), then one of the field row indices is treated as a fluxRowIndices).
+   If the cell has a singleton BC imposed on it (for example), then one of the field row indices is treated as a flux index.
    */
   auto uncondensibleLocalDofsEntry = _cellLocalUncondensibleDofIndices.find(cellID);
   if (uncondensibleLocalDofsEntry != _cellLocalUncondensibleDofIndices.end())
