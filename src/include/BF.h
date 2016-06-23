@@ -45,7 +45,7 @@ protected:
   vector< int > _trialIDs, _testIDs;
   static set<int> _normalOperators;
   
-  OptimalTestSolver _optimalTestSolver = CHOLESKY; // for now; will do FACTORED_CHOLESKY later;
+  OptimalTestSolver _optimalTestSolver = FACTORED_CHOLESKY;
   
   bool _useIterativeRefinementsWithSPDSolve = false;
   bool _warnAboutZeroRowsAndColumns = true;
