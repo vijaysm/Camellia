@@ -465,7 +465,7 @@ void printTimings()
       for (auto entry : timings)
       {
         cout.setf(std::ios::left, std::ios::adjustfield);
-        cout << std::setw(30) << entry.first;
+        cout << std::setw(35) << entry.first;
         cout.setf(std::ios::right, std::ios::adjustfield);
         cout << std::setw(8);
         cout << maxTimingValues[i++] << " sec." << endl;
@@ -575,7 +575,6 @@ int main(int argc, char *argv[])
 
   cmdp.setOption("useDiagonalSchwarzWeighting","dontUseDiagonalSchwarzWeighting",&useDiagonalSchwarzWeighting);
   cmdp.setOption("useZeroMeanConstraint", "usePointConstraint", &useZeroMeanConstraints, "Use a zero-mean constraint for the pressure (otherwise, use a vertex constraint at the origin)");
-  
   
   cmdp.setOption("writeOpToFile", "dontWriteOpToFile", &writeOpToFile);
 
