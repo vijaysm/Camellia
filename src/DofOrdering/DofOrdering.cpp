@@ -167,6 +167,67 @@ BasisPtr DofOrdering::getBasis(int varID, int sideIndex) const
   return (*entry).second;
 }
 
+void DofOrdering::getDofCoords(Intrepid::FieldContainer<double> &dofCoords, int varID, int sideOrdinal)
+{
+  CellTopoPtr volumeTopo = _cellTopologyForSide.find(VOLUME_INTERIOR_SIDE_ORDINAL)->second;
+  bool createSideCache = (sideOrdinal != VOLUME_INTERIOR_SIDE_ORDINAL);
+  BasisCachePtr basisCache = BasisCache::basisCacheForReferenceCell(volumeTopo, 1, createSideCache); // 1: faux cubature degree; true: also create side cache
+  BasisPtr basis = getBasis(varID, sideOrdinal);
+  int basisCardinality = basis->getCardinality();
+  int spaceDim = volumeTopo->getDimension();
+  
+  dofCoords.resize(basisCardinality, spaceDim);
+  if (sideOrdinal == VOLUME_INTERIOR_SIDE_ORDINAL)
+  {
+    basis->getDofCoords(dofCoords);
+  }
+  else
+  {
+    BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+    FieldContainer<double> sideDofCoords(basisCardinality, basis->domainTopology()->getDimension());
+    basis->getDofCoords(sideDofCoords);
+    sideCache->setRefCellPoints(sideDofCoords);
+    const Intrepid::FieldContainer<double>* volumeCoords = &sideCache->getPhysicalCubaturePoints();
+    for (int basisOrdinal=0; basisOrdinal<basisCardinality; basisOrdinal++)
+    {
+      for (int d=0; d<spaceDim; d++)
+      {
+        dofCoords(basisOrdinal,d) = (*volumeCoords)(0,basisOrdinal,d);
+      }
+    }
+  }
+}
+
+//
+void DofOrdering::getDofCoords(const Intrepid::FieldContainer<double> &physicalCellNodes,
+                               Intrepid::FieldContainer<double> &dofCoords, int varID, int sideOrdinal)
+{
+  CellTopoPtr volumeTopo = _cellTopologyForSide.find(VOLUME_INTERIOR_SIDE_ORDINAL)->second;
+  bool createSideCache = (sideOrdinal != VOLUME_INTERIOR_SIDE_ORDINAL);
+  BasisCachePtr basisCache = BasisCache::basisCacheForReferenceCell(volumeTopo, 1); // 1: faux cubature degree; true: also create side cache
+  basisCache->setPhysicalCellNodes(physicalCellNodes, vector<GlobalIndexType>(), createSideCache);
+  
+  BasisPtr basis = getBasis(varID, sideOrdinal);
+  int basisCardinality = basis->getCardinality();
+  int spaceDim = volumeTopo->getDimension();
+  
+  if (sideOrdinal == VOLUME_INTERIOR_SIDE_ORDINAL)
+  {
+    FieldContainer<double> refSpaceDofCoords(basisCardinality, spaceDim);
+    basis->getDofCoords(refSpaceDofCoords);
+    basisCache->setRefCellPoints(refSpaceDofCoords);
+    dofCoords = basisCache->getPhysicalCubaturePoints();
+  }
+  else
+  {
+    BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+    FieldContainer<double> sideDofCoords(basisCardinality, basis->domainTopology()->getDimension());
+    basis->getDofCoords(sideDofCoords);
+    sideCache->setRefCellPoints(sideDofCoords);
+    dofCoords = sideCache->getPhysicalCubaturePoints();
+  }
+}
+
 int DofOrdering::getDofIndex(int varID, int basisDofOrdinal, int sideOrdinal, int subSideIndex)
 {
   TEUCHOS_TEST_FOR_EXCEPTION( ( _indexNeedsToBeRebuilt ),
@@ -362,10 +423,63 @@ int DofOrdering::minimumSubcellDimensionForContinuity() const // across all base
   return minSubcellDimension;
 }
 
-void DofOrdering::print(std::ostream& os)
+void DofOrdering::print(std::ostream& os) const
 {
   os << *this;
 }
+
+void DofOrdering::printDofCoords(int varID, std::ostream& os) const
+{
+  // define a lambda to create a point string:
+  auto pointString = [] (int basisOrdinal, FieldContainer<double> &basisDofCoords) -> string
+  {
+    ostringstream pointStringStream;
+    int spaceDim = basisDofCoords.dimension(1);
+    pointStringStream << "(";
+    for (int d=0; d < spaceDim - 1; d++)
+    {
+      pointStringStream << basisDofCoords(basisOrdinal, d) << ", ";
+    }
+    pointStringStream << basisDofCoords(basisOrdinal, spaceDim -1) << ")";
+    
+    return pointStringStream.str();
+  };
+  
+  os << "******** Ref Space Dof Coords for var " << varID << ": *********\n";
+  const vector<int>* sidesForVar = &this->getSidesForVarID(varID);
+  
+  CellTopoPtr volumeTopo = _cellTopologyForSide.find(VOLUME_INTERIOR_SIDE_ORDINAL)->second;
+  BasisCachePtr basisCache = BasisCache::basisCacheForReferenceCell(volumeTopo, 1, true); // 1: faux cubature degree; true: also create side cache
+  for (int sideOrdinal : *sidesForVar)
+  {
+    BasisPtr basis = getBasis(varID, sideOrdinal);
+    const vector<int>* dofIndices = &getDofIndices(varID, sideOrdinal);
+    
+    FieldContainer<double> basisDofCoords(basis->getCardinality(), basis->domainTopology()->getDimension());
+    if (sideOrdinal == VOLUME_INTERIOR_SIDE_ORDINAL)
+    {
+      os << "Volume dof ordinal:" << setw(20) << "Local Dof Index:" << setw(20) << "Coordinates:\n" << endl;
+      for (int basisOrdinal=0; basisOrdinal < basis->getCardinality(); basisOrdinal++)
+      {
+        os << basisOrdinal << setw(20) << (*dofIndices)[basisOrdinal] << setw(20) << pointString(basisOrdinal, basisDofCoords) << endl;
+      }
+    }
+    else
+    {
+      BasisCachePtr sideCache = basisCache->getSideBasisCache(sideOrdinal);
+      sideCache->setRefCellPoints(basisDofCoords);
+      Intrepid::FieldContainer<double> basisDofCoordsVolume = sideCache->getPhysicalCubaturePoints();
+      basisDofCoordsVolume.resize(basisDofCoordsVolume.dimension(1),basisDofCoordsVolume.dimension(2));
+      
+      os << "Side " << sideOrdinal << " dof ordinal:" << setw(20) << "Local Dof Index:" << setw(20) << "Coordinates:\n" << endl;
+      for (int basisOrdinal=0; basisOrdinal < basis->getCardinality(); basisOrdinal++)
+      {
+        os << basisOrdinal << setw(20) << (*dofIndices)[basisOrdinal] << setw(20) << pointString(basisOrdinal, basisDofCoordsVolume) << endl;
+      }
+    }
+  }
+}
+
 
 void DofOrdering::rebuildIndex()
 {

@@ -98,7 +98,13 @@ int Basis<Scalar,ArrayScalar>::getDegree() const
 {
   return this->_basisDegree;
 }
-
+  
+  template<class Scalar, class ArrayScalar>
+  void Basis<Scalar, ArrayScalar>::getDofCoords(ArrayScalar & DofCoords) const
+  {
+    TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "getDofCoords not implemented by basis!");
+  }
+  
 template<class Scalar, class ArrayScalar>
 int Basis<Scalar, ArrayScalar>::getDofOrdinal(const int subcDim,
     const int subcOrd,
@@ -639,6 +645,20 @@ Teuchos::RCP< Intrepid::Basis<Scalar,ArrayScalar> > IntrepidBasisWrapper<Scalar,
 {
   return _intrepidBasis;
 }
+  
+  template<class Scalar, class ArrayScalar>
+  void IntrepidBasisWrapper<Scalar, ArrayScalar>::getDofCoords(ArrayScalar & DofCoords) const
+  {
+    Intrepid::DofCoordsInterface<ArrayScalar>* dofCoordsImplementor = dynamic_cast<Intrepid::DofCoordsInterface<ArrayScalar>*>(this->_intrepidBasis.get());
+    if (dofCoordsImplementor != NULL)
+    {
+      dofCoordsImplementor->getDofCoords(DofCoords);
+    }
+    else
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "getDofCoords not implemented by basis!");
+    }
+  }
 
   template<class Scalar, class ArrayScalar>
   std::set<int> IntrepidBasisWrapper<Scalar,ArrayScalar>::dofOrdinalsForSide(int sideOrdinal) const

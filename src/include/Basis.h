@@ -111,6 +111,10 @@ public:
 
   virtual void CHECK_VALUES_ARGUMENTS(const ArrayScalar &values, const ArrayScalar &refPoints, Intrepid::EOperator operatorType) const;
 
+  //! Fills the provided array with (F,D)-shaped nodal coordinates corresponding to the basis functions.
+  //! May throw an exception if the basis is not nodal.
+  virtual void getDofCoords(ArrayScalar & DofCoords) const;
+  
   virtual ~Basis() {}
 };
 
@@ -135,6 +139,8 @@ public:
   virtual std::set<int> dofOrdinalsForSide(int sideOrdinal) const;
   
   void getValues(ArrayScalar &values, const ArrayScalar &refPoints, Intrepid::EOperator operatorType) const;
+  
+  void getDofCoords(ArrayScalar & DofCoords) const;
 };
 } // namespace Camellia
 

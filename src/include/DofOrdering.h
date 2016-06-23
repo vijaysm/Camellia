@@ -98,6 +98,18 @@ public:
     return basisRanks[varID];
   }
 
+  // ! returns the dof coordinates (nodes in case of a nodal basis) for the variable on the side indicated.
+  // ! The order of the coordinates corresponds to the basis ordering.  The coordinates are in volume reference space.
+  // ! dofCoords shape: (F,D), where D is the dimension of the volume topology.
+  void getDofCoords(Intrepid::FieldContainer<double> &dofCoords, int varID, int sideOrdinal = VOLUME_INTERIOR_SIDE_ORDINAL);
+
+  // ! returns the dof coordinates (nodes in case of a nodal basis) for the variable on the side indicated, given a physical cell
+  // ! with nodes as indicated.
+  // ! The order of the coordinates corresponds to the basis ordering.  The coordinates are in physical space.
+  // ! dofCoords shape: (C,F,D), where D is the dimension of the volume topology.
+  void getDofCoords(const Intrepid::FieldContainer<double> &physicalCellNodes, Intrepid::FieldContainer<double> &dofCoords,
+                    int varID, int sideOrdinal = VOLUME_INTERIOR_SIDE_ORDINAL);
+  
   bool hasEntryForVarID( int varID ); // returns true if we have any basis on any side for varID
 
   int getNumSidesForVarID(int varID); // will be deprecated soon.  Use getSidesForVarID instead
@@ -115,7 +127,10 @@ public:
   int maxBasisDegree();
   int maxBasisDegreeForVolume();
 
-  void print(std::ostream& os);
+  void print(std::ostream& os) const;
+  
+  // ! prints the coordinates of varID's basis/bases, in reference space
+  void printDofCoords(int varID, std::ostream& os) const;
   
   int totalDofs() const
   {
