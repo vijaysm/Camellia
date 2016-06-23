@@ -82,7 +82,7 @@ private:
   
   // new version:
   void getLocalData(GlobalIndexType cellID, Teuchos::RCP<Epetra_SerialDenseSolver> &fieldSolver,
-                    Epetra_SerialDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FluxField, Epetra_SerialDenseVector &b_field,
+                    Epetra_SerialSymDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FluxField, Epetra_SerialDenseVector &b_field,
                     Intrepid::FieldContainer<GlobalIndexType> &interpretedDofIndices, set<int> &fieldIndices, set<int> &fluxIndices);
   
   bool varDofsAreUsuallyCondensible(int varID, int sideOrdinal, DofOrderingPtr dofOrdering) const;

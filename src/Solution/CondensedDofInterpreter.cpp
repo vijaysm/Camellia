@@ -140,7 +140,7 @@ void CondensedDofInterpreter<Scalar>::getLocalData(GlobalIndexType cellID, Field
 
 template <typename Scalar>
 void CondensedDofInterpreter<Scalar>::getLocalData(GlobalIndexType cellID, Teuchos::RCP<Epetra_SerialDenseSolver> &fieldSolver,
-                                                   Epetra_SerialDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FieldFlux, Epetra_SerialDenseVector &b_field,
+                                                   Epetra_SerialSymDenseMatrix &FieldField, Epetra_SerialDenseMatrix &FieldFlux, Epetra_SerialDenseVector &b_field,
                                                    FieldContainer<GlobalIndexType> &interpretedDofIndices, set<int> &fieldIndices, set<int> &fluxIndices)
 {
   if (_localStiffnessMatrices.find(cellID) == _localStiffnessMatrices.end())
@@ -181,8 +181,10 @@ void CondensedDofInterpreter<Scalar>::getLocalData(GlobalIndexType cellID, Teuch
 //  cout << "b_field:\n" << b_field;
 //  cout << "b_flux:\n" << b_flux;
   
-  fieldSolver = Teuchos::rcp( new Epetra_SerialDenseSolver());
-  fieldSolver->SetMatrix(FieldField);
+  Epetra_SerialSpdDenseSolver* spdSolver = new Epetra_SerialSpdDenseSolver();
+  spdSolver->SetMatrix(FieldField);
+  
+  fieldSolver = Teuchos::rcp( spdSolver );
   
 //  cout << "FieldField:\n" << FieldField;
 }
@@ -430,7 +432,8 @@ Teuchos::RCP<Epetra_SerialDenseMatrix> CondensedDofInterpreter<Scalar>::fluxToFi
     FieldContainer<GlobalIndexType> interpretedDofIndices;
     
     Teuchos::RCP<Epetra_SerialDenseSolver> fieldSolver;
-    Epetra_SerialDenseMatrix FieldField, FieldFlux;
+    Epetra_SerialSymDenseMatrix FieldField;
+    Epetra_SerialDenseMatrix FieldFlux;
     
     getLocalData(cellID, fieldSolver, FieldField, FieldFlux, b_field, interpretedDofIndices, fieldIndices, fluxIndices);
     
@@ -1210,7 +1213,8 @@ void CondensedDofInterpreter<Scalar>::interpretGlobalCoefficients(GlobalIndexTyp
   FieldContainer<GlobalIndexType> interpretedDofIndices;
   
   Teuchos::RCP<Epetra_SerialDenseSolver> fieldSolver;
-  Epetra_SerialDenseMatrix B, D;
+  Epetra_SerialDenseMatrix B;
+  Epetra_SerialSymDenseMatrix D;
   if (! _skipLocalFields)
     getLocalData(cellID, fieldSolver, D, B, b_field, interpretedDofIndices, fieldIndices, fluxIndices);
   else
