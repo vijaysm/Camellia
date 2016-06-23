@@ -292,22 +292,36 @@ void Boundary::bcsToImpose( map<  GlobalIndexType, Scalar > &globalDofIndicesAnd
             {
               FieldContainer<double> globalData;
               FieldContainer<GlobalIndexType> globalDofIndices;
+
               dofInterpreter->interpretLocalBasisCoefficients(cellID, trialID, sideOrdinal, dirichletValues, globalData, globalDofIndices);
               for (int globalDofOrdinal=0; globalDofOrdinal<globalDofIndices.size(); globalDofOrdinal++)
               {
                 GlobalIndexType globalDofIndex = globalDofIndices(globalDofOrdinal);
-                globalDofIndicesAndValues[globalDofIndex] = globalData(globalDofOrdinal);
+                Scalar value = globalData(globalDofOrdinal);
+                
+                // sanity check: if this has been previously set, do the two values roughly agree?
+                if (globalDofIndicesAndValues.find(globalDofIndex) != globalDofIndicesAndValues.end())
+                {
+                  double tol = 1e-10;
+                  Scalar prevValue = globalDofIndicesAndValues[globalDofIndex];
+                  double absDiff = abs(prevValue - value);
+                  if (absDiff > tol)
+                  {
+                    double relativeDiff = absDiff / max(abs(prevValue),abs(value));
+                    int rank = _mesh->Comm()->MyPID();
+                    if (relativeDiff > tol)
+                    {
+                      cout << "WARNING: in Boundary::bcsToImpose(), inconsistent values for BC: " << prevValue << " and ";
+                      cout << value << " prescribed for global dof index " << globalDofIndex;
+                      cout << " on rank " << rank << endl;
+                    }
+                  }
+                }
+                globalDofIndicesAndValues[globalDofIndex] = value;
               }
-//              if (globalDofIndices.size() > 0) bcImposedSides.insert(sideOrdinal);
             }
           }
         }
-//        { // DEBUGGING:
-//          ostringstream trialNameStream;
-//          trialNameStream << "Side for variable " << _mesh->bilinearForm()->varFactory()->trial(trialID)->name();
-//          trialNameStream << " BCs";
-//          print(trialNameStream.str(), bcImposedSides);
-//        }
       }
     }
   }
