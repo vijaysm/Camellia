@@ -30,6 +30,7 @@
 #include "RHS.h"
 #include "Solution.h"
 #include "SpaceTimeHeatDivFormulation.h"
+#include "StokesVGPFormulation.h"
 #include "TypeDefs.h"
 #include "VarFactory.h"
 
@@ -406,6 +407,304 @@ namespace
         }
       }
     }
+  }
+  
+  void testGlobalDofCoordinatesAgree(MeshPtr mesh, VarPtr var, Teuchos::FancyOStream &out, bool &success)
+  {
+    // depending on continuities, there may be multiple GlobalDofIndices assigned to a given coordinate,
+    // but no matter what, there should not be multiple coordinates for a given GlobalDofIndex.  That's
+    // what we check here, in context of meshes without hanging nodes.
+    
+    // We first check that each MPI rank agrees locally about the coordinates for each GlobalDofIndex,
+    // then we do an AllGather to confirm that that there is also global agreement
+    
+    GDAMinimumRule* gda = dynamic_cast<GDAMinimumRule*>(mesh->globalDofAssignment().get());
+    if (gda == NULL)
+    {
+      out << "Mesh appears not to use GDAMinimumRule.  testGlobalDofCoordinatesAgree() requires this.\n";
+      success = false;
+      return;
+    }
+    
+    auto myCellIDs = mesh->cellIDsInPartition();
+    MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(mesh->getTopology().get());
+    
+    typedef vector< SubBasisDofMapperPtr > BasisMap;
+    
+    int spaceDim = meshTopo->getDimension();
+    
+    double tol = 1e-13;
+    
+    map<GlobalIndexType, vector<double>> nodalPointForGlobalDofIndex;
+    
+    for (auto cellID : myCellIDs)
+    {
+      auto dofOwnershipInfo = gda->getGlobalDofIndices(cellID);
+      DofOrderingPtr trialOrder = mesh->getElementType(cellID)->trialOrderPtr;
+      
+      for (int sideOrdinal : trialOrder->getSidesForVarID(var->ID()))
+      {
+        BasisMap basisMap;
+        if (sideOrdinal == VOLUME_INTERIOR_SIDE_ORDINAL)
+        {
+          basisMap = gda->getBasisMap(cellID, dofOwnershipInfo, var);
+        }
+        else
+        {
+          basisMap = gda->getBasisMap(cellID, dofOwnershipInfo, var, sideOrdinal);
+        }
+        
+        FieldContainer<double> dofCoordsFC;
+        trialOrder->getDofCoords(mesh->physicalCellNodesForCell(cellID), dofCoordsFC, var->ID(), sideOrdinal);
+        
+        for (SubBasisDofMapperPtr subBasisMap : basisMap)
+        {
+          if (subBasisMap->isPermutation() || subBasisMap->isNegatedPermutation())
+          {
+            const set<int>* basisDofOrdinals = &subBasisMap->basisDofOrdinalFilter();
+            const vector<GlobalIndexType>* globalDofOrdinals = &subBasisMap->mappedGlobalDofOrdinals();
+            
+            TEUCHOS_TEST_FOR_EXCEPTION(basisDofOrdinals->size() != globalDofOrdinals->size(), std::invalid_argument, "Internal error: sizes for permutation should match!");
+            
+            auto basisOrdinalIt = basisDofOrdinals->begin();
+            for (GlobalIndexType globalDofOrdinal : *globalDofOrdinals)
+            {
+              int basisDofOrdinal = *basisOrdinalIt;
+              vector<double> dofCoords(spaceDim);
+              for (int d=0; d<spaceDim; d++)
+              {
+                dofCoords[d] = dofCoordsFC(0,basisDofOrdinal,d);
+              }
+              
+              if (nodalPointForGlobalDofIndex.find(globalDofOrdinal) != nodalPointForGlobalDofIndex.end())
+              {
+                vector<double> prevDofCoord = nodalPointForGlobalDofIndex[globalDofOrdinal];
+                bool coordsAgree = true;
+                for (int d=0; d<spaceDim; d++)
+                {
+                  if (abs(prevDofCoord[d]-dofCoords[d]) > tol)
+                  {
+                    coordsAgree = false;
+                    success = false;
+                  }
+                }
+                if (!coordsAgree)
+                {
+                  int myRank = mesh->Comm()->MyPID();
+                  out << "dof coords for global dof index " << globalDofOrdinal << " disagree on rank " << myRank << endl;
+                  print(out, "first entry", prevDofCoord);
+                  print(out, "current entry", dofCoords);
+                }
+              }
+              else
+              {
+                nodalPointForGlobalDofIndex[globalDofOrdinal] = dofCoords;
+              }
+              basisOrdinalIt++;
+            }
+          }
+          else
+          {
+            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "testGlobalDofCoordinatesAgree only supports permutation BasisMaps (i.e. no hanging node meshes)");
+          }
+        }
+      }
+    }
+    
+    // now the all gather to check global agreement
+    
+    struct Point1D
+    {
+      double x;
+    };
+    
+    struct Point2D
+    {
+      double x;
+      double y;
+    };
+    
+    struct Point3D
+    {
+      double x;
+      double y;
+      double z;
+    };
+    
+    map<GlobalIndexType, vector<double>> gatheredNodalPointForGlobalDofIndex;
+    map<GlobalIndexType, int> firstRankForGlobalIndexType;
+    
+    switch (spaceDim) {
+      case 1:
+      {
+        vector<pair<GlobalIndexType,Point1D>> myDofCoordEntries, gatheredDofCoordEntries;
+        Point1D point;
+        for (auto entry : nodalPointForGlobalDofIndex)
+        {
+          GlobalIndexType globalDofIndex = entry.first;
+          point.x = entry.second[0];
+          myDofCoordEntries.push_back({globalDofIndex,point});
+        }
+        vector<int> offsets;
+        MPIWrapper::allGatherVariable(*mesh->Comm(), gatheredDofCoordEntries, myDofCoordEntries, offsets);
+        int numProcs = mesh->Comm()->NumProc();
+        offsets.push_back(gatheredDofCoordEntries.size());
+        for (int rank=0; rank < numProcs; rank++)
+        {
+          int startOffset = offsets[rank], endOffset = offsets[rank+1];
+          for (int i=startOffset; i<endOffset; i++)
+          {
+            GlobalIndexType globalDofIndex = gatheredDofCoordEntries[i].first;
+            vector<double> dofCoord(spaceDim);
+            dofCoord[0] = gatheredDofCoordEntries[i].second.x;
+            if (gatheredNodalPointForGlobalDofIndex.find(globalDofIndex) != gatheredNodalPointForGlobalDofIndex.end())
+            {
+              vector<double> prevDofCoord = gatheredNodalPointForGlobalDofIndex[globalDofIndex];
+              bool coordsAgree = true;
+              for (int d=0; d<spaceDim; d++)
+              {
+                if (abs(prevDofCoord[d]-dofCoord[d]) > tol)
+                {
+                  coordsAgree = false;
+                  success = false;
+                }
+              }
+              if (!coordsAgree)
+              {
+                int firstRank = firstRankForGlobalIndexType[globalDofIndex];
+                out << "dof coords for global dof index " << globalDofIndex << " disagree between first rank " << firstRank;
+                out << " and current rank " << rank << endl;
+                print(out, "first rank", prevDofCoord);
+                print(out, "current rank", dofCoord);
+              }
+            }
+            else
+            {
+              gatheredNodalPointForGlobalDofIndex[globalDofIndex] = dofCoord;
+              firstRankForGlobalIndexType[globalDofIndex] = rank;
+            }
+          }
+        }
+      }
+        break;
+        
+      case 2:
+      {
+        vector<pair<GlobalIndexType,Point2D>> myDofCoordEntries, gatheredDofCoordEntries;
+        Point2D point;
+        for (auto entry : nodalPointForGlobalDofIndex)
+        {
+          GlobalIndexType globalDofIndex = entry.first;
+          point.x = entry.second[0];
+          point.y = entry.second[1];
+          myDofCoordEntries.push_back({globalDofIndex,point});
+        }
+        vector<int> offsets;
+        MPIWrapper::allGatherVariable(*mesh->Comm(), gatheredDofCoordEntries, myDofCoordEntries, offsets);
+        int numProcs = mesh->Comm()->NumProc();
+        offsets.push_back(gatheredDofCoordEntries.size());
+        for (int rank=0; rank < numProcs; rank++)
+        {
+          int startOffset = offsets[rank], endOffset = offsets[rank+1];
+          for (int i=startOffset; i<endOffset; i++)
+          {
+            GlobalIndexType globalDofIndex = gatheredDofCoordEntries[i].first;
+            vector<double> dofCoord(spaceDim);
+            dofCoord[0] = gatheredDofCoordEntries[i].second.x;
+            dofCoord[1] = gatheredDofCoordEntries[i].second.y;
+            if (gatheredNodalPointForGlobalDofIndex.find(globalDofIndex) != gatheredNodalPointForGlobalDofIndex.end())
+            {
+              vector<double> prevDofCoord = gatheredNodalPointForGlobalDofIndex[globalDofIndex];
+              bool coordsAgree = true;
+              for (int d=0; d<spaceDim; d++)
+              {
+                if (abs(prevDofCoord[d]-dofCoord[d]) > tol)
+                {
+                  coordsAgree = false;
+                  success = false;
+                }
+              }
+              if (!coordsAgree)
+              {
+                int firstRank = firstRankForGlobalIndexType[globalDofIndex];
+                out << "dof coords for global dof index " << globalDofIndex << " disagree between first rank " << firstRank;
+                out << " and current rank " << rank << endl;
+                print(out, "first rank", prevDofCoord);
+                print(out, "current rank", dofCoord);
+              }
+            }
+            else
+            {
+              gatheredNodalPointForGlobalDofIndex[globalDofIndex] = dofCoord;
+              firstRankForGlobalIndexType[globalDofIndex] = rank;
+            }
+          }
+        }
+      }
+        break;
+        
+      case 3:
+      {
+        vector<pair<GlobalIndexType,Point3D>> myDofCoordEntries, gatheredDofCoordEntries;
+        Point3D point;
+        for (auto entry : nodalPointForGlobalDofIndex)
+        {
+          GlobalIndexType globalDofIndex = entry.first;
+          point.x = entry.second[0];
+          point.y = entry.second[1];
+          point.z = entry.second[2];
+          myDofCoordEntries.push_back({globalDofIndex,point});
+        }
+        vector<int> offsets;
+        MPIWrapper::allGatherVariable(*mesh->Comm(), gatheredDofCoordEntries, myDofCoordEntries, offsets);
+        int numProcs = mesh->Comm()->NumProc();
+        offsets.push_back(gatheredDofCoordEntries.size());
+        for (int rank=0; rank < numProcs; rank++)
+        {
+          int startOffset = offsets[rank], endOffset = offsets[rank+1];
+          for (int i=startOffset; i<endOffset; i++)
+          {
+            GlobalIndexType globalDofIndex = gatheredDofCoordEntries[i].first;
+            vector<double> dofCoord(spaceDim);
+            dofCoord[0] = gatheredDofCoordEntries[i].second.x;
+            dofCoord[1] = gatheredDofCoordEntries[i].second.y;
+            dofCoord[2] = gatheredDofCoordEntries[i].second.z;
+            if (gatheredNodalPointForGlobalDofIndex.find(globalDofIndex) != gatheredNodalPointForGlobalDofIndex.end())
+            {
+              vector<double> prevDofCoord = gatheredNodalPointForGlobalDofIndex[globalDofIndex];
+              bool coordsAgree = true;
+              for (int d=0; d<spaceDim; d++)
+              {
+                if (abs(prevDofCoord[d]-dofCoord[d]) > tol)
+                {
+                  coordsAgree = false;
+                  success = false;
+                }
+              }
+              if (!coordsAgree)
+              {
+                int firstRank = firstRankForGlobalIndexType[globalDofIndex];
+                out << "dof coords for global dof index " << globalDofIndex << " disagree between first rank " << firstRank;
+                out << " and current rank " << rank << endl;
+                print(out, "first rank", prevDofCoord);
+                print(out, "current rank", dofCoord);
+              }
+            }
+            else
+            {
+              gatheredNodalPointForGlobalDofIndex[globalDofIndex] = dofCoord;
+              firstRankForGlobalIndexType[globalDofIndex] = rank;
+            }
+          }
+        }
+      }
+        break;
+        
+        
+      default:
+        break;
+    }
+    
   }
   
   void testCoarseBasisEqualsWeightedFineBasis(MeshPtr mesh, Teuchos::FancyOStream &out, bool &success)
@@ -1122,6 +1421,38 @@ namespace
     return poissonUniformMesh(3, 2, 2, true);
   }
   
+  MeshPtr stokesUniformMesh(vector<int> elementWidths, int H1Order, bool useConformingTraces)
+  {
+    int spaceDim = elementWidths.size();
+    int testSpaceEnrichment = spaceDim; //
+    double mu = 1.0;
+    double span = 1.0; // in each spatial dimension
+    
+    vector<double> dimensions(spaceDim,span);
+    
+    StokesVGPFormulation stokesForm = StokesVGPFormulation::steadyFormulation(spaceDim, mu, useConformingTraces);
+    
+    map<int,int> trialOrderEnhancements;
+    if (useConformingTraces)
+    {
+      // also enhance the fields, then:
+      for (int d=1; d<=spaceDim; d++)
+      {
+        trialOrderEnhancements[stokesForm.u(d)->ID()] = 1;
+      }
+    }
+    vector<double> x0(0,spaceDim);
+    MeshPtr mesh = MeshFactory::rectilinearMesh(stokesForm.bf(), dimensions, elementWidths, H1Order, testSpaceEnrichment,
+                                                x0, trialOrderEnhancements);
+    return mesh;
+  }
+  
+  MeshPtr stokesUniformMesh(int spaceDim, int elementWidth, int H1Order, bool useConformingTraces)
+  {
+    vector<int> elementCounts(spaceDim,elementWidth);
+    return stokesUniformMesh(elementCounts, H1Order, useConformingTraces);
+  }
+  
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson1D)
   {
     int spaceDim = 1;
@@ -1259,6 +1590,86 @@ namespace
     bool useConformingTraces = true;
     MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
     testCoarseBasisEqualsWeightedFineBasis(mesh, out, success);
+  }
+
+  // BasisMapsAgreeStokes3DUniformRefinedMesh_Slow is pretty expensive -- ~2 seconds on a single MPI rank on my laptop.
+  // And in its coverage it's pretty similar to DofCoordsAgreePoisson3DUniformRefinedMesh_Slow, which takes about 0.2 seconds.
+//  TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreeStokes3DUniformRefinedMesh_Slow)
+//  {
+//    int spaceDim = 3;
+//    int elementWidth = 1;
+//    int H1Order = 3;
+//    bool useConformingTraces = true;
+//    MeshPtr mesh = stokesUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
+//    
+//    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+//    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+//    
+//    testCoarseBasisEqualsWeightedFineBasis(mesh, out, success);
+//  }
+
+//  TEUCHOS_UNIT_TEST( GDAMinimumRule, DofCoordsAgreeStokes2DUniformRefinedMesh_Slow)
+//  {
+//    int spaceDim = 2;
+//    int elementWidth = 1;
+//    int H1Order = 3;
+//    bool useConformingTraces = true;
+//    MeshPtr mesh = stokesUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
+//    
+//    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternQuad());
+//    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternQuad());
+//    
+//    double mu = 1.0;
+//    StokesVGPFormulation stokesForm = StokesVGPFormulation::steadyFormulation(spaceDim, mu, useConformingTraces);
+//    testGlobalDofCoordinatesAgree(mesh, stokesForm.u_hat(1), out, success);
+//  }
+
+//  TEUCHOS_UNIT_TEST( GDAMinimumRule, DofCoordsAgreeStokes3DUniformMesh_Slow)
+//  {
+//    int spaceDim = 3;
+//    int elementWidth = 4;
+//    int H1Order = 3;
+//    bool useConformingTraces = true;
+//    MeshPtr mesh = stokesUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
+//    
+////    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+////    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+//    
+//    double mu = 1.0;
+//    StokesVGPFormulation stokesForm = StokesVGPFormulation::steadyFormulation(spaceDim, mu, useConformingTraces);
+//    testGlobalDofCoordinatesAgree(mesh, stokesForm.u_hat(1), out, success);
+//  }
+//  
+//  TEUCHOS_UNIT_TEST( GDAMinimumRule, DofCoordsAgreeStokes3DUniformRefinedMesh_Slow)
+//  {
+//    int spaceDim = 3;
+//    int elementWidth = 1;
+//    int H1Order = 3;
+//    bool useConformingTraces = true;
+//    MeshPtr mesh = stokesUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
+//    
+//    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+//    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+//    
+//    double mu = 1.0;
+//    StokesVGPFormulation stokesForm = StokesVGPFormulation::steadyFormulation(spaceDim, mu, useConformingTraces);
+//    testGlobalDofCoordinatesAgree(mesh, stokesForm.u_hat(1), out, success);
+//  }
+  
+  TEUCHOS_UNIT_TEST( GDAMinimumRule, DofCoordsAgreePoisson3DUniformRefinedMesh_Slow)
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    int spaceDim = 3;
+    int elementWidth = 1;
+    int H1Order = 3;
+    bool useConformingTraces = true;
+    MeshPtr mesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
+    
+    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+    mesh->hRefine(mesh->getActiveCellIDsGlobal(), RefinementPattern::regularRefinementPatternHexahedron());
+    
+    PoissonFormulation poissonForm(spaceDim, useConformingTraces);
+    testGlobalDofCoordinatesAgree(mesh, poissonForm.phi_hat(), out, success);
   }
   
   TEUCHOS_UNIT_TEST( GDAMinimumRule, BasisMapsAgreePoisson3DHangingNode1Irregular_Slow)
