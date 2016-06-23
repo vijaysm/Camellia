@@ -18,6 +18,7 @@
 #include "CubatureFactory.h"
 #include "GDAMinimumRule.h"
 #include "SerialDenseWrapper.h"
+#include "TimeLogger.h"
 
 // EpetraExt includes
 #include "EpetraExt_MatrixMatrix.h"
@@ -1136,6 +1137,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
     MeshPtr coarseSingleCellMesh;
     if (!cellProlongationCanMatchPatterns)
     {
+      int timerHandle = TimeLogger::sharedInstance()->startTimer("compute flux to field map");
       // then we're doing static condensation in context of h-refinement: we'll need to compute coarseFluxToFieldMap
       coarseFluxToFieldMapMatrix = condensedDofInterpreterCoarse->fluxToFieldMapForIterativeSolves(coarseCellID);
       fluxOrdinalToLocalDofIndex = condensedDofInterpreterCoarse->fluxIndexLookupLocalCell(coarseCellID);
@@ -1149,6 +1151,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
         coarseFluxToFieldMapMatrix->Apply(*fluxDuplicationMap, *modifiedMatrix);
         coarseFluxToFieldMapMatrix = modifiedMatrix;
       }
+      TimeLogger::sharedInstance()->stopTimer(timerHandle);
     }
     
     VarFactoryPtr vf = _fineMesh->bilinearForm()->varFactory();
@@ -1280,6 +1283,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
                 // If we're doing static condensation, map from coarse flux to coarse field using CondensedDofInterpreter, then
                 // back to fluxes using termTraced.
                 
+                int timerHandle = TimeLogger::sharedInstance()->startTimer("map fluxes to fields to fluxes");
                 BasisPtr volumeBasis = coarseTrialOrdering->getBasis(varTracedID);
                 CellTopoPtr volumeTopo = volumeBasis->domainTopology();
                 
@@ -1383,6 +1387,8 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
                 
                 basisMap.push_back(SubBasisDofMapper::subBasisDofMapper(weights.fineOrdinals, coarseDofIndicesVector, weights.weights));
                 fittableGlobalDofOrdinalsOnSides[sideOrdinal].insert(coarseDofIndicesVector.begin(),coarseDofIndicesVector.end());
+              
+                TimeLogger::sharedInstance()->stopTimer(timerHandle);
               }
             }
           }
