@@ -2569,53 +2569,6 @@ unsigned MeshTopology::getEntityParentCount(unsigned d, IndexType entityIndex) c
 }
 
 // ! pairs are (cellIndex, sideOrdinal) where the sideOrdinal is a side that contains the entity
-set< pair<IndexType, unsigned> > MeshTopology::getCellsContainingEntity(unsigned d, IndexType entityIndex) const   // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.
-{
-  if (d==getDimension())
-  {
-    // entityIndex is a cell; the side then is contained within the cell; we'll flag this fact by setting the side ordinal to -1.
-    return {{entityIndex,-1}};
-  }
-  vector<IndexType> sidesForEntity = _sidesForEntities[d][entityIndex];
-  typedef pair<IndexType,unsigned> CellPair;
-  set< CellPair > cells;
-  set< IndexType > cellIndices;  // container to keep track of which cells we've already counted -- we only return one (cell, side) pair per cell that contains the entity...
-  for (IndexType sideEntityIndex : sidesForEntity)
-  {
-    int numCellsForSide = getCellCountForSide(sideEntityIndex);
-    if (numCellsForSide == 2)
-    {
-      CellPair cell1 = getFirstCellForSide(sideEntityIndex);
-      if (cellIndices.find(cell1.first) == cellIndices.end())
-      {
-        cells.insert(cell1);
-        cellIndices.insert(cell1.first);
-      }
-      CellPair cell2 = getSecondCellForSide(sideEntityIndex);
-      if (cellIndices.find(cell2.first) == cellIndices.end())
-      {
-        cells.insert(cell2);
-        cellIndices.insert(cell2.first);
-      }
-    }
-    else if (numCellsForSide == 1)
-    {
-      CellPair cell1 = getFirstCellForSide(sideEntityIndex);
-      if (cellIndices.find(cell1.first) == cellIndices.end())
-      {
-        cells.insert(cell1);
-        cellIndices.insert(cell1.first);
-      }
-    }
-    else
-    {
-      cout << "Unexpected cell count for side.\n";
-      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unexpected cell count for side.");
-    }
-  }
-  return cells;
-}
-
 void MeshTopology::initializeTransformationFunction(MeshPtr mesh)
 {
   if ((_cellIDsWithCurves.size() > 0) && (mesh != Teuchos::null))

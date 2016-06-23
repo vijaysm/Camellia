@@ -198,12 +198,9 @@ public:
 
   vector<IndexType> getCanonicalEntityNodesViaPeriodicBCs(unsigned d, const vector<IndexType> &myEntityNodes) const; // if there are periodic BCs for this entity, this converts the provided nodes to the ones listed in the canonical ordering (allows permutation determination) -- this method is meant to be called internally, and from Cell.
 
-  set< pair<IndexType, unsigned> > getCellsContainingEntity(unsigned d, IndexType entityIndex) const;
   vector<IndexType> getCellsForSide(IndexType sideEntityIndex) const;
   vector<IndexType> getSidesContainingEntity(unsigned d, IndexType entityIndex) const;
   vector<IndexType> getSidesContainingEntities(unsigned d, const std::vector<IndexType> &entities) const;
-
-//  RefinementBranch getSideConstraintRefinementBranch(IndexType sideEntityIndex); // Returns a RefinementBranch that goes from the constraining side to the side indicated.
 
   unsigned getDimension() const;
   IndexType getSubEntityCount(unsigned int d, IndexType entityIndex, unsigned subEntityDim) const;
@@ -227,8 +224,6 @@ public:
 
   // ! Returns the global active cell count.
   IndexType activeCellCount() const;
-
-  //  pair<IndexType,IndexType> leastActiveCellIndexContainingEntityConstrainedByConstrainingEntity(unsigned d, unsigned constrainingEntityIndex);
 
   void setGlobalDofAssignment(GlobalDofAssignment* gda); // for cubature degree lookups
 

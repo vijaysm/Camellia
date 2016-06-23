@@ -396,7 +396,7 @@ vector<double> MeshTopologyView::getCellCentroid(IndexType cellIndex) const
 
 // getCellsContainingEntity() copied from MeshTopology; could possibly eliminate it in MeshTopology
 // ! pairs are (cellIndex, sideOrdinal) where the sideOrdinal is a side that contains the entity
-set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsigned d, IndexType entityIndex) const  // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.
+set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsigned d, IndexType entityIndex) const  // not *all* cells, but within any refinement branch, the most refined cell that contains the entity will be present in this set.  The unsigned value is the ordinal of a *side* in the cell containing this entity.  There may be multiple sides in a cell that contain the entity; this method will return just one entry per cell.  New 6-22-16: guaranteed to return the side in the cell with least ordinal.  This allows the returned set to be independent of the side indexing in MeshTopology (potentially important for distributed MeshTopology).
 {
   if (d==getDimension())
   {
@@ -405,9 +405,10 @@ set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsi
   }
   vector<IndexType> sidesForEntity = getSidesContainingEntity(d, entityIndex);
   typedef pair<IndexType,unsigned> CellPair;
-  set< CellPair > cells;
-  set< IndexType > cellIndices;  // container to keep track of which cells we've already counted -- we only return one (cell, side) pair per cell that contains the entity...
+  map< IndexType, unsigned > cellSides;
   int sideDim = getDimension() - 1;
+  
+  const MeshTopology* meshTopo = this->baseMeshTopology();
   for (IndexType sideEntityIndex : sidesForEntity)
   {
     vector<IndexType> cellsForSide = getCellsForSide(sideEntityIndex);
@@ -415,13 +416,24 @@ set< pair<IndexType, unsigned> > MeshTopologyView::getCellsContainingEntity(unsi
     
     for (IndexType cellIndex : cellsForSide)
     {
-      if (cellIndices.find(cellIndex) != cellIndices.end()) continue; // already have an entry for this cell
-      CellPtr cell = _meshTopo->getCell(cellIndex);
+      CellPtr cell = meshTopo->getCell(cellIndex);
       unsigned sideSubcord = cell->findSubcellOrdinal(sideDim, sideEntityIndex);
-      cells.insert({cellIndex,sideSubcord});
-      cellIndices.insert(cellIndex);
+      
+      if (cellSides.find(cellIndex) != cellSides.end())
+      {
+        if (cellSides[cellIndex] > sideSubcord)
+        {
+          cellSides[cellIndex] = sideSubcord;
+        }
+      }
+      else
+      {
+        cellSides[cellIndex] = sideSubcord;
+      }
     }
   }
+  set< CellPair > cells;
+  cells.insert(cellSides.begin(),cellSides.end());
   return cells;
 }
 
