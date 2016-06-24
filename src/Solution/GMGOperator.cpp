@@ -594,9 +594,37 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
           if (fineNonZeroVarIDs.size() != 1)
           {
             GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(_fineMesh->globalDofAssignment().get());
+            cout << "GlobalDofIndex " << globalRow;
+            if (fineNonZeroVarIDs.size() != 0)
+            {
+              cout << " was interpreted to match several variables' ";
+            }
+            else
+            {
+              cout << ", interpreted, matched no variables' ";
+            }
+            cout << "local coefficients on cell " << fineCellID << endl;
+            
             minRule->printGlobalDofInfo();
             fineTrialOrdering->print(cout);
             cout << fineCellCoefficients;
+            cout << "variables with non-zero entries: ";
+            int numVars = fineNonZeroVarIDs.size();
+            int varOrdinal = 0;
+            for (auto entry : fineNonZeroVarIDs)
+            {
+              cout << "(" << entry.first << " : {";
+              int numEntries = entry.second.size();
+              for (int i=0; i<numEntries-1; i++)
+              {
+                cout << entry.second[i] << ",";
+              }
+              if (numEntries != 0) cout << entry.second[numEntries-1];
+              cout << "} )";
+              if (varOrdinal < numVars - 1) cout << ", ";
+              varOrdinal++;
+            }
+            cout << "\n";
             TEUCHOS_TEST_FOR_EXCEPTION(fineNonZeroVarIDs.size() != 1, std::invalid_argument, "There should be exactly one variable corresponding to a given global dof ordinal in fine mesh");
           }
           
@@ -1610,9 +1638,13 @@ int GMGOperator::ApplyInverse(const Epetra_MultiVector& X_in, Epetra_MultiVector
   {
     numApplications = 2;
   }
-  else
+  else if (_multigridStrategy != SMOOTHER_ONLY)
   {
     numApplications = 1;
+  }
+  else
+  {
+    numApplications = 0;
   }
   
   if (_smootherType != NONE)
@@ -1698,6 +1730,21 @@ int GMGOperator::ApplyInverse(const Epetra_MultiVector& X_in, Epetra_MultiVector
       computeResidual(Y, res, A_Y);
     }
   }
+  
+//  {
+//    // TESTING SOMETHING:
+//    if (_isFinest)
+//    {
+//      res = f;
+//      computeResidual(Y, res, A_Y);
+//      Epetra_MultiVector B1_res(Y.Map(), Y.NumVectors());
+//      ApplySmoother(res, B1_res, true); // true: apply weight on left
+//      double normValues[Y.NumVectors()];
+//      res.Dot(B1_res, &normValues[0]);
+//      
+//      if (rank == 0) cout << "ApplyInverse: residual on finest GMGOperator, measured in norm induced by Schwarz operator: " << normValues[0] << endl;
+//    }
+//  }
   
   /*
    We zero out the lagrange multiplier solutions on the fine mesh, because we're relying on the coarse solve to impose these;

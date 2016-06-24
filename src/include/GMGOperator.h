@@ -63,7 +63,8 @@ public:
     V_CYCLE,
     W_CYCLE,
     FULL_MULTIGRID_V,
-    FULL_MULTIGRID_W
+    FULL_MULTIGRID_W,
+    SMOOTHER_ONLY // No coarse solve -- just one application of the smoother per "multigrid" cycle
   };
 private:
   bool _debugMode; // in debug mode, output verbose info about what we're doing on rank 0
