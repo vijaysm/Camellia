@@ -604,6 +604,11 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
               cout << ", interpreted, matched no variables' ";
             }
             cout << "local coefficients on cell " << fineCellID << endl;
+            cout << "(useStaticCondensation = ";
+            if (useStaticCondensation)
+              cout << " true\n";
+            else
+              cout << " false\n";
             
             minRule->printGlobalDofInfo();
             fineTrialOrdering->print(cout);
