@@ -266,6 +266,12 @@ void CondensedDofInterpreter<Scalar>::getSubvectors(set<int> fieldIndices, set<i
 }
 
 template <typename Scalar>
+bool CondensedDofInterpreter<Scalar>::canSkipLocalFieldInInterpretGlobalCoefficients() const
+{
+  return _skipLocalFields;
+}
+
+template <typename Scalar>
 GlobalIndexType CondensedDofInterpreter<Scalar>::condensedGlobalIndex(GlobalIndexType meshGlobalIndex)
 {
   if (_interpretedToGlobalDofIndexMap.find(meshGlobalIndex) != _interpretedToGlobalDofIndexMap.end())
@@ -543,7 +549,6 @@ bool CondensedDofInterpreter<Scalar>::varDofsAreUsuallyCondensible(int varID, in
 template <typename Scalar>
 void CondensedDofInterpreter<Scalar>::importInterpretedMapForNeighborGlobalIndices(const map<PartitionIndexType,set<GlobalIndexType>> &partitionToMeshGlobalIndices)
 {
-  set<GlobalIndexType> dofIndicesSet;
   int rank = _mesh->Comm()->MyPID();
   
   // myRequestOwners should be in nondecreasing order (it appears)
@@ -635,7 +640,7 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForNeighborGlobalIndic
 template <typename Scalar>
 void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const std::set<GlobalIndexType> &cellIDs)
 {
-  set<GlobalIndexType> dofIndicesSet;
+//  set<GlobalIndexType> dofIndicesSet;
   int rank = _mesh->Comm()->MyPID();
   
   // myRequestOwners should be in nondecreasing order (it appears)
@@ -645,12 +650,7 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const 
   for (GlobalIndexType cellID : cellIDs)
   {
     int partitionForCell = _mesh->globalDofAssignment()->partitionForCellID(cellID);
-    if (partitionForCell == rank)
-    {
-      set<GlobalIndexType> dofIndicesForCell = this->globalDofIndicesForCell(cellID);
-      dofIndicesSet.insert(dofIndicesForCell.begin(),dofIndicesForCell.end());
-    }
-    else
+    if (partitionForCell != rank)
     {
       requestMap[partitionForCell].push_back(cellID);
     }
@@ -702,14 +702,20 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const 
     }
     
     set<GlobalIndexType> meshGlobalIndices = _mesh->globalDofIndicesForCell(cellID);
+    int cellIndicesSize = 0;
     for (GlobalIndexType meshGlobalIndex : meshGlobalIndices)
     {
-      GlobalIndexType condensedGlobalIndex = _interpretedToGlobalDofIndexMap[meshGlobalIndex];
-      indicesToExport.push_back(meshGlobalIndex);
-      indicesToExport.push_back(condensedGlobalIndex);
+      if (_interpretedToGlobalDofIndexMap.find(meshGlobalIndex) != _interpretedToGlobalDofIndexMap.end())
+      {
+        GlobalIndexType condensedGlobalIndex = _interpretedToGlobalDofIndexMap[meshGlobalIndex];
+        indicesToExport.push_back(meshGlobalIndex);
+        indicesToExport.push_back(condensedGlobalIndex);
+        cellIndicesSize += 2;
+      }
     }
-    sizes[cellOrdinal] = meshGlobalIndices.size() * 2; // key, value
+    sizes[cellOrdinal] = cellIndicesSize;
   }
+  
 //  print("Export vector", indicesToExport);
   
   int objSize = sizeof(GlobalIndexTypeToCast) / sizeof(char);
@@ -735,6 +741,7 @@ void CondensedDofInterpreter<Scalar>::importInterpretedMapForOffRankCells(const 
     copyToLocation++; // copyToLocation has type GlobalIndexTypeToCast*, so this moves the pointer by objSize bytes
   }
 //  print("Import vector", globalIndicesMapVector);
+  
   for (int i=0; i<globalIndicesMapVector.size()/2; i++)
   {
     GlobalIndexType meshGlobalIndex      = globalIndicesMapVector[i*2+0];
@@ -814,6 +821,13 @@ map<GlobalIndexType, GlobalIndexType> CondensedDofInterpreter<Scalar>::interpret
             }
             TEUCHOS_TEST_FOR_EXCEPTION(localDofIndex == -1, std::invalid_argument, "interpretedDofIndex not found in meshGlobalDofs");
             
+//            {
+//              // DEBUGGING
+//              int rank = _mesh->Comm()->MyPID();
+//              cout << "On rank " << rank << ", CondensedDofInterpreter found singleton BC on cell " << cellID;
+//              cout << ", with localDofIndex " << localDofIndex << " and interpretedDofIndex " << interpretedDofIndex << endl;
+//            }
+          
             _cellLocalUncondensibleDofIndices[cellID].push_back(localDofIndex);
           }
           bool dofIsCondensible = varIsCondensible && !hasSingletonBCImposed;
@@ -887,6 +901,12 @@ void CondensedDofInterpreter<Scalar>::initializeGlobalDofIndices()
       partitionToMeshGlobalIndices[owningPartition].insert(interpretedFlux);
     }
   }
+//  {
+//    // DEBUGGING
+//    ostringstream os;
+//    os << "Rank " << rank << " _interpretedToGlobalDofIndexMap";
+//    Camellia::print(os.str(), _interpretedToGlobalDofIndexMap);
+//  }
   importInterpretedMapForNeighborGlobalIndices(partitionToMeshGlobalIndices);
   
   // communicate about any off-rank guys that might be of interest
@@ -974,9 +994,11 @@ void CondensedDofInterpreter<Scalar>::interpretLocalBasisCoefficients(GlobalInde
     }
     else
     {
-      
+      cout << "On rank " << _mesh->Comm()->MyPID() << ", ";
       cout << "globalDofIndex not found for specified interpretedDofIndex " << interpretedDofIndex << " (may not be a flux?)\n";
       cout << "cellID " << cellID << ", varID " << varID << ", side " << sideOrdinal << endl;
+      
+      cout << "Error encountered on a mesh with " << _mesh->numActiveElements() << " active elements.\n";
       
       GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(_mesh->globalDofAssignment().get());
       if (minRule != NULL)
@@ -985,7 +1007,8 @@ void CondensedDofInterpreter<Scalar>::interpretLocalBasisCoefficients(GlobalInde
         minRule->printGlobalDofInfo();
       }
       
-      _mesh->getTopology()->printAllEntitiesInBaseMeshTopology();
+//      _mesh->getTopology()->printAllEntitiesInBaseMeshTopology();
+      
       
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "globalDofIndex not found for specified interpretedDofIndex (may not be a flux?)");
     }
@@ -1180,9 +1203,16 @@ void CondensedDofInterpreter<Scalar>::interpretLocalData(GlobalIndexType cellID,
   {
     int localFluxIndex = *indexIt;
     GlobalIndexType interpretedDofIndex = interpretedDofIndices(localFluxIndex);
-    int condensedIndex = _interpretedToGlobalDofIndexMap[interpretedDofIndex];
-    globalDofIndices(i) = condensedIndex;
-    i++;
+    if (_interpretedToGlobalDofIndexMap.find(interpretedDofIndex) != _interpretedToGlobalDofIndexMap.end())
+    {
+      int condensedIndex = _interpretedToGlobalDofIndexMap[interpretedDofIndex];
+      globalDofIndices(i) = condensedIndex;
+      i++;
+    }
+    else
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "interpretedDofIndex not found!");
+    }
   }
 
   for (int i=0; i<fluxCount; i++)
@@ -1248,8 +1278,6 @@ void CondensedDofInterpreter<Scalar>::interpretGlobalCoefficients(GlobalIndexTyp
   
   int fieldCount = fieldIndices.size();
   int fluxCount = fluxIndices.size();
-
-  Epetra_SerialDenseVector field_dofs(fieldCount);
   
   for (int i=0; i<numPresent; i++)
   {
@@ -1274,6 +1302,7 @@ void CondensedDofInterpreter<Scalar>::interpretGlobalCoefficients(GlobalIndexTyp
   
   if (_skipLocalFields) return; // then we are done...
   
+  Epetra_SerialDenseVector field_dofs(fieldCount);
   Epetra_SerialDenseVector flux_dofs(fluxCount);
   
   int fluxOrdinal=0;

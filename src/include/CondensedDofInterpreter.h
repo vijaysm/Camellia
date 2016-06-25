@@ -146,6 +146,7 @@ public:
   PartitionIndexType partitionForGlobalDofIndex( GlobalIndexType globalDofIndex );
 
   void reinitialize(); // clear stiffness matrices, etc., and rebuild global dof index map
+  bool canSkipLocalFieldInInterpretGlobalCoefficients() const;
   void setCanSkipLocalFieldInInterpretGlobalCoefficients(bool value);
   
   void storeLoadForCell(GlobalIndexType cellID, const Intrepid::FieldContainer<Scalar> &load);

@@ -551,8 +551,6 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
     {
       GlobalIndexTypeToCast globalRow = fineMap.GID(localID);
       map<GlobalIndexTypeToCast, double> coarseXVectorLocal; // rank-local representation, so we just use an STL map.  Has the advantage of growing as we need it to.
-//      mapOneElement = Epetra_Map(1,1,&myGlobalIndices[localID],0,SerialComm);
-//      oneElementVector->ReplaceMap(mapOneElement);
       (*XLocal)[localID] = 1.0;
       
       if (globalRow >= firstFineConstraintRowIndex)
@@ -606,9 +604,14 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
             cout << "local coefficients on cell " << fineCellID << endl;
             cout << "(useStaticCondensation = ";
             if (useStaticCondensation)
-              cout << " true\n";
+              cout << " true, ";
             else
-              cout << " false\n";
+              cout << " false, ";
+            cout << "skipLocalFields = ";
+            if (condensedDofInterpreterFine->canSkipLocalFieldInInterpretGlobalCoefficients())
+              cout << " true)\n";
+            else
+              cout << " false)\n";
             
             minRule->printGlobalDofInfo();
             fineTrialOrdering->print(cout);
