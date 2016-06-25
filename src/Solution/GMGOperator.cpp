@@ -143,6 +143,9 @@ _finePartitionMap(finePartitionMap), _br(true)
   _coarseSolution->initializeLHSVector();
   _coarseSolution->initializeLoad(); // don't need to initialize stiffness anymore; we'll do this in computeCoarseStiffnessMatrix
 
+  TimeLogger::sharedInstance()->createTimeEntry("map fluxes to fields to fluxes");
+  TimeLogger::sharedInstance()->createTimeEntry("compute flux to field map");
+  
 //  constructProlongationOperator();
 
   _timeConstruction += constructionTimer.ElapsedTime();
@@ -574,6 +577,14 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
           int fineDofCount = fineTrialOrdering->totalDofs();
           fineCellCoefficients.resize(fineDofCount);
         
+//          {
+//            // DEBUGGING
+//            if (fineCellID == 1)
+//            {
+//              cout << "Debugging GMGOperator: fineCellID == 1.\n"; // set breakpoint here
+//            }
+//          }
+          
           /*
            The following is a bit backwards; it should be that DofInterpreter itself could tell us which variables
            and sides belong to the provided global degree of freedom.  But adding this is a change that would take more

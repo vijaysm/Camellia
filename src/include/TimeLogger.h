@@ -26,6 +26,9 @@ namespace Camellia {
     int startTimer(const std::string &timerName);
     void stopTimer(int timerHandle);
     
+    //! Allows creation of time entries even if a timer doesn't actually get started/stopped on all ranks
+    void createTimeEntry(const std::string &timerName);
+    
     double totalTime(const std::string &timerName) const;
     const std::map<std::string,double> totalTimes() const;
     

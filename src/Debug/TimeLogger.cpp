@@ -26,6 +26,14 @@ Teuchos::RCP<TimeLogger> TimeLogger::sharedInstance()
   return _sharedInstance;
 }
 
+void TimeLogger::createTimeEntry(const std::string &timerName)
+{
+  if (_totalTimes.find(timerName) == _totalTimes.end())
+  {
+    _totalTimes[timerName] = 0;
+  }
+}
+
 int TimeLogger::startTimer(const std::string &timerName)
 {
   Teuchos::RCP<Epetra_Time> timer;
