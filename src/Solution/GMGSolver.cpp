@@ -7,6 +7,7 @@
 //
 
 #include "CamelliaDebugUtility.h"
+#include "ConvergenceTestOpNorm.hpp"
 #include "GDAMinimumRule.h"
 #include "GMGSolver.h"
 #include "MPIWrapper.h"
@@ -328,8 +329,9 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
     thisLevelCellIndices = nextLevelCellIndices;
   } while (fineMeshNumCells > thisLevelNumCells);
   
+  // 6-27-16: turning this off!
   // repeat the last one:
-  meshesCoarseToFine.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
+//  meshesCoarseToFine.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
   
   const set<GlobalIndexType>* myFineCellIndices = &fineMesh->cellIDsInPartition();
   
@@ -511,6 +513,16 @@ int GMGSolver::solve(bool buildCoarseStiffness)
       solver = factory.create("GMRES", solverParams);
     }
     
+//    {
+//      // TRYING SOMETHING
+//      Epetra_MultiVector B_times_rhs(_rhs->Map(), _rhs->NumVectors());
+//      _gmgOperator->ApplySmoother(*_rhs, B_times_rhs, true); // true: apply weight on left
+//      double normValues[_rhs->NumVectors()];
+//      _rhs->Dot(B_times_rhs, &normValues[0]);
+//      
+//      if (rank == 0) cout << "GMGSolver: Schwarz-induced norm of _rhs: " << normValues[0] << "\n";
+//    }
+    
     problem->setRightPrec(_gmgOperator);
     problem->setProblem();
     solver->setProblem(problem);
@@ -526,6 +538,10 @@ int GMGSolver::solve(bool buildCoarseStiffness)
       if (rank == 0) cout << "Writing system matrix to " << path.str() << endl;
       EpetraExt::RowMatrixToMatrixMarketFile(path.str().c_str(),*_stiffnessMatrix, NULL, NULL, false);
     }
+    
+//    cout << "NOTE: setting user convergence status test.\n";
+//    Teuchos::RCP<Belos::StatusTest<Scalar,MV,OP> > smootherTestNorm = Teuchos::rcp(new ConvergenceTestOpNorm<Scalar, MV, OP>(gmgOperator()->getSmoother(), _tol));
+//    cgSolver->setUserConvStatusTest(smootherTestNorm);
     
     Belos::ReturnType belosResult = solver->solve();
     

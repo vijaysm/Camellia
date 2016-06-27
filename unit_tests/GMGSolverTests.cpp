@@ -562,7 +562,8 @@ namespace
       expectedDofCounts.push_back(mesh->numGlobalDofs());
     }
     
-    expectedDofCounts.push_back(mesh->numGlobalDofs()); // expect to have the fine h mesh twice
+    // changed 6-27-16: no longer duplicate the fine h mesh
+//    expectedDofCounts.push_back(mesh->numGlobalDofs()); // expect to have the fine h mesh twice
     
     int H1Order_fine = 5;
     int numPRefs = H1Order_fine - H1Order_coarse;
