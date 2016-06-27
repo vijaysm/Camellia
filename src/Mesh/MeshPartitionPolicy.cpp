@@ -76,20 +76,28 @@ MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMes
   vector<GlobalIndexTypeToCast> myEntries;
   
   auto myCellIDs = &inducingRefinedMesh->cellIDsInPartition();
+  /*
+   Modification 6-27-16: instead of assigning parent to owner of first child,
+   assign parent to owner of child with ordinal equal to the level of the
+   parent, modulo the number of children.  This should result in better load
+   balancing for multigrid.
+   */
   for (GlobalIndexType myCellID : *myCellIDs)
   {
     IndexType ancestralCellIndex = myCellID;
-    bool isFirstChild = true;
-    while (isFirstChild && !inducedMeshTopo->isValidCellIndex(ancestralCellIndex))
+    bool hasMatchingChild = true;
+    while (inducingRefinedMesh->getTopology()->isValidCellIndex(ancestralCellIndex)
+           && !inducedMeshTopo->isValidCellIndex(ancestralCellIndex))
     {
       CellPtr myCell = inducingRefinedMesh->getTopology()->getCell(ancestralCellIndex);
       CellPtr parent = myCell->getParent();
       TEUCHOS_TEST_FOR_EXCEPTION(parent == Teuchos::null, std::invalid_argument, "ancestor not found in inducedMeshTopo");
       int childOrdinal = parent->findChildOrdinal(myCell->cellIndex());
-      isFirstChild = (childOrdinal == 0);
+      int numChildren = parent->numChildren();
+      hasMatchingChild = ((parent->level() % numChildren) == childOrdinal);
       ancestralCellIndex = parent->cellIndex();
     }
-    if (isFirstChild)
+    if (hasMatchingChild)
     {
       myEntries.push_back(ancestralCellIndex);
       myEntries.push_back(myCellID);
