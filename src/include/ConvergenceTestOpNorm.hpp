@@ -6,28 +6,32 @@
 //
 //
 
-#ifndef Camellia_ConvergenceTestSchwarz_hpp
-#define Camellia_ConvergenceTestSchwarz_hpp
+#ifndef Camellia_ConvergenceTestOpNorm_hpp
+#define Camellia_ConvergenceTestOpNorm_hpp
 
 #include "BelosStatusTest.hpp"
 
 namespace Camellia {
   template <class ScalarType, class MV, class OP>
-  class ConvergenceTestSchwarz : public Belos::StatusTest<ScalarType,MV,OP>
+  class ConvergenceTestOpNorm : public Belos::StatusTest<ScalarType,MV,OP>
   {
     Belos::StatusType _lastStatus;
+    Teuchos::RCP<OP> _op;
+    double _tol;
     
     public:
     //! @name Constructors/destructors
     //@{
     
     //! Constructor
-    StatusTest() {
+    ConvergenceTestOpNorm(Teuchos::RCP<OP> op, double tol) {
       _lastStatus = Belos::Undefined;
+      _op = op;
+      _tol = tol;
     };
     
     //! Destructor
-    virtual ~StatusTest() {};
+    virtual ~ConvergenceTestOpNorm() {};
     //@}
     
     //! @name Status methods
@@ -41,10 +45,40 @@ namespace Camellia {
      
      \return Belos::StatusType: Unconverged, Converged or Failed.
      */
-    virtual Belos::StatusType checkStatus( Belos::Iteration<ScalarType,MV,OP>* iSolver ) = 0;
+    virtual Belos::StatusType checkStatus( Belos::Iteration<ScalarType,MV,OP>* iSolver )
+    {
+      std::vector<typename Teuchos::ScalarTraits<ScalarType>::magnitudeType> dummyNorms;
+      
+      Teuchos::RCP<const MV> residuals = iSolver->getNativeResiduals(&dummyNorms);
+      
+      MV Y(*residuals);
+      _op->ApplyInverse(*residuals, Y);
+      
+      std::vector<double> myNorms(residuals->NumVectors());
+      residuals->Dot(Y,&myNorms[0]);
+      
+      // we require all norm values to be less than tol.
+      for (double value : myNorms)
+      {
+        if (value < 0)
+        {
+          std::cout << "WARNING: encountered negative norm value.  Perhaps Op was not positive definite?\n";
+          return Belos::Undefined;
+        }
+        else if (value > _tol)
+        {
+          return Belos::Failed;
+        }
+      }
+      // if we get here, then value < _tol for each
+      return Belos::Passed;
+    }
     
     //! Return the result of the most recent CheckStatus call.
-    virtual Belos::StatusType getStatus() const = 0;
+    virtual Belos::StatusType getStatus() const
+    {
+      return _lastStatus;
+    }
     //@}
     
     //! @name Reset methods
@@ -62,19 +96,22 @@ namespace Camellia {
     //@{
     
     //! Output formatted description of stopping test to output stream.
-    virtual void print(std::ostream& os, int indent = 0) const = 0;
+    virtual void print(std::ostream& os, int indent) const
+    {
+      // would be better to print something here!
+    }
     
     //! Output the result of the most recent CheckStatus call.
     virtual void printStatus(std::ostream& os, Belos::StatusType type) const {
       os << std::left << std::setw(13) << std::setfill('.');
       switch (type) {
-          case  Passed:
+          case  Belos::Passed:
           os << "Passed";
           break;
-          case  Failed:
+          case  Belos::Failed:
           os << "Failed";
           break;
-          case  Undefined:
+          case  Belos::Undefined:
           default:
           os << "**";
           break;
