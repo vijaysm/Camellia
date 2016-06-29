@@ -8,6 +8,7 @@
 
 #include "CamelliaCellTools.h"
 #include "CellDataMigration.h"
+#include "CamelliaMemoryUtility.h"
 #include "CellTopology.h"
 #include "GlobalDofAssignment.h"
 #include "MeshTopology.h"
@@ -175,46 +176,6 @@ vector<IndexType> MeshTopology::getActiveCellIndicesGlobal() const
   Comm()->SumAll(&allCellIDsInt[0], &gatheredCellIDs[0], globalCellCount);
   vector<IndexType> allCellIDs(gatheredCellIDs.begin(),gatheredCellIDs.end());
   return allCellIDs;
-}
-
-// LLVM memory approximations come from http://info.prelert.com/blog/stl-container-memory-usage
-template<typename A, typename B>
-long long approximateMapSizeLLVM(const map<A,B> &someMap)   // in bytes
-{
-  // 24 bytes for the map itself; nodes are 32 bytes + sizeof(pair<A,B>) each
-  // if A and B are containers, this won't count their contents...
-
-  map<int, int> emptyMap;
-
-  int MAP_OVERHEAD = sizeof(emptyMap);
-  int MAP_NODE_OVERHEAD = 32; // according to http://info.prelert.com/blog/stl-container-memory-usage, this appears to be basically universal
-
-  return MAP_OVERHEAD + (MAP_NODE_OVERHEAD + sizeof(pair<A,B>)) * someMap.size();
-}
-
-template<typename A>
-long long approximateSetSizeLLVM(const set<A> &someSet)   // in bytes
-{
-  // 48 bytes for the set itself; nodes are 32 bytes + sizeof(pair<A,B>) each
-  // if A and B are containers, this won't count their contents...
-
-  set<int> emptySet;
-  int SET_OVERHEAD = sizeof(emptySet);
-
-  int MAP_NODE_OVERHEAD = 32; // according to http://info.prelert.com/blog/stl-container-memory-usage, this appears to be basically universal
-
-  return SET_OVERHEAD + (MAP_NODE_OVERHEAD + sizeof(A)) * someSet.size();
-}
-
-template<typename A>
-long long approximateVectorSizeLLVM(const vector<A> &someVector)   // in bytes
-{
-  // 24 bytes for the vector itself; nodes are 32 bytes + sizeof(pair<A,B>) each
-  // if A and B are containers, this won't count their contents...
-  vector<int> emptyVector;
-  int VECTOR_OVERHEAD = sizeof(someVector);
-
-  return VECTOR_OVERHEAD + sizeof(A) * someVector.size();
 }
 
 map<string, long long> MeshTopology::approximateMemoryCosts() const
