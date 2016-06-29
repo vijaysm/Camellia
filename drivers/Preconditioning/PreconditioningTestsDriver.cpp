@@ -995,6 +995,9 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     navierStokesFormulationFine = Teuchos::rcp(new NavierStokesVGPFormulation(NavierStokesVGPFormulation::steadyFormulation(spaceDim, Re, conformingTraces, meshTopo, k, delta_k)));
     navierStokesFormulationCoarse = Teuchos::rcp(new NavierStokesVGPFormulation(NavierStokesVGPFormulation::steadyFormulation(spaceDim, Re, conformingTraces, coarseMeshTopo, k_coarse, delta_k)));
 
+    int k_low_order = 1;
+    NavierStokesVGPFormulation lowestOrderForm(NavierStokesVGPFormulation::steadyFormulation(spaceDim, Re, conformingTraces, meshTopo, k_low_order, delta_k));
+    
     FunctionPtr u1, u2, p;
     NavierStokesVGPFormulation::getKovasznaySolution(Re, u1, u2, p);
     
@@ -1004,12 +1007,14 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     if (useZeroMeanConstraints)
     {
       navierStokesFormulationFine->addZeroMeanPressureCondition();
+      lowestOrderForm.addZeroMeanPressureCondition();
       double p_mean = p->integrate(mesh);
       p = p - p_mean;
     }
     else
     {
       navierStokesFormulationFine->addPointPressureCondition({0.5,1.0});
+      lowestOrderForm.addPointPressureCondition({0.5,1.0});
       double p_center = p->evaluate(0.5, 1.0);
       p = p - p_center;
     }
@@ -1021,6 +1026,18 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
 
     navierStokesFormulationFine->addInflowCondition(SpatialFilter::allSpace(), u);
     navierStokesFormulationFine->setForcingFunction(forcingFunction);
+    
+    lowestOrderForm.addInflowCondition(SpatialFilter::allSpace(), u);
+    lowestOrderForm.setForcingFunction(forcingFunction);
+
+    lowestOrderForm.solution()->setCubatureEnrichmentDegree(kovasznayCubatureEnrichment);
+    
+    if (rank == 0) cout << "Navier-Stokes: taking three Newton steps on first-order mesh; using this as background flow.\n";
+    for (int i=0; i<3; i++)
+    {
+      lowestOrderForm.solveAndAccumulate();
+    }
+    lowestOrderForm.solution()->projectFieldVariablesOntoOtherSolution(navierStokesFormulationFine->solution());
     
     navierStokesFormulationFine->solution()->setCubatureEnrichmentDegree(kovasznayCubatureEnrichment);
     navierStokesFormulationFine->solutionIncrement()->setCubatureEnrichmentDegree(kovasznayCubatureEnrichment);
@@ -1303,17 +1320,17 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
   }
   else
   {
-    result = 0;
-    if (rank==0) cout << "Navier-Stokes: doing two Newton steps, recording the results for the second\n";
-    
-    navierStokesFormFine->setSolver(solver);
-    result = navierStokesFormFine->solveAndAccumulate();
-    
-    solver = initializeGMGSolver(solution, AztecOutputLevel, smootherType,
-                                 schwarzOverlap, schwarzBlockFactorization, schwarzLevelOfFill, schwarzFillRatio,
-                                 useStaticCondensation, hOnly, useHierarchicalNeighborsForSchwarz, k0Mesh, coarseSolverChoice,
-                                 cgMaxIterations, cgTol, comboType,
-                                 smootherWeight, useWeightMatrixForSchwarz);
+//    result = 0;
+//    if (rank==0) cout << "Navier-Stokes: doing two Newton steps and recording the results for the last\n";
+//    
+//    navierStokesFormFine->setSolver(solver);
+//    result = navierStokesFormFine->solveAndAccumulate();
+//    
+//    solver = initializeGMGSolver(solution, AztecOutputLevel, smootherType,
+//                                 schwarzOverlap, schwarzBlockFactorization, schwarzLevelOfFill, schwarzFillRatio,
+//                                 useStaticCondensation, hOnly, useHierarchicalNeighborsForSchwarz, k0Mesh, coarseSolverChoice,
+//                                 cgMaxIterations, cgTol, comboType,
+//                                 smootherWeight, useWeightMatrixForSchwarz);
     navierStokesFormFine->setSolver(solver);
     result = navierStokesFormFine->solveAndAccumulate(); // second step has non-zero background flow (implying variable coefficients)
   }
@@ -1341,6 +1358,7 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
   }
 
   if (reportTimings) solution->reportTimings();
+  solution->clearComputedResiduals(); // force recomputation
   double energyErrorTotal = solution->energyErrorTotal(); // we now record energy error even if we don't print to console
 //  double energyErrorTotal = reportEnergyError ? solution->energyErrorTotal() : -1;
 
