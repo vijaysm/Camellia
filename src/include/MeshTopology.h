@@ -71,15 +71,13 @@ class MeshTopology : public MeshTopologyView
 
 //  vector< CellPtr > _cells;
   RangeList<GlobalIndexType> _validCells; // RangeList for potentially faster lookups; should match the keys in _cells
-  map<GlobalIndexType, CellPtr> _cells; // the cells known on this MPI rank.  Right now, all cells are stored on every rank; soon, this will not be true anymore.
+  map<GlobalIndexType, CellPtr> _cells; // the cells known on this MPI rank.
 
   // these guys presently only support 2D:
   set< IndexType > _cellIDsWithCurves;
   map< pair<IndexType, IndexType>, ParametricCurvePtr > _edgeToCurveMap;
   Teuchos::RCP<MeshTransformationFunction> _transformationFunction; // for dealing with those curves
 
-  //  set<IndexType> activeDescendants(IndexType d, IndexType entityIndex);
-  //  set<IndexType> activeDescendantsNotInSet(IndexType d, IndexType entityIndex, const set<IndexType> &excludedSet);
   IndexType addCell(IndexType cellIndex, CellTopoPtrLegacy cellTopo, const vector<IndexType> &cellVertices, IndexType parentCellIndex = -1);
   IndexType addCell(IndexType cellIndex, CellTopoPtr cellTopo, const vector<IndexType> &cellVertices, IndexType parentCellIndex = -1);
   void addCellForSide(IndexType cellIndex, unsigned sideOrdinal, IndexType sideEntityIndex);

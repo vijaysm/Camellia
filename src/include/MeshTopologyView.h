@@ -63,8 +63,9 @@ namespace Camellia {
     // ! Returns the global active cell count.
     virtual IndexType activeCellCount() const;
     
-    virtual void cellHalo(std::set<GlobalIndexType> &haloCellIndices, const std::set<GlobalIndexType> &cellIndices,
-                          unsigned dimForNeighborRelation) const;
+    template<typename GlobalIndexContainer>
+    void cellHalo(GlobalIndexContainer &haloCellIndices, const std::set<GlobalIndexType> &cellIndices,
+                  unsigned dimForNeighborRelation) const;
     
     // ! If the base MeshTopology is distributed, returns the Comm object used.  Otherwise, returns Teuchos::null, which is meant to indicate that the MeshTopology is replicated on every MPI rank on which it is used.
     virtual Epetra_CommPtr Comm() const;

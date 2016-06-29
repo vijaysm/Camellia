@@ -75,7 +75,9 @@ IndexType MeshTopologyView::cellCount() const
   return _globalCellCount;
 }
 
-void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set<GlobalIndexType> &cellIndices,
+
+template<typename GlobalIndexContainer>
+void MeshTopologyView::cellHalo(GlobalIndexContainer &haloCellIndices, const set<GlobalIndexType> &cellIndices,
                                 unsigned dimForNeighborRelation) const
 {
   // the cells passed in are the ones the user wants to include -- e.g. those owned by the MPI rank.
@@ -183,6 +185,11 @@ void MeshTopologyView::cellHalo(set<GlobalIndexType> &haloCellIndices, const set
   
   TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }
+
+template void MeshTopologyView::cellHalo<set<GlobalIndexType>>(set<GlobalIndexType> &haloCellIndices, const set<GlobalIndexType> &cellIndices,
+                                                               unsigned dimForNeighborRelation) const;
+template void MeshTopologyView::cellHalo<RangeList<GlobalIndexType>>(RangeList<GlobalIndexType> &haloCellIndices, const set<GlobalIndexType> &cellIndices,
+                                                                     unsigned dimForNeighborRelation) const;
 
 std::vector<IndexType> MeshTopologyView::cellIDsForPoints(const Intrepid::FieldContainer<double> &physicalPoints) const
 {
