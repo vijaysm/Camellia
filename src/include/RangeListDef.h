@@ -17,6 +17,37 @@ namespace Camellia {
   }
   
   template<class IntegerType>
+  RangeListIterator<IntegerType> RangeList<IntegerType>::begin()
+  {
+    return RangeListIterator<IntegerType>(this, false);
+  }
+  
+  template<class IntegerType>
+  RangeListIterator<IntegerType> RangeList<IntegerType>::end()
+  {
+    return RangeListIterator<IntegerType>(this, true);
+  }
+  
+  // ! returns the nth value in the range list
+  template<class IntegerType>
+  IntegerType RangeList<IntegerType>::getValue(int n) const
+  {
+    // we iterate through our ranges, summing the sizes, until we pass n
+    int rangeCount = length();
+    int currentRangeFirstOrdinal = 0;
+    for (int i=0; i<rangeCount; i++)
+    {
+      int size = _rangeEnds[i] - _rangeBegins[i] + 1;
+      if ((n >= currentRangeFirstOrdinal) && (n - currentRangeFirstOrdinal < size))
+      {
+        return _rangeBegins[i] + n - currentRangeFirstOrdinal;
+      }
+      currentRangeFirstOrdinal += size;
+    }
+    TEUCHOS_TEST_FOR_EXCEPTION(true,std::invalid_argument,"invalid ordinal");
+  }
+  
+  template<class IntegerType>
   void RangeList<IntegerType>::insert(IntegerType value)
   {
     int rangeOrdinal = this->rangeOrdinalLowerBound(value); // first range that ends past value

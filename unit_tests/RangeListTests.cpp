@@ -12,9 +12,31 @@
 #include "TypeDefs.h"
 
 using namespace Camellia;
+using namespace std;
 
 namespace
 {
+  void testSetAndRangeListAgreeInIteration(set<int> &myset, RangeList<int> &mylist, Teuchos::FancyOStream &out, bool &success)
+  {
+    RangeListIterator<int> listIt = mylist.begin();
+    set<int>::iterator setIt = myset.begin();
+    int numValues = myset.size();
+    for (int i=0; i<numValues; i++)
+    {
+      TEST_EQUALITY(*listIt, *setIt);
+      ++listIt;
+      ++setIt;
+    }
+    
+    // try again, now with range-based for loop:
+    setIt = myset.begin();
+    for (int value : mylist)
+    {
+      TEST_EQUALITY(value, *setIt);
+      setIt++;
+    }
+  }
+  
   TEUCHOS_UNIT_TEST( RangeList, Insert )
   {
     RangeList<int> mylist;
@@ -104,6 +126,21 @@ namespace
     TEST_ASSERT(!mylist.contains(1));
     TEST_ASSERT(!mylist.contains(2));
     TEST_ASSERT(!mylist.contains(3));
+  }
+  
+  TEUCHOS_UNIT_TEST( RangeList, Iterator )
+  {
+    vector<int> itemsToAdd = {1,5,4,3,2,0,7,6};
+    
+    RangeList<int> mylist;
+    set<int> myset;
+    
+    for (int item : itemsToAdd)
+    {
+      mylist.insert(item);
+      myset.insert(item);
+      testSetAndRangeListAgreeInIteration(myset, mylist, out, success);
+    }
   }
   
   TEUCHOS_UNIT_TEST( RangeList, OutOfOrderInsert )

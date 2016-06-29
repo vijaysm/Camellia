@@ -13,6 +13,8 @@
 
 namespace Camellia
 {
+  template<class IntegerType> class RangeListIterator;
+  
   template<class IntegerType> class RangeList
   {
     // _rangeBegins and _rangeEnds have the same length
@@ -29,6 +31,9 @@ namespace Camellia
   public:
     // ! Constructor
     RangeList();
+    
+    // ! returns the nth value in the range list
+    IntegerType getValue(int n) const;
     
     // ! Inserts the element
     void insert(IntegerType value);
@@ -47,7 +52,94 @@ namespace Camellia
     
     // ! number of elements in the range list
     int size() const;
+    
+    RangeListIterator<IntegerType> begin();
+    RangeListIterator<IntegerType> end();
+    
+    friend class RangeListIterator<IntegerType>;
   };
+  
+  
+  template<class IntegerType>
+  class RangeListIterator
+  : public std::iterator<std::forward_iterator_tag, IntegerType>
+  {
+  private:
+    RangeList<IntegerType>* _rangeList;
+    int _currentRangeOrdinal;
+    IntegerType _currentValue;
+    
+  public:
+    RangeListIterator(RangeList<IntegerType>* rangeList, bool initializeToEnd)
+    {
+      _rangeList = rangeList;
+      if (!initializeToEnd)
+      {
+        _currentRangeOrdinal = 0;
+        _currentValue = _rangeList->_rangeBegins[_currentRangeOrdinal];
+      }
+      else
+      {
+        _currentRangeOrdinal = _rangeList->length();
+        _currentValue = -1;
+      }
+    }
+    
+    const IntegerType& operator*() const
+    {
+      return _currentValue;
+    }
+    
+    const IntegerType* operator->() const
+    {
+      return &_currentValue;
+    }
+    
+    RangeListIterator& operator++() // prefix
+    {
+      if (_currentValue + 1 <= _rangeList->_rangeEnds[_currentRangeOrdinal])
+      {
+        _currentValue++;
+      }
+      else
+      {
+        _currentRangeOrdinal++;
+        if (_currentRangeOrdinal < _rangeList->_rangeBegins.size())
+        {
+          _currentValue = _rangeList->_rangeBegins[_currentRangeOrdinal];
+        }
+        else
+        {
+          _currentValue = -1;
+        }
+      }
+      return *this;
+    }
+    
+    RangeListIterator operator++(int) // postfix
+    {
+      RangeListIterator result(*this);
+      ++(*this);
+      return result;
+    }
+    
+    friend bool operator==(RangeListIterator a, RangeListIterator b)
+    {
+      return (a._rangeList == b._rangeList) && (a._currentValue == b._currentValue) && (a._currentRangeOrdinal == b._currentRangeOrdinal);
+    }
+    
+    friend bool operator!=(RangeListIterator a, RangeListIterator b)
+    {
+      return !(a == b);
+    }
+    
+    // one way conversion: iterator -> const_iterator
+    operator RangeListIterator<IntegerType>() const
+    {
+      return *this;
+    }
+  };
+  
 }
 
 #include "RangeListDef.h"
