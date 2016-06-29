@@ -1767,20 +1767,15 @@ namespace
 
       int varID = 3;
       
-      SubcellDofIndices scDofIndices;
-      scDofIndices.subcellDofIndices.resize(spaceDim+1);
+      SubcellDofIndices scDofIndices(cellTopo);
       for (int d=0; d<=spaceDim; d++)
       {
         int numSubcells = cellTopo->getSubcellCount(d);
         for (int scord=0; scord<numSubcells; scord++)
         {
           vector<int> localDofOrdinals = basis->dofOrdinalsForSubcell(d, scord);
-          vector<GlobalIndexType> globalDofIndices;
-          for (int localDofOrdinal : localDofOrdinals)
-          {
-            globalDofIndices.push_back(localDofOrdinal + globalDofOffset);
-          }
-          scDofIndices.subcellDofIndices[d][scord][varID] = globalDofIndices;
+          scDofIndices.setDofIndicesForVarOnSubcell(d,scord,varID, {globalDofOffset,localDofOrdinals.size()});
+          globalDofOffset += localDofOrdinals.size();
         }
       }
       return scDofIndices;

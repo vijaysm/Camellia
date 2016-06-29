@@ -41,25 +41,7 @@ void printDofIndexInfo(GlobalIndexType cellID, SubcellDofIndices &subcellDofIndi
 {
   //typedef vector< SubCellOrdinalToMap > SubcellDofIndices; // index to vector: subcell dimension
   cout << "Dof Index info for cell ID " << cellID << ":\n";
-  ostringstream varIDstream;
-  for (int d=0; d<subcellDofIndices.subcellDofIndices.size(); d++)
-  {
-    //    typedef map<int, vector<GlobalIndexType> > VarIDToDofIndices; // key: varID
-    //    typedef map<unsigned, VarIDToDofIndices> SubCellOrdinalToMap; // key: subcell ordinal
-    cout << "****** dimension " << d << " *******\n";
-    SubcellDofIndices::SubCellOrdinalToMap scordMap = subcellDofIndices.subcellDofIndices[d];
-    for (SubcellDofIndices::SubCellOrdinalToMap::iterator scordMapIt = scordMap.begin(); scordMapIt != scordMap.end(); scordMapIt++)
-    {
-      cout << "  scord " << scordMapIt->first << ":\n";
-      SubcellDofIndices::VarIDToDofIndices varMap = scordMapIt->second;
-      for (SubcellDofIndices::VarIDToDofIndices::iterator varIt = varMap.begin(); varIt != varMap.end(); varIt++)
-      {
-        varIDstream.str("");
-        varIDstream << "     var " << varIt->first << ", global dofs";
-        if (varIt->second.size() > 0) Camellia::print(varIDstream.str(), varIt->second);
-      }
-    }
-  }
+  subcellDofIndices.print(cout);
 }
 
 GDAMinimumRule::GDAMinimumRule(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderingFactoryPtr dofOrderingFactory, MeshPartitionPolicyPtr partitionPolicy,
@@ -67,6 +49,8 @@ GDAMinimumRule::GDAMinimumRule(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderi
   : GlobalDofAssignment(mesh,varFactory,dofOrderingFactory,partitionPolicy, vector<int>(1,initialH1OrderTrial), testOrderEnhancement, false)
 {
   _hasSpaceOnlyTrialVariable = varFactory->hasSpaceOnlyTrialVariable();
+  TimeLogger::sharedInstance()->createTimeEntry("read SubcellDofIndices");
+  TimeLogger::sharedInstance()->createTimeEntry("write SubcellDofIndices");
 }
 
 GDAMinimumRule::GDAMinimumRule(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderingFactoryPtr dofOrderingFactory, MeshPartitionPolicyPtr partitionPolicy,
@@ -74,6 +58,8 @@ GDAMinimumRule::GDAMinimumRule(MeshPtr mesh, VarFactoryPtr varFactory, DofOrderi
   : GlobalDofAssignment(mesh,varFactory,dofOrderingFactory,partitionPolicy, initialH1OrderTrial, testOrderEnhancement, false)
 {
   _hasSpaceOnlyTrialVariable = varFactory->hasSpaceOnlyTrialVariable();
+  TimeLogger::sharedInstance()->createTimeEntry("read SubcellDofIndices");
+  TimeLogger::sharedInstance()->createTimeEntry("write SubcellDofIndices");
 }
 
 vector<unsigned> GDAMinimumRule::allBasisDofOrdinalsVector(int basisCardinality)
@@ -626,12 +612,6 @@ set<GlobalIndexType> GDAMinimumRule::globalDofIndicesForPartition(PartitionIndex
   return set<GlobalIndexType>(globalDofIndicesVector.begin(),globalDofIndicesVector.end());
 }
 
-set<GlobalIndexType> GDAMinimumRule::ownedGlobalDofIndicesForCell(GlobalIndexType cellID)
-{
-  SubcellDofIndices owningCellDofIndexInfo = getOwnedGlobalDofIndices(cellID);
-  return owningCellDofIndexInfo.allDofIndices();
-}
-
 vector<int> GDAMinimumRule::H1Order(GlobalIndexType cellID, unsigned sideOrdinal)
 {
   // this is meant to track the cell's interior idea of what the H^1 order is along that side.  We're isotropic for now, but eventually we might want to allow anisotropy in p...
@@ -938,7 +918,8 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubcellDofIndices& 
   BasisPtr basis = trialOrdering->getBasis(var->ID());
   
   // to begin, let's map the volume-interior dofs:
-  vector<GlobalIndexType> globalDofOrdinals = subcellDofIndices.subcellDofIndices[spaceDim][0][var->ID()];
+  vector<GlobalIndexType> globalDofOrdinals = subcellDofIndices.dofIndicesForVarOnSubcell(spaceDim,0,var->ID());
+//  vector<GlobalIndexType> globalDofOrdinals = subcellDofIndices.subcellDofIndices[spaceDim][0][var->ID()];
   const vector<int>* basisDofOrdinalsVector = &basis->dofOrdinalsForInterior();
   set<int> basisDofOrdinals(basisDofOrdinalsVector->begin(), basisDofOrdinalsVector->end());
 
@@ -1075,7 +1056,8 @@ BasisMap GDAMinimumRule::getBasisMap(GlobalIndexType cellID, SubcellDofIndices& 
         unsigned owningSubcellOrdinal = ownershipInfo.owningSubcellOrdinal;
 
 //        unsigned owningSubcellOrdinal = _meshTopology->getCell(ownershipInfo.cellID)->findSubcellOrdinal(ownershipInfo.dimension, ownershipInfo.owningSubcellEntityIndex);
-        vector<GlobalIndexType> globalDofOrdinalsForSubcell = owningCellDofIndexInfo.subcellDofIndices[ownershipInfo.dimension][owningSubcellOrdinal][var->ID()];
+        vector<GlobalIndexType> globalDofOrdinalsForSubcell = owningCellDofIndexInfo.dofIndicesForVarOnSubcell(ownershipInfo.dimension,owningSubcellOrdinal,var->ID());
+//        vector<GlobalIndexType> globalDofOrdinalsForSubcell = owningCellDofIndexInfo.subcellDofIndices[ownershipInfo.dimension][owningSubcellOrdinal][var->ID()];
         
         // extract the global dof ordinals corresponding to subcellInteriorWeights.coarseOrdinals
         vector<int> basisOrdinalsVector = constrainingBasis->dofOrdinalsForSubcell(subcellConstraint.dimension, subcellOrdinalInConstrainingCell);
@@ -2851,13 +2833,8 @@ set<GlobalIndexType> GDAMinimumRule::getFittableGlobalDofIndices(GlobalIndexType
       pair<IndexType,unsigned> constrainingSubcell = _meshTopology->getConstrainingEntity(d, subcellIndex);
       if ((constrainingSubcell.second == d) && (constrainingSubcell.first == subcellIndex))   // i.e. the subcell is not further constrained.
       {
-        map<int, vector<GlobalIndexType> > dofIndicesInConstrainingSide = constrainingCellDofIndexInfo.subcellDofIndices[d][scordInConstrainingCell];
-        for (auto dofIndexEntry : dofIndicesInConstrainingSide)
-        {
-          int entryVarID = dofIndexEntry.first;
-          if ((varID == -1) || (varID == entryVarID))
-            fittableDofIndices.insert(dofIndexEntry.second.begin(), dofIndexEntry.second.end());
-        }
+        vector<GlobalIndexType> dofIndicesInConstrainingSide = constrainingCellDofIndexInfo.dofIndicesForVarOnSubcell(d,scordInConstrainingCell,varID);
+        fittableDofIndices.insert(dofIndicesInConstrainingSide.begin(), dofIndicesInConstrainingSide.end());
       }
       else
       {
@@ -2880,12 +2857,13 @@ SubcellDofIndices & GDAMinimumRule::getOwnedGlobalDofIndices(GlobalIndexType cel
   TEUCHOS_TEST_FOR_EXCEPTION(!_meshTopology->isValidCellIndex(cellID), std::invalid_argument, "Invalid cellID");
   
   CellPtr cell = _meshTopology->getCell(cellID);
+  CellTopoPtr topo = cell->topology();
+  
   bool cellIsActive = !cell->isParent(_meshTopology);
   if (!cellIsActive)
   {
     // then the cell will not own any global dof indices
-    SubcellDofIndices scDofIndices;
-    scDofIndices.subcellDofIndices.resize(_meshTopology->getDimension() + 1);
+    SubcellDofIndices scDofIndices(topo);
     _ownedGlobalDofIndicesCache[cellID] = scDofIndices;
     return _ownedGlobalDofIndicesCache[cellID];
   }
@@ -2905,10 +2883,7 @@ SubcellDofIndices & GDAMinimumRule::getOwnedGlobalDofIndices(GlobalIndexType cel
   int spaceDim = _meshTopology->getDimension();
   int sideDim = spaceDim - 1;
 
-  SubcellDofIndices scInfo;
-  scInfo.subcellDofIndices.resize(spaceDim+1);
-
-  CellTopoPtr topo = elementType(cellID)->cellTopoPtr;
+  SubcellDofIndices scInfo(topo);
 
   DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
   const map<int, VarPtr>* trialVars = &_varFactory->trialVars();
@@ -3012,21 +2987,25 @@ SubcellDofIndices & GDAMinimumRule::getOwnedGlobalDofIndices(GlobalIndexType cel
           }
 
           int dofOrdinalCount = basis->dofOrdinalsForSubcell(constrainingDimension, scordForBasis).size();
-          vector<GlobalIndexType> globalDofIndices;
-
-          for (int i=0; i<dofOrdinalCount; i++)
-          {
-            globalDofIndices.push_back(globalDofIndex++);
-          }
+          scInfo.setDofIndicesForVarOnSubcell(d, scord, var->ID(), {globalDofIndex,dofOrdinalCount});
           
-          if (scInfo.subcellDofIndices.size() < d+1)
-          {
-            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Internal error: scInfo vector not big enough");
-          }
-          if (dofOrdinalCount > 0)
-          {
-            scInfo.subcellDofIndices[d][scord][var->ID()] = globalDofIndices;
-          }
+          globalDofIndex += dofOrdinalCount;
+          
+//          vector<GlobalIndexType> globalDofIndices;
+//
+//          for (int i=0; i<dofOrdinalCount; i++)
+//          {
+//            globalDofIndices.push_back(globalDofIndex++);
+//          }
+//          
+//          if (scInfo.subcellDofIndices.size() < d+1)
+//          {
+//            TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Internal error: scInfo vector not big enough");
+//          }
+//          if (dofOrdinalCount > 0)
+//          {
+//            scInfo.subcellDofIndices[d][scord][var->ID()] = globalDofIndices;
+//          }
         }
       }
       
@@ -3072,10 +3051,11 @@ SubcellDofIndices& GDAMinimumRule::getGlobalDofIndices(GlobalIndexType cellID)
       int scCount = topo->getSubcellCount(d);
       for (int scord=0; scord<scCount; scord++)
       {
-        if (subcellDofIndices.subcellDofIndices[d].find(scord) == subcellDofIndices.subcellDofIndices[d].end())   // this one not yet filled in
+        GlobalIndexType owningCellID = constraints.owningCellIDForSubcell[d][scord].cellID;
+        
+        if (owningCellID != cellID)   // this one not yet filled in
         {
           OwnershipInfo owningCellInfo = constraints.owningCellIDForSubcell[d][scord];
-          GlobalIndexType owningCellID = owningCellInfo.cellID;
           unsigned owningCellScord = owningCellInfo.owningSubcellOrdinal;
           SubcellDofIndices* owningCellSubcellDofIndices = &getOwnedGlobalDofIndices(owningCellID);
           subcellDofIndices.subcellDofIndices[d][scord] = owningCellSubcellDofIndices->subcellDofIndices[owningCellInfo.dimension][owningCellScord];
@@ -3088,41 +3068,41 @@ SubcellDofIndices& GDAMinimumRule::getGlobalDofIndices(GlobalIndexType cellID)
   return _globalDofIndicesForCellCache[cellID];
 }
 
-set<GlobalIndexType> GDAMinimumRule::getGlobalDofIndicesForIntegralContribution(GlobalIndexType cellID, int sideOrdinal)   // assuming an integral is being done over the whole mesh skeleton, returns either an empty set or the global dof indices associated with the given side, depending on whether the cell "owns" the side for the purpose of such contributions.
-{
-  set<GlobalIndexType> indices;
-
-  CellPtr cell = _meshTopology->getCell(cellID);
-  bool ownsSide = cell->ownsSide(sideOrdinal, _meshTopology);
-  int d_min = minimumSubcellDimensionForContinuityEnforcement();
-
-  if (ownsSide)
-  {
-    SubcellDofIndices subcellDofIndices = getGlobalDofIndices(cellID);
-    int spaceDim =  _meshTopology->getDimension();
-
-    CellTopoPtr cellTopo = cell->topology();
-    CellTopoPtr sideTopo = cellTopo->getSubcell(spaceDim-1, sideOrdinal);
-
-    for (int d=d_min; d<spaceDim; d++)
-    {
-      int scCount = sideTopo->getSubcellCount(d);
-      for (int scordSide=0; scordSide<scCount; scordSide++)
-      {
-        int scordCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, spaceDim-1, sideOrdinal, d, scordSide);
-        map<int, vector<GlobalIndexType> > dofIndices = subcellDofIndices.subcellDofIndices[d][scordCell];
-
-
-        for (map<int, vector<GlobalIndexType> >::iterator dofIndicesIt = dofIndices.begin(); dofIndicesIt != dofIndices.end(); dofIndicesIt++)
-        {
-          indices.insert(dofIndicesIt->second.begin(), dofIndicesIt->second.end());
-        }
-      }
-    }
-  }
-
-  return indices;
-}
+//set<GlobalIndexType> GDAMinimumRule::getGlobalDofIndicesForIntegralContribution(GlobalIndexType cellID, int sideOrdinal)   // assuming an integral is being done over the whole mesh skeleton, returns either an empty set or the global dof indices associated with the given side, depending on whether the cell "owns" the side for the purpose of such contributions.
+//{
+//  set<GlobalIndexType> indices;
+//
+//  CellPtr cell = _meshTopology->getCell(cellID);
+//  bool ownsSide = cell->ownsSide(sideOrdinal, _meshTopology);
+//  int d_min = minimumSubcellDimensionForContinuityEnforcement();
+//
+//  if (ownsSide)
+//  {
+//    SubcellDofIndices subcellDofIndices = getGlobalDofIndices(cellID);
+//    int spaceDim =  _meshTopology->getDimension();
+//
+//    CellTopoPtr cellTopo = cell->topology();
+//    CellTopoPtr sideTopo = cellTopo->getSubcell(spaceDim-1, sideOrdinal);
+//
+//    for (int d=d_min; d<spaceDim; d++)
+//    {
+//      int scCount = sideTopo->getSubcellCount(d);
+//      for (int scordSide=0; scordSide<scCount; scordSide++)
+//      {
+//        int scordCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, spaceDim-1, sideOrdinal, d, scordSide);
+//        map<int, vector<GlobalIndexType> > dofIndices = subcellDofIndices.subcellDofIndices[d][scordCell];
+//
+//
+//        for (map<int, vector<GlobalIndexType> >::iterator dofIndicesIt = dofIndices.begin(); dofIndicesIt != dofIndices.end(); dofIndicesIt++)
+//        {
+//          indices.insert(dofIndicesIt->second.begin(), dofIndicesIt->second.end());
+//        }
+//      }
+//    }
+//  }
+//
+//  return indices;
+//}
 
 vector<GlobalIndexType> GDAMinimumRule::globalDofIndicesForFieldVariable(GlobalIndexType cellID, int varID)
 {
@@ -3136,8 +3116,7 @@ vector<GlobalIndexType> GDAMinimumRule::globalDofIndicesForFieldVariable(GlobalI
   SubcellDofIndices subcellDofIndices = getOwnedGlobalDofIndices(cellID);
   
   int spaceDim = _mesh->getTopology()->getDimension();
-  vector<GlobalIndexType> globalIndices(subcellDofIndices.subcellDofIndices[spaceDim][0][trialVar->ID()].begin(),
-                                        subcellDofIndices.subcellDofIndices[spaceDim][0][trialVar->ID()].end());
+  vector<GlobalIndexType> globalIndices = subcellDofIndices.dofIndicesForVarOnSubcell(spaceDim,0,trialVar->ID());
   
 //  LocalDofMapperPtr dofMapper = getDofMapper(cellID, constraints, varID, VOLUME_INTERIOR_SIDE_ORDINAL);
 //  
@@ -3171,8 +3150,8 @@ vector<GlobalIndexType> GDAMinimumRule::getGlobalDofOrdinalsForSubcell(GlobalInd
     TEUCHOS_TEST_FOR_EXCEPTION(owningCellID != cellID, std::invalid_argument, "owningCellID is not the same as cellID");
   }
   
-  vector<GlobalIndexType> globalDofOrdinalsForSubcell = globalDofIndicesForCell->subcellDofIndices[d][scord][var->ID()];
-  return globalDofOrdinalsForSubcell;
+//  vector<GlobalIndexType> globalDofOrdinalsForSubcell = globalDofIndicesForCell->subcellDofIndices[d][scord][var->ID()];
+  return globalDofIndicesForCell->dofIndicesForVarOnSubcell(d,scord,var->ID());
 }
 
 LocalDofMapperPtr GDAMinimumRule::getDofMapper(GlobalIndexType cellID, int varIDToMap, int sideOrdinalToMap)
@@ -3284,7 +3263,8 @@ LocalDofMapperPtr GDAMinimumRule::getDofMapper(GlobalIndexType cellID, int varID
       {
         volumeMap[var->ID()] = getBasisMap(cellID, subcellDofIndices, var);
         // first, get interior dofs
-        fittableGlobalDofOrdinalsInVolume.insert(subcellDofIndices.subcellDofIndices[spaceDim][0][var->ID()].begin(),subcellDofIndices.subcellDofIndices[spaceDim][0][var->ID()].end());
+        vector<GlobalIndexType> interiorDofIndices = subcellDofIndices.dofIndicesForVarOnSubcell(spaceDim,0,var->ID());
+        fittableGlobalDofOrdinalsInVolume.insert(interiorDofIndices.begin(), interiorDofIndices.end());
         
         // now, sides
         for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
@@ -3439,13 +3419,19 @@ void GDAMinimumRule::printConstraintInfo(GlobalIndexType cellID)
 
 void GDAMinimumRule::printGlobalDofInfo()
 {
-  bool ownedGlobalDofsOnly = false;
-  set<GlobalIndexType> cellIDs = _meshTopology->getMyActiveCellIndices();
-  for (GlobalIndexType cellID : cellIDs)
+//  bool ownedGlobalDofsOnly = false;
+//  set<GlobalIndexType> cellIDs = _meshTopology->getMyActiveCellIndices();
+//  for (GlobalIndexType cellID : cellIDs)
+//  {
+//    SubcellDofIndices subcellDofIndices = ownedGlobalDofsOnly ? getOwnedGlobalDofIndices(cellID) : getGlobalDofIndices(cellID);
+//    printDofIndexInfo(cellID, subcellDofIndices);
+//  }
+  
+  for (auto entry : _globalDofIndicesForCellCache)
   {
-    SubcellDofIndices subcellDofIndices = ownedGlobalDofsOnly ? getOwnedGlobalDofIndices(cellID) : getGlobalDofIndices(cellID);
-    printDofIndexInfo(cellID, subcellDofIndices);
+    printDofIndexInfo(entry.first, entry.second);
   }
+  
 }
 
 void GDAMinimumRule::rebuildLookups()
@@ -3543,19 +3529,19 @@ void GDAMinimumRule::rebuildLookups()
     for (auto varEntry : trialVars)
     {
       VarPtr var = varEntry.second;
-      set<GlobalIndexType> dofsForVariable = ownedGlobalDofIndices->dofIndicesForVariable(var);
+      int dofsForVariable = ownedGlobalDofIndices->dofIndexCountForVariable(var);
       switch (var->varType()) {
         case FLUX:
-          _partitionFluxDofCount += dofsForVariable.size();
+          _partitionFluxDofCount += dofsForVariable;
           break;
         case TRACE:
-          _partitionTraceDofCount += dofsForVariable.size();
+          _partitionTraceDofCount += dofsForVariable;
           break;
         default:
-          _partitionFieldDofCount += dofsForVariable.size();
+          _partitionFieldDofCount += dofsForVariable;
           break;
       }
-      _partitionDofCount += dofsForVariable.size();
+      _partitionDofCount += dofsForVariable;
     }
   }
 
@@ -3586,28 +3572,30 @@ void GDAMinimumRule::rebuildLookups()
 
     GlobalIndexType globalCellDofOffset = _globalCellDofOffsets[cellID];
     
-    for (auto varEntry : trialVars)
-    {
-      VarPtr var = varEntry.second;
-      for (int d=d_min; d<=spaceDim; d++)
-      {
-        int scCount = topo->getSubcellCount(d);
-        for (int scord=0; scord<scCount; scord++)
-        {
-          if (ownedGlobalDofIndices->subcellDofIndices[d].find(scord) != ownedGlobalDofIndices->subcellDofIndices[d].end())
-          {
-            if (ownedGlobalDofIndices->subcellDofIndices[d][scord].find(var->ID()) != ownedGlobalDofIndices->subcellDofIndices[d][scord].end())
-            {
-              vector<GlobalIndexType>* varDofs = &ownedGlobalDofIndices->subcellDofIndices[d][scord][var->ID()];
-              for (vector<GlobalIndexType>::iterator varDofIt = varDofs->begin(); varDofIt != varDofs->end(); varDofIt++)
-              {
-                *varDofIt += globalCellDofOffset;
-              }
-            }
-          }
-        }
-      }
-    }
+    ownedGlobalDofIndices->addOffsetToDofIndices(globalCellDofOffset);
+    
+//    for (auto varEntry : trialVars)
+//    {
+//      VarPtr var = varEntry.second;
+//      for (int d=d_min; d<=spaceDim; d++)
+//      {
+//        int scCount = topo->getSubcellCount(d);
+//        for (int scord=0; scord<scCount; scord++)
+//        {
+//          if (ownedGlobalDofIndices->subcellDofIndices[d].find(scord) != ownedGlobalDofIndices->subcellDofIndices[d].end())
+//          {
+//            if (ownedGlobalDofIndices->subcellDofIndices[d][scord].find(var->ID()) != ownedGlobalDofIndices->subcellDofIndices[d][scord].end())
+//            {
+//              vector<GlobalIndexType>* varDofs = &ownedGlobalDofIndices->subcellDofIndices[d][scord][var->ID()];
+//              for (vector<GlobalIndexType>::iterator varDofIt = varDofs->begin(); varDofIt != varDofs->end(); varDofIt++)
+//              {
+//                *varDofIt += globalCellDofOffset;
+//              }
+//            }
+//          }
+//        }
+//      }
+//    }
     
     // copy the adjusted guy back into myCellDofIndices:
     myCellDofIndices[cellID] = *ownedGlobalDofIndices;
@@ -3615,12 +3603,11 @@ void GDAMinimumRule::rebuildLookups()
   
   distributeGlobalDofOwnership(myCellDofIndices, nonLocalCellNeighbors);
   
-  map<GlobalIndexType, SubcellDofIndices> myCellGlobalDofs; // owned and otherwise
   for (GlobalIndexType cellID : *myCellIDs)
   {
-    myCellGlobalDofs[cellID] = getGlobalDofIndices(cellID);
+    getGlobalDofIndices(cellID); // make sure the _globalDofIndicesForCellCache is filled for all my cellIDs
   }
-  distributeCellGlobalDofs(myCellGlobalDofs, nonLocalCellNeighbors);
+  distributeCellGlobalDofs(_globalDofIndicesForCellCache, nonLocalCellNeighbors);
   
   TimeLogger::sharedInstance()->stopTimer(timerHandle);
 }

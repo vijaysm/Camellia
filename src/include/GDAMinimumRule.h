@@ -63,106 +63,6 @@ namespace Camellia
   unsigned owningSubcellOrdinal;
   unsigned dimension;
 };
-  
-  // ! Used for communicating which subcells are "owned" by a given active cell.  Introduced with distributed MeshTopology, for which this information cannot necessarily be locally determined for cells that we do not own.
-  struct SubcellList
-  {
-  public:
-    vector<vector<unsigned>> subcells; // outer index: dimension.  Inner: subcell ordinal
-    
-    void insert(unsigned d, unsigned subcord)
-    {
-      if (d >= subcells.size())
-      {
-        subcells.resize(d+1);
-      }
-      if (subcells[d].size() == 0)
-      {
-        subcells[d].push_back(subcord);
-      }
-      else
-      {
-        unsigned lastSubcord = subcells[d][subcells[d].size()-1];
-        if (lastSubcord < subcord)
-        {
-          subcells[d].push_back(subcord);
-        }
-        else
-        {
-          auto lower_bound = std::lower_bound(subcells[d].begin(),subcells[d].end(),subcord);
-          if (*lower_bound == subcord) return; // element already present
-          subcells[d].insert(lower_bound,subcord);
-        }
-      }
-    }
-    
-    bool contains(unsigned d, unsigned subcord) const
-    {
-      if (d >= subcells.size()) return false;
-      return (std::find(subcells[d].begin(), subcells[d].end(), subcord) != subcells[d].end());
-    }
-    
-    int dataSize() const
-    {
-      int dataSize = 0;
-      int numVectors = subcells.size();
-      dataSize += sizeof(numVectors);
-      
-      for (int d=0; d<subcells.size(); d++)
-      {
-        int numEntries = subcells[d].size();
-        dataSize += sizeof(numEntries);
-        
-        if (numEntries > 0)
-        {
-          dataSize += sizeof(unsigned) * numEntries;
-        }
-      }
-      return dataSize;
-    }
-    
-    void read(const char* &dataLocation, int size)
-    {
-      // returns # bytes read
-      subcells.clear();
-      int numVectors;
-      memcpy(&numVectors, dataLocation, sizeof(numVectors));
-      dataLocation += sizeof(numVectors);
-      subcells.resize(numVectors);
-      for (int d=0; d<numVectors; d++)
-      {
-        int numEntries;
-        memcpy(&numEntries, dataLocation, sizeof(numEntries));
-        dataLocation += sizeof(numEntries);
-        subcells[d].resize(numEntries);
-        if (numEntries > 0)
-        {
-          memcpy(&subcells[d][0], dataLocation, sizeof(unsigned) * numEntries);
-          dataLocation += sizeof(unsigned) * numEntries;
-        }
-      }
-    }
-    
-    void write(char* &dataLocation, int bufferSize)
-    {
-      int numVectors = subcells.size();
-      memcpy(dataLocation, &numVectors, sizeof(numVectors));
-      dataLocation += sizeof(numVectors);
-      
-      for (int d=0; d<subcells.size(); d++)
-      {
-        int numEntries = subcells[d].size();
-        memcpy(dataLocation, &numEntries, sizeof(numEntries));
-        dataLocation += sizeof(numEntries);
-        
-        if (numEntries > 0)
-        {
-          memcpy(dataLocation, &subcells[d][0], sizeof(unsigned) * numEntries);
-          dataLocation += sizeof(unsigned) * numEntries;
-        }
-      }
-    }
-  };
 
 struct CellConstraints
 {
@@ -262,7 +162,7 @@ public:
   CellConstraints getCellConstraints(GlobalIndexType cellID);
   LocalDofMapperPtr getDofMapper(GlobalIndexType cellID, int varIDToMap = -1, int sideOrdinalToMap = -1);
   SubcellDofIndices& getGlobalDofIndices(GlobalIndexType cellID);
-  set<GlobalIndexType> getGlobalDofIndicesForIntegralContribution(GlobalIndexType cellID, int sideOrdinal); // assuming an integral is being done over the whole mesh skeleton, returns either an empty set or the global dof indices associated with the given side, depending on whether the cell "owns" the side for the purpose of such contributions.
+//  set<GlobalIndexType> getGlobalDofIndicesForIntegralContribution(GlobalIndexType cellID, int sideOrdinal); // assuming an integral is being done over the whole mesh skeleton, returns either an empty set or the global dof indices associated with the given side, depending on whether the cell "owns" the side for the purpose of such contributions.
   // ! returns the permutation that goes from the indicated cell's view of the subcell to the constraining cell's view.
   unsigned getConstraintPermutation(GlobalIndexType cellID, unsigned subcdim, unsigned subcord);
   // ! returns the permutation that goes from the indicated side's view of the subcell to the constraining side's view.
@@ -305,8 +205,6 @@ public:
   set<GlobalIndexType> globalDofIndicesForPartition(PartitionIndexType partitionNumber);
 
   bool isLocallyOwnedGlobalDofIndex(GlobalIndexType globalDofIndex) const;
-  
-  set<GlobalIndexType> ownedGlobalDofIndicesForCell(GlobalIndexType cellID);
 
   GlobalIndexType numPartitionOwnedGlobalFieldIndices();
   GlobalIndexType numPartitionOwnedGlobalFluxIndices();

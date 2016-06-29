@@ -37,13 +37,13 @@ namespace
   
   TEUCHOS_UNIT_TEST( SubcellDofIndices, PackAndUnpack )
   {
-    SubcellDofIndices scDofIndices;
-    int spaceDim = 3;
-    scDofIndices.subcellDofIndices.resize(spaceDim+1);
-    int varID = 3;
     CellTopoPtr hex = CellTopology::hexahedron();
+    SubcellDofIndices scDofIndices(hex);
+    int spaceDim = 3;
+    int varID = 3;
     int H1Order = 3;
     BasisPtr basis = BasisFactory::basisFactory()->getBasis(H1Order, hex, FUNCTION_SPACE_HGRAD);
+    int globalDofIndex = 0;
     for (int d=0; d<=spaceDim; d++)
     {
       int numSubcells = hex->getSubcellCount(d);
@@ -51,7 +51,8 @@ namespace
       {
         vector<int> localDofOrdinals = basis->dofOrdinalsForSubcell(d, scord);
         vector<GlobalIndexType> globalDofIndices(localDofOrdinals.begin(), localDofOrdinals.end());
-        scDofIndices.subcellDofIndices[d][scord][varID] = globalDofIndices;
+        scDofIndices.setDofIndicesForVarOnSubcell(d, scord, varID, {globalDofIndex,localDofOrdinals.size()});// [d][scord][varID] = globalDofIndices;
+        globalDofIndex += localDofOrdinals.size();
       }
     }
     testPackAndUnpack(scDofIndices, out, success);
