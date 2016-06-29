@@ -3306,7 +3306,7 @@ void TSolution<Scalar>::condensedSolve(TSolverPtr<Scalar> globalSolver, bool red
     {
       fieldsToExclude.insert(trialID);
     }
-    // disable the following for a speedup (which doesn't yet work with MultigridPreconditioningDriver)
+    // disable the following for a speedup (which doesn't yet work with GMGOperator/MultigridPreconditioningDriver)
     else if (_bc->singlePointBC(trialID))
     {
       fieldsToExclude.insert(trialID);
@@ -3736,8 +3736,8 @@ void TSolution<Scalar>::projectOntoMesh(const map<int, TFunctionPtr<Scalar> > &f
     initializeLHSVector();
   }
 
-  set<GlobalIndexType> cellIDs = _mesh->globalDofAssignment()->cellsInPartition(-1);
-  for (GlobalIndexType cellID : cellIDs)
+  const set<GlobalIndexType>* cellIDs = &_mesh->globalDofAssignment()->cellsInPartition(-1);
+  for (GlobalIndexType cellID : *cellIDs)
   {
     projectOntoCell(functionMap,cellID);
   }
@@ -3821,6 +3821,15 @@ void TSolution<Scalar>::projectFieldVariablesOntoOtherSolution(Teuchos::RCP< TSo
 
   Teuchos::RCP< TSolution<Scalar> > thisPtr = Teuchos::rcp(this, false);
   map<int, TFunctionPtr<Scalar> > solnMap = PreviousSolutionFunction<Scalar>::functionMap(fieldVars, thisPtr);
+  if (this->mesh()->getTopology().get() == otherSoln->mesh()->getTopology().get())
+  {
+    // same mesh topology: override mesh check
+    for (auto entry : solnMap)
+    {
+      PreviousSolutionFunction<Scalar>* prevSolnFunction = dynamic_cast<PreviousSolutionFunction<Scalar>*>(entry.second.get());
+      prevSolnFunction->setOverrideMeshCheck(true,true);
+    }
+  }
   otherSoln->projectOntoMesh(solnMap);
 }
 
@@ -4262,7 +4271,7 @@ void TSolution<Scalar>::setUseCondensedSolve(bool value, set<GlobalIndexType> of
       else
         trialIDs = _mesh->bilinearForm()->trialIDs();
 
-      set< int > fieldsToExclude;
+      set<int> fieldsToExclude;
       for (int trialID : trialIDs)
       {
         // NVR: change 4-26-16; now *don't* exclude fields with a single point BC
@@ -4270,7 +4279,7 @@ void TSolution<Scalar>::setUseCondensedSolve(bool value, set<GlobalIndexType> of
         {
           fieldsToExclude.insert(trialID);
         }
-        // disable the following for a speedup (which doesn't yet work with MultigridPreconditioningDriver)
+        // disable the following for a speedup (which doesn't yet work with GMGOperator/MultigridPreconditioningDriver)
         else if (_bc->singlePointBC(trialID))
         {
           fieldsToExclude.insert(trialID);
