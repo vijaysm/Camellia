@@ -76,31 +76,58 @@ MeshPartitionPolicyPtr MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMes
   vector<GlobalIndexTypeToCast> myEntries;
   
   auto myCellIDs = &inducingRefinedMesh->cellIDsInPartition();
-  /*
-   Modification 6-27-16: instead of assigning parent to owner of first child,
-   assign parent to owner of child with ordinal equal to the level of the
-   parent, modulo the number of children.  This should result in better load
-   balancing for multigrid.
-   */
-  for (GlobalIndexType myCellID : *myCellIDs)
+  bool rotateChildOrdinalThatOwns = false; // the 6-27-16 modification -- I don't think this actually helps with load balance, the way things are presently implemented, and it may introduce additional communication costs
+  if (rotateChildOrdinalThatOwns)
   {
-    IndexType ancestralCellIndex = myCellID;
-    bool hasMatchingChild = true;
-    while (inducingRefinedMesh->getTopology()->isValidCellIndex(ancestralCellIndex)
-           && !inducedMeshTopo->isValidCellIndex(ancestralCellIndex))
+    /*
+     Modification 6-27-16: instead of assigning parent to owner of first child,
+     assign parent to owner of child with ordinal equal to the level of the
+     parent, modulo the number of children.  This should result in better load
+     balancing for multigrid.
+     */
+    for (GlobalIndexType myCellID : *myCellIDs)
     {
-      CellPtr myCell = inducingRefinedMesh->getTopology()->getCell(ancestralCellIndex);
-      CellPtr parent = myCell->getParent();
-      TEUCHOS_TEST_FOR_EXCEPTION(parent == Teuchos::null, std::invalid_argument, "ancestor not found in inducedMeshTopo");
-      int childOrdinal = parent->findChildOrdinal(myCell->cellIndex());
-      int numChildren = parent->numChildren();
-      hasMatchingChild = ((parent->level() % numChildren) == childOrdinal);
-      ancestralCellIndex = parent->cellIndex();
+      IndexType ancestralCellIndex = myCellID;
+      bool hasMatchingChild = true;
+      while (inducingRefinedMesh->getTopology()->isValidCellIndex(ancestralCellIndex)
+             && !inducedMeshTopo->isValidCellIndex(ancestralCellIndex))
+      {
+        CellPtr myCell = inducingRefinedMesh->getTopology()->getCell(ancestralCellIndex);
+        CellPtr parent = myCell->getParent();
+        TEUCHOS_TEST_FOR_EXCEPTION(parent == Teuchos::null, std::invalid_argument, "ancestor not found in inducedMeshTopo");
+        int childOrdinal = parent->findChildOrdinal(myCell->cellIndex());
+        int numChildren = parent->numChildren();
+        hasMatchingChild = ((parent->level() % numChildren) == childOrdinal);
+        ancestralCellIndex = parent->cellIndex();
+      }
+      if (hasMatchingChild)
+      {
+        myEntries.push_back(ancestralCellIndex);
+        myEntries.push_back(myCellID);
+      }
     }
-    if (hasMatchingChild)
+  }
+  else
+  {
+    // first child is always owner
+    for (GlobalIndexType myCellID : *myCellIDs)
     {
-      myEntries.push_back(ancestralCellIndex);
-      myEntries.push_back(myCellID);
+      IndexType ancestralCellIndex = myCellID;
+      bool isFirstChild = true;
+      while (isFirstChild && !inducedMeshTopo->isValidCellIndex(ancestralCellIndex))
+      {
+        CellPtr myCell = inducingRefinedMesh->getTopology()->getCell(ancestralCellIndex);
+        CellPtr parent = myCell->getParent();
+        TEUCHOS_TEST_FOR_EXCEPTION(parent == Teuchos::null, std::invalid_argument, "ancestor not found in inducedMeshTopo");
+        int childOrdinal = parent->findChildOrdinal(myCell->cellIndex());
+        isFirstChild = (childOrdinal == 0);
+        ancestralCellIndex = parent->cellIndex();
+      }
+      if (isFirstChild)
+      {
+        myEntries.push_back(ancestralCellIndex);
+        myEntries.push_back(myCellID);
+      }
     }
   }
   // all-gather the entries
