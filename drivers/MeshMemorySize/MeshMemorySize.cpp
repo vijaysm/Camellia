@@ -1,6 +1,9 @@
+#include "GDAMinimumRule.h"
 #include "MeshTopology.h"
 #include "MPIWrapper.h"
 #include "PoissonFormulation.h"
+#include "StokesVGPFormulation.h"
+#include "SubcellDofIndices.h"
 
 #include <Teuchos_GlobalMPISession.hpp>
 
@@ -118,6 +121,12 @@ int main(int argc, char *argv[])
   Epetra_CommPtr Comm = MPIWrapper::CommWorld();
   int rank = Comm->MyPID();
   
+  bool include2DUniform = false;
+  bool include3DUniform = false;
+  bool include2DRefined = false;
+  bool include3DRefined = true;
+  
+  if (include2DUniform)
   {
     // 2D
     int horizontalCells = 128;
@@ -138,32 +147,34 @@ int main(int argc, char *argv[])
     meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
+  if (include3DUniform)
   {
     // 3D
     int horizontalCells = 32;
     int verticalCells = 32;
     int depthCells = 32;
-
+    
     double x0 = 0.0, y0 = 0.0, z0 = 0.0;
     int width = 1.0, height = 1.0, depth = 1.0;
     MeshTopologyPtr meshTopo = makeHexMesh(x0, y0, z0, width, height, depth,
-                                       horizontalCells, verticalCells, depthCells);
-
-    if (rank == 0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " meshTopo is ";
-
+                                           horizontalCells, verticalCells, depthCells);
+    
+    if (rank==0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " meshTopo is ";
+    
     long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
     double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
-    if (rank == 0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
-
+    if (rank==0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
+    
     if (rank==0) meshTopo->printApproximateMemoryReport();
-
+    
     CellPtr cell = meshTopo->getCell(0);
     if (rank==0) cell->printApproximateMemoryReport();
-
+    
     meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
 
+  if (include2DRefined)
   {
     // 2D
     int horizontalCells = 1;
@@ -200,32 +211,8 @@ int main(int argc, char *argv[])
     meshTopo = Teuchos::null;
     cell = Teuchos::null;
   }
-  {
-    // 3D
-    int horizontalCells = 32;
-    int verticalCells = 32;
-    int depthCells = 32;
 
-    double x0 = 0.0, y0 = 0.0, z0 = 0.0;
-    int width = 1.0, height = 1.0, depth = 1.0;
-    MeshTopologyPtr meshTopo = makeHexMesh(x0, y0, z0, width, height, depth,
-                                       horizontalCells, verticalCells, depthCells);
-
-    if (rank==0) cout << "Approximate size of " << horizontalCells << " x " << verticalCells << " x " << depthCells << " meshTopo is ";
-
-    long long memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
-    double memoryFootprintInMegabytes = (double)memoryFootprintInBytes / (1024 * 1024);
-    if (rank==0) cout << setprecision(4) << memoryFootprintInMegabytes << " MB.\n";
-
-    if (rank==0) meshTopo->printApproximateMemoryReport();
-
-    CellPtr cell = meshTopo->getCell(0);
-    if (rank==0) cell->printApproximateMemoryReport();
-
-    meshTopo = Teuchos::null;
-    cell = Teuchos::null;
-  }
-
+  if (include3DRefined)
   {
     // 3D
     int horizontalCells = 1;
@@ -280,9 +267,12 @@ int main(int argc, char *argv[])
     
     bool conformingTraces = true;
     int spaceDim = meshTopo->getDimension();
-    int H1Order = 2, delta_k = 2;
+    int H1Order = 5, delta_k = 2;
     
-    PoissonFormulation form(spaceDim, conformingTraces);
+//    PoissonFormulation form(spaceDim, conformingTraces);
+    
+    double mu = 1.0;
+    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, conformingTraces);
     MeshPtr mesh = Teuchos::rcp( new Mesh(meshTopo, form.bf(), H1Order, delta_k) );
     
     memoryFootprintInBytes = meshTopo->approximateMemoryFootprint();
@@ -295,6 +285,15 @@ int main(int argc, char *argv[])
     
     if (rank == 0) cout << "After distributing, maximum memory footprint: " << maximumMemoryFootprintInMegabytes << " MB";
     if (rank == 0) cout << " (minimum: " << minimumMemoryFootprintInMegabytes << " MB).\n";
+
+    GlobalIndexType lastCell = mesh->numElements() - 1;
+    if (mesh->myCellsInclude(lastCell))
+    {
+      GDAMinimumRule* minRule = dynamic_cast<GDAMinimumRule*>(mesh->globalDofAssignment().get());
+      SubcellDofIndices sampleDofIndices = minRule->getGlobalDofIndices(lastCell);
+      cout << "approximate memory cost of a single cell's SubcellDofIndices container is: ";
+      cout << sampleDofIndices.approximateMemoryFootprint() << " bytes.\n";
+    }
     
     if (rank == 0)
     {

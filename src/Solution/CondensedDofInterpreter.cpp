@@ -365,6 +365,10 @@ vector<int> CondensedDofInterpreter<Scalar>::fieldRowIndices(GlobalIndexType cel
           }
           row++;
         }
+        if (row == fieldIndices.size()) // then we found no match
+        {
+          rowIndices.push_back(-1); // -1 to signal no matching field index (can happen with singletons, aka local exceptions)
+        }
       }
       TEUCHOS_TEST_FOR_EXCEPTION(rowIndices.size() != varIndices.size(), std::invalid_argument, "Internal error: number of rowIndices does not match the number of varIndices");
     }
