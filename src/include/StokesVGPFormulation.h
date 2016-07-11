@@ -144,7 +144,10 @@ public:
   double mu();
 
   // ! refine according to energy error in the solution
-  void refine();
+  void refine(bool printToConsole=false);
+  
+  // ! h-refine every active element in the mesh
+  void refineUniformly();
 
   // ! h-refine according to energy error in the solution
   void hRefine();
@@ -180,7 +183,7 @@ public:
   void solve();
 
   // ! Solves iteratively
-  void solveIteratively(int maxIters, double cgTol, int azOutputLevel = 0, bool suppressSuperLUOutput = true);
+  int solveIteratively(int maxIters, double cgTol, int azOutputLevel = 0, bool suppressSuperLUOutput = true);
 
   // ! Returns the spatial dimension.
   int spaceDim();
@@ -208,6 +211,10 @@ public:
   VarPtr sigma(int i, int j) const; // sigma_ij is the Reynolds-weighted derivative of u_i in the j dimension
   VarPtr u(int i) const;
   VarPtr p() const;
+  
+  static std::string sigma_name(int i, int j);
+  static std::string u_name(int i);
+  static std::string p_name();
 
   // traces:
   VarPtr tn_hat(int i) const;

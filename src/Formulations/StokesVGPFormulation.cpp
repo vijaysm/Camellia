@@ -989,9 +989,15 @@ void StokesVGPFormulation::setRefinementStrategy(RefinementStrategyPtr refStrate
   _refinementStrategy = refStrategy;
 }
 
-void StokesVGPFormulation::refine()
+void StokesVGPFormulation::refine(bool printToConsole)
 {
-  _refinementStrategy->refine();
+  _refinementStrategy->refine(printToConsole);
+}
+
+// ! h-refine every active element in the mesh
+void StokesVGPFormulation::refineUniformly()
+{
+  _refinementStrategy->hRefineUniformly();
 }
 
 void StokesVGPFormulation::hRefine()
@@ -1074,6 +1080,66 @@ VarPtr StokesVGPFormulation::u(int i) const
   return _vf->fieldVar(uStrings[i-1]);
 }
 
+std::string StokesVGPFormulation::sigma_name(int i, int j)
+{
+  switch (i) {
+    case 1:
+      switch (j) {
+        case 1:
+          return S_SIGMA11;
+        case 2:
+          return S_SIGMA12;
+        case 3:
+          return S_SIGMA13;
+        default:
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "invalid field index");
+      }
+    case 2:
+      switch (j) {
+        case 1:
+          return S_SIGMA21;
+        case 2:
+          return S_SIGMA22;
+        case 3:
+          return S_SIGMA23;
+        default:
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "invalid field index");
+      }
+    case 3:
+      switch (j) {
+        case 1:
+          return S_SIGMA31;
+        case 2:
+          return S_SIGMA32;
+        case 3:
+          return S_SIGMA33;
+        default:
+          TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "invalid field index");
+      }
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "invalid field index");
+  }
+}
+
+std::string StokesVGPFormulation::u_name(int i)
+{
+  switch (i) {
+    case 1:
+      return S_U1;
+    case 2:
+      return S_U2;
+    case 3:
+      return S_U3;
+    default:
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "invalid field index")
+  }
+}
+
+std::string StokesVGPFormulation::p_name()
+{
+  return S_P;
+}
+
 // traces:
 VarPtr StokesVGPFormulation::tn_hat(int i) const
 {
@@ -1144,15 +1210,17 @@ void StokesVGPFormulation::solve()
 }
 
 // ! Solves iteratively
-void StokesVGPFormulation::solveIteratively(int maxIters, double cgTol, int azOutputLevel, bool suppressSuperLUOutput)
+int StokesVGPFormulation::solveIteratively(int maxIters, double cgTol, int azOutputLevel, bool suppressSuperLUOutput)
 {
-  int kCoarse = 0;
+  int kCoarse = 1;
 
   bool useCondensedSolve = _solution->usesCondensedSolve();
 
   vector<MeshPtr> meshes = GMGSolver::meshesForMultigrid(_solution->mesh(), kCoarse, 1);
   vector<MeshPtr> prunedMeshes;
-  int minDofCount = 2000; // skip any coarse meshes that have fewer dofs than this
+//  int minDofCount = 2000; // skip any coarse meshes that have fewer dofs than this
+  // DEBUGGING/TESTING -- don't use a threshold
+  int minDofCount = 0; // skip any coarse meshes that have fewer dofs than this
   for (int i=0; i<meshes.size()-2; i++) // leave the last two meshes, so we can guarantee there are at least two
   {
     MeshPtr mesh = meshes[i];
@@ -1180,6 +1248,7 @@ void StokesVGPFormulation::solveIteratively(int maxIters, double cgTol, int azOu
   gmgSolver->setAztecOutput(azOutputLevel);
 
   _solution->solve(gmgSolver);
+  return gmgSolver->iterationCount();
 }
 
 int StokesVGPFormulation::spaceDim()
