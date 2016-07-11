@@ -22,23 +22,23 @@ class RefinementObserver
 {
 public:
   virtual ~RefinementObserver() {}
-  virtual void hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern) {}
-  virtual void hRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern)
+  virtual void hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool repartitionAndRebuild) {}
+  virtual void hRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool repartitionAndRebuild)
   {
-    hRefine(cellIDs, refPattern);
+    hRefine(cellIDs, refPattern, repartitionAndRebuild);
   }
-  virtual void didHRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern) {}
-  virtual void didHRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern)
+  virtual void didHRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool didRepartitionAndRebuild) {}
+  virtual void didHRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementPattern> refPattern, bool didRepartitionAndRebuild)
   {
-    didHRefine(cellIDs, refPattern);
+    didHRefine(cellIDs, refPattern, didRepartitionAndRebuild);
   }
-  virtual void pRefine(const set<GlobalIndexType> &cellIDs) {}
-  virtual void hUnrefine(const set<GlobalIndexType> &cellIDs) {}
+  virtual void pRefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndRebuild) {}
+  virtual void hUnrefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndRebuild) {}
 
-  virtual void didHUnrefine(const set<GlobalIndexType> &cellIDs) {}
-  virtual void didHUnrefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs)
+  virtual void didHUnrefine(const set<GlobalIndexType> &cellIDs, bool didRepartitionAndRebuild) {}
+  virtual void didHUnrefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, bool didRepartitionAndRebuild)
   {
-    didHUnrefine(cellIDs);
+    didHUnrefine(cellIDs, didRepartitionAndRebuild);
   }
 
   virtual void didRepartition(MeshTopologyPtr meshTopo) {}
