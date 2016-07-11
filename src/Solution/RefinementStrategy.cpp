@@ -433,6 +433,9 @@ void TRefinementStrategy<Scalar>::refine(bool printToConsole)
     cellsToPRefine = vector<GlobalIndexType>(gatheredCellsToPRefineVector.begin(),gatheredCellsToPRefineVector.end());
   }
   
+  std::sort(cellsToRefine.begin(), cellsToRefine.end());
+  std::sort(cellsToPRefine.begin(), cellsToPRefine.end());
+  
   if (printToConsole)
   {
     if (cellsToRefine.size() > 0) Camellia::print("cells for h-refinement", cellsToRefine);
@@ -529,6 +532,27 @@ void TRefinementStrategy<Scalar>::hRefineCells(MeshPtr mesh, const vector<Global
   mesh->hRefine(cellIDs, repartitionAndRebuild);
 }
 
+template <typename Scalar>
+void TRefinementStrategy<Scalar>::hRefineUniformly()
+{
+  // record results prior to refinement
+  double totalEnergyError;
+  if (_rieszRep.get() != NULL)
+  {
+    totalEnergyError = _rieszRep->getNorm();
+  }
+  else
+  {
+    totalEnergyError = _solution->energyErrorTotal();
+  }
+
+  MeshPtr mesh = this->mesh();
+  RefinementResults results = setResults(mesh->numElements(), mesh->numGlobalDofs(), totalEnergyError);
+  _results.push_back(results);
+  TRefinementStrategy<Scalar>::hRefineUniformly(mesh);
+}
+
+// ! static method
 template <typename Scalar>
 void TRefinementStrategy<Scalar>::hRefineUniformly(MeshPtr mesh)
 {
