@@ -15,6 +15,7 @@
 #include "CamelliaDebugUtility.h"
 #include "Cell.h"
 #include "GlobalDofAssignment.h"
+#include "GnuPlotUtil.h"
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
 #include "MeshTools.h"
@@ -1294,6 +1295,239 @@ namespace
         out << "coefficients for side ordinal 3: \n" << coefficients;
       }
     }
+  }
+
+  TEUCHOS_UNIT_TEST( Solution, ProjectFluxOnRefinedMesh2D )
+  {
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {1,2};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,2.0}, elemCounts, H1Order);
+    
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    
+    map<int, FunctionPtr> solutionMap;
+    VarPtr psi = form.psi();
+    solutionMap[psi->ID()] = Function::constant({1.0,1.0});
+    
+    VarPtr psi_n_hat = form.psi_n_hat();
+    FunctionPtr exactFxn = psi_n_hat->termTraced()->evaluate(solutionMap);
+    
+    solutionMap[psi_n_hat->ID()] = exactFxn;
+    
+    solution->projectOntoMesh(solutionMap);
+    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+    
+    // as sanity check, confirm that (solnFxn == exactFxn) before refinement
+    double tol = 1e-14;
+    double errBeforeRefinement = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errBeforeRefinement, <, tol, out, success);
+    
+    // register solution so that mesh will project parents onto children
+    mesh->registerSolution(solution);
+    
+    // after projection, refine.  Should preserve the condition (exactFxn == solnFxn) even under refinement
+    mesh->hRefine(vector<GlobalIndexType>{1});
+    double errAfterOneRefinement = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errAfterOneRefinement, <, tol, out, success);
+    
+    // refine
+    mesh->hRefine(vector<GlobalIndexType>{0,2});
+    double errAfterTwoRefinements = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errAfterTwoRefinements, <, tol, out, success);
+    
+    if (!success)
+    {
+      HDF5Exporter exporter(mesh, "projectFluxOnRefinedMesh2DFailure");
+      exporter.exportFunction({solnFxn-exactFxn,solnFxn, exactFxn},{"error", "solution", "exact"},0);
+      
+      vector<GlobalIndexType> cellsToReportOn = {9,10,11};
+      
+      for (auto cellID : cellsToReportOn)
+      {
+        if (mesh->myCellsInclude(cellID))
+        {
+          BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh,cellID);
+          FunctionPtr errFxn = (solnFxn - exactFxn);
+          double errOnCell = sqrt((errFxn * errFxn)->integrate(basisCache));
+          out << "error on cell " << cellID << ": " << errOnCell << endl;
+        }
+      }
+    }
+  }
+  
+  /*
+   {
+   vector<GlobalIndexType> cellIDs = {1};
+   mesh->hRefine(cellIDs, repartitionAndRebuild);
+   mesh->enforceOneIrregularity();
+   mesh->repartitionAndRebuild();
+   //      outputMesh(meshOrdinal++);
+   cellIDs = {4};
+   mesh->hRefine(cellIDs, repartitionAndRebuild);
+   mesh->enforceOneIrregularity();
+   mesh->repartitionAndRebuild();
+   }
+   */
+
+  TEUCHOS_UNIT_TEST( Solution, ProjectFluxOnRefinedMesh2D_2x2_Starting_Slow )
+  {
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {2,2};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,1.0}, elemCounts, H1Order);
+    
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    
+    map<int, FunctionPtr> solutionMap;
+    VarPtr psi = form.psi();
+    solutionMap[psi->ID()] = Function::constant({1.0,1.0});
+    
+    VarPtr psi_n_hat = form.psi_n_hat();
+    FunctionPtr exactFxn = psi_n_hat->termTraced()->evaluate(solutionMap);
+    
+    solutionMap[psi_n_hat->ID()] = exactFxn;
+    
+    solution->projectOntoMesh(solutionMap);
+    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+    
+    // as sanity check, confirm that (solnFxn == exactFxn) before refinement
+    double tol = 1e-14;
+    double errBeforeRefinement = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errBeforeRefinement, <, tol, out, success);
+    
+    // register solution so that mesh will project parents onto children
+    mesh->registerSolution(solution);
+    
+    // after projection, refine.  Should preserve the condition (exactFxn == solnFxn) even under refinement
+    bool repartitionAndRebuild = false;
+    vector<GlobalIndexType> cellIDs = {1};
+    mesh->hRefine(cellIDs, repartitionAndRebuild);
+    mesh->enforceOneIrregularity();
+    mesh->repartitionAndRebuild();
+
+    double errAfterOneRefinement = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errAfterOneRefinement, <, tol, out, success);
+
+    auto outputMesh = [mesh] (int ordinal) -> void
+    {
+      MeshTopologyPtr meshCopy = mesh->getTopology()->getGatheredCopy();
+      int rank = mesh->Comm()->MyPID();
+      if (rank == 0)
+      {
+        bool labelCells = true;
+        int numPointsPerEdge = 2;
+        ostringstream name;
+        name << "meshSequence-" << ordinal;
+        GnuPlotUtil::writeExactMeshSkeleton(name.str(), meshCopy.get(), numPointsPerEdge, labelCells);
+      }
+    };
+
+//    outputMesh(0);
+
+    if (!success)
+    {
+      HDF5Exporter exporter(mesh, "ProjectFluxOnRefinedMesh2D_2x2_Starting, after one refinement");
+      exporter.exportFunction({solnFxn-exactFxn,solnFxn, exactFxn},{"error", "solution", "exact"},0);
+      
+      print("myCells",mesh->cellIDsInPartition());
+      
+//      set<GlobalIndexType> cellsToReportOn = mesh->getActiveCellIDsGlobal();
+//      print("allCells", cellsToReportOn);
+      vector<GlobalIndexType> cellsToReportOn = {0,2,3,4,5,6,7};
+      
+      for (auto cellID : cellsToReportOn)
+      {
+        if (mesh->myCellsInclude(cellID))
+        {
+          BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh,cellID);
+          FunctionPtr errFxn = (solnFxn - exactFxn);
+          double errOnCell = sqrt((errFxn * errFxn)->integrate(basisCache));
+          cout << "error on cell " << cellID << ": " << errOnCell << endl;
+        }
+      }
+    }
+    
+    cellIDs = {4};
+    mesh->hRefine(cellIDs, repartitionAndRebuild);
+    mesh->enforceOneIrregularity();
+    mesh->repartitionAndRebuild();
+    
+    if (success) // if we've already failed, focus on that failure...
+    {
+      double errAfterTwoRefinements = (solnFxn - exactFxn)->l2norm(mesh);
+      TEUCHOS_TEST_COMPARE(errAfterTwoRefinements, <, tol, out, success);
+      
+      if (!success)
+      {
+        outputMesh(0);
+        
+        HDF5Exporter exporter(mesh, "ProjectFluxOnRefinedMesh2D_2x2_Starting");
+        exporter.exportFunction({solnFxn-exactFxn,solnFxn, exactFxn},{"error", "solution", "exact"},0);
+        
+        print("myCells",mesh->cellIDsInPartition());
+        
+        vector<GlobalIndexType> cellsToReportOn = {8,9,15};
+        
+        for (auto cellID : cellsToReportOn)
+        {
+          if (mesh->myCellsInclude(cellID))
+          {
+            BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh,cellID);
+            FunctionPtr errFxn = (solnFxn - exactFxn);
+            double errOnCell = sqrt((errFxn * errFxn)->integrate(basisCache));
+            cout << "error on cell " << cellID << ": " << errOnCell << endl;
+          }
+        }
+      }
+    }
+  }
+  
+  TEUCHOS_UNIT_TEST( Solution, ProjectFluxOnRefinedMesh2DSimpler )
+  {
+    int spaceDim = 2;
+    bool conformingTraces = true;
+    PoissonFormulation form(spaceDim,conformingTraces);
+    
+    int H1Order = 1;
+    vector<int> elemCounts = {1,2};
+    
+    MeshPtr mesh = MeshFactory::rectilinearMesh(form.bf(), {1.0,2.0}, elemCounts, H1Order);
+    
+    SolutionPtr solution = Solution::solution(form.bf(), mesh);
+    
+    map<int, FunctionPtr> solutionMap;
+    VarPtr psi = form.psi();
+    solutionMap[psi->ID()] = Function::constant({1.0,1.0});
+
+    VarPtr psi_n_hat = form.psi_n_hat();
+    FunctionPtr exactFxn = psi_n_hat->termTraced()->evaluate(solutionMap);
+    
+    solutionMap[psi_n_hat->ID()] = exactFxn;
+    
+    solution->projectOntoMesh(solutionMap);
+    FunctionPtr solnFxn = Function::solution(psi_n_hat, solution, false);
+
+    // as sanity check, confirm that (solnFxn == exactFxn) before refinement
+    double tol = 1e-14;
+    double errBeforeRefinement = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errBeforeRefinement, <, tol, out, success);
+
+    // register solution so that mesh will project parents onto children
+    mesh->registerSolution(solution);
+    
+    // after projection, refine.  Should preserve the condition (exactFxn == solnFxn) even under refinement
+    mesh->hRefine(vector<GlobalIndexType>{0});
+    double errAfterOneRefinement = (solnFxn - exactFxn)->l2norm(mesh);
+    TEUCHOS_TEST_COMPARE(errAfterOneRefinement, <, tol, out, success);
   }
   
   TEUCHOS_UNIT_TEST( Solution, ProjectOnTensorMesh1D )
