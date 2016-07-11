@@ -129,7 +129,7 @@ double TRieszRep<Scalar>::getNorm()
 
   if (_repsNotComputed)
   {
-    cout << "Computing riesz rep dofs" << endl;
+//    cout << "Computing riesz rep dofs" << endl;
     computeRieszRep();
   }
 
@@ -280,7 +280,7 @@ void TRieszRep<Scalar>::computeRepresentationValues(FieldContainer<Scalar> &valu
 
   if (_repsNotComputed)
   {
-    cout << "Computing riesz rep dofs" << endl;
+//    cout << "Computing riesz rep dofs" << endl;
     computeRieszRep();
   }
 
