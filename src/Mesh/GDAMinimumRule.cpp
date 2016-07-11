@@ -3068,42 +3068,6 @@ SubcellDofIndices& GDAMinimumRule::getGlobalDofIndices(GlobalIndexType cellID)
   return _globalDofIndicesForCellCache[cellID];
 }
 
-//set<GlobalIndexType> GDAMinimumRule::getGlobalDofIndicesForIntegralContribution(GlobalIndexType cellID, int sideOrdinal)   // assuming an integral is being done over the whole mesh skeleton, returns either an empty set or the global dof indices associated with the given side, depending on whether the cell "owns" the side for the purpose of such contributions.
-//{
-//  set<GlobalIndexType> indices;
-//
-//  CellPtr cell = _meshTopology->getCell(cellID);
-//  bool ownsSide = cell->ownsSide(sideOrdinal, _meshTopology);
-//  int d_min = minimumSubcellDimensionForContinuityEnforcement();
-//
-//  if (ownsSide)
-//  {
-//    SubcellDofIndices subcellDofIndices = getGlobalDofIndices(cellID);
-//    int spaceDim =  _meshTopology->getDimension();
-//
-//    CellTopoPtr cellTopo = cell->topology();
-//    CellTopoPtr sideTopo = cellTopo->getSubcell(spaceDim-1, sideOrdinal);
-//
-//    for (int d=d_min; d<spaceDim; d++)
-//    {
-//      int scCount = sideTopo->getSubcellCount(d);
-//      for (int scordSide=0; scordSide<scCount; scordSide++)
-//      {
-//        int scordCell = CamelliaCellTools::subcellOrdinalMap(cellTopo, spaceDim-1, sideOrdinal, d, scordSide);
-//        map<int, vector<GlobalIndexType> > dofIndices = subcellDofIndices.subcellDofIndices[d][scordCell];
-//
-//
-//        for (map<int, vector<GlobalIndexType> >::iterator dofIndicesIt = dofIndices.begin(); dofIndicesIt != dofIndices.end(); dofIndicesIt++)
-//        {
-//          indices.insert(dofIndicesIt->second.begin(), dofIndicesIt->second.end());
-//        }
-//      }
-//    }
-//  }
-//
-//  return indices;
-//}
-
 vector<GlobalIndexType> GDAMinimumRule::globalDofIndicesForFieldVariable(GlobalIndexType cellID, int varID)
 {
   map<int, VarPtr> trialVars = _varFactory->trialVars();
@@ -3118,22 +3082,6 @@ vector<GlobalIndexType> GDAMinimumRule::globalDofIndicesForFieldVariable(GlobalI
   int spaceDim = _mesh->getTopology()->getDimension();
   vector<GlobalIndexType> globalIndices = subcellDofIndices.dofIndicesForVarOnSubcell(spaceDim,0,trialVar->ID());
   
-//  LocalDofMapperPtr dofMapper = getDofMapper(cellID, constraints, varID, VOLUME_INTERIOR_SIDE_ORDINAL);
-//  
-//  TEUCHOS_TEST_FOR_EXCEPTION(!dofMapper->isPermutation(), std::invalid_argument, "GDAMinimumRule only supports globalDofIndicesForFieldVariable() for discontinuous variables");
-//  
-//  map<int, GlobalIndexType> permutationMap = dofMapper->getPermutationMap();
-//  DofOrderingPtr trialOrdering = elementType(cellID)->trialOrderPtr;
-//  BasisPtr volumeBasis = trialOrdering->getBasis(varID);
-//  
-//  const vector<int>* localDofIndices = &trialOrdering->getDofIndices(varID);
-//  vector<GlobalIndexType> globalIndices;
-//  for (int localDofIndex : *localDofIndices)
-//  {
-//    TEUCHOS_TEST_FOR_EXCEPTION(permutationMap.find(localDofIndex) == permutationMap.end(), std::invalid_argument,
-//                               "Error: permutation map does not contain localDofIndex");
-//    globalIndices.push_back(permutationMap[localDofIndex]);
-//  }
   return globalIndices;
 }
 
@@ -3156,13 +3104,6 @@ vector<GlobalIndexType> GDAMinimumRule::getGlobalDofOrdinalsForSubcell(GlobalInd
 
 LocalDofMapperPtr GDAMinimumRule::getDofMapper(GlobalIndexType cellID, int varIDToMap, int sideOrdinalToMap)
 {
-//  { // DEBUGGING
-//    if ((cellID==0) && (sideOrdinalToMap==3))
-//    {
-//      cout << "set breakpoint here.\n";
-//    }
-//  }
-  
   if ((varIDToMap == -1) && (sideOrdinalToMap == -1))
   {
     // a mapper for the whole dof ordering: we cache these separately...
