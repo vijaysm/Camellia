@@ -10,10 +10,12 @@
 #include "Teuchos_UnitTestHarness.hpp"
 
 #include "StokesVGPFormulation.h"
+
 #include "GDAMinimumRule.h"
+#include "GnuPlotUtil.h"
+#include "HDF5Exporter.h"
 #include "MeshFactory.h"
 #include "Solution.h"
-#include "HDF5Exporter.h"
 
 using namespace Camellia;
 using namespace Intrepid;
@@ -510,6 +512,240 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, Projection_2D_Slow )
   TEST_COMPARE(sigma21_diff_l2, <, tol);
   TEST_COMPARE(sigma22_diff_l2, <, tol);
 }
+  
+  TEUCHOS_UNIT_TEST( StokesVGPFormulation, RefineMesh_Slow )
+  {
+    MPIWrapper::CommWorld()->Barrier();
+    
+    int spaceDim = 2;
+    bool useConformingTraces = true;
+    int meshWidth = 2;
+    int polyOrder = 2;
+    int delta_k = 2;
+    double mu = 1.0;
+    
+    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, useConformingTraces);
+    
+    vector<double> dims(spaceDim,1.0);
+    vector<int> numElements(spaceDim,meshWidth);
+    vector<double> x0(spaceDim,0.0);
+    
+    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dims,numElements,x0);
+    form.initializeSolution(meshTopo, polyOrder, delta_k);
+    form.addPointPressureCondition();
+    
+    MeshPtr mesh = form.solution()->mesh();
+    
+    VarPtr u1_hat = form.u_hat(1), u2_hat = form.u_hat(2);
+    VarPtr u1 = form.u(1), u2 = form.u(2);
+    VarPtr tn1_hat = form.tn_hat(1), tn2_hat = form.tn_hat(2);
+    VarPtr sigma12 = form.sigma(1, 2);
+    
+    TFunctionPtr<double> n = TFunction<double>::normal();
+    TFunctionPtr<double> n_parity = n * TFunction<double>::sideParity();
+    FunctionPtr minus_n_parity = - n_parity;
+    FunctionPtr sigma12_exact = Function::constant(-1.0);
+    
+    map<int, FunctionPtr> solnToProject;
+    FunctionPtr u1_exact = Function::yn(1);
+    FunctionPtr u2_exact = Function::constant(2.0);
+
+    solnToProject[u1->ID()] = u1_exact;
+    solnToProject[u2->ID()] = u2_exact;
+    solnToProject[sigma12->ID()] = sigma12_exact;
+    
+    // set up fluxes and traces to agree with the fields, according to termTraced():
+    solnToProject[u1_hat->ID()] = u1_hat->termTraced()->evaluate(solnToProject);
+    solnToProject[u2_hat->ID()] = u2_hat->termTraced()->evaluate(solnToProject);
+    solnToProject[tn1_hat->ID()] = tn1_hat->termTraced()->evaluate(solnToProject);
+    
+    FunctionPtr tn1_exact = solnToProject[tn1_hat->ID()];
+    
+    form.solution()->projectOntoMesh(solnToProject);
+    
+    // sanity check: did the projection work?
+    FunctionPtr u1_soln = Function::solution(u1, form.solution());
+    FunctionPtr u2_soln = Function::solution(u2, form.solution());
+    FunctionPtr u1_hat_soln = Function::solution(u1_hat, form.solution());
+    FunctionPtr u2_hat_soln = Function::solution(u2_hat, form.solution());
+    bool weightByParity = false; // don't weight by parity so that we know that the expected value is tn_exact everywhere
+    FunctionPtr tn1_hat_soln = Function::solution(tn1_hat, form.solution(), weightByParity);
+    
+    double tol = 1e-12;
+    double err;
+    err = (u1_soln - u1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u1_hat_soln - u1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u2_soln - u2_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u2_hat_soln - u2_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (tn1_hat_soln - tn1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    
+    bool repartitionAndRebuild = false;
+    
+    auto outputMesh = [mesh] (int ordinal) -> void
+    {
+      MeshTopologyPtr meshCopy = mesh->getTopology()->getGatheredCopy();
+      int rank = mesh->Comm()->MyPID();
+      if (rank == 0)
+      {
+        bool labelCells = true;
+        int numPointsPerEdge = 2;
+        ostringstream name;
+        name << "meshSequence-" << ordinal;
+        GnuPlotUtil::writeExactMeshSkeleton(name.str(), meshCopy.get(), numPointsPerEdge, labelCells);
+      }
+    };
+    
+    int meshOrdinal = 0;
+//    outputMesh(meshOrdinal++);
+    
+    {
+      vector<GlobalIndexType> cellIDs = {1};
+      mesh->hRefine(cellIDs, repartitionAndRebuild);
+      mesh->enforceOneIrregularity();
+      mesh->repartitionAndRebuild();
+//      outputMesh(meshOrdinal++);
+      cellIDs = {4};
+      mesh->hRefine(cellIDs, repartitionAndRebuild);
+      mesh->enforceOneIrregularity();
+      mesh->repartitionAndRebuild();
+    }
+//    outputMesh(meshOrdinal++);
+    
+    int rank = mesh->Comm()->MyPID();
+
+    int activeElements = mesh->numActiveElements();
+//    cout << "active elements seen by rank " << rank << ": " << activeElements << endl;
+    
+    err = (u1_soln - u1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u1_hat_soln - u1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u2_soln - u2_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u2_hat_soln - u2_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (tn1_hat_soln - tn1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    
+    if (!success)
+    {
+      HDF5Exporter exporter(mesh, "stokesTestFailure, prior to solve");
+      exporter.exportSolution(form.solution(),0);
+      
+      HDF5Exporter exporter2(mesh, "stokesTestFailure, prior to solve, difference in tn1");
+      exporter2.exportFunction({tn1_hat_soln-tn1_exact,tn1_hat_soln, tn1_exact},{"tn1 error", "tn1_hat solution", "tn1_hat exact"},0);
+    }
+    
+    form.addInflowCondition(SpatialFilter::allSpace(), Function::vectorize(u1_exact, u2_exact));
+    form.addPointPressureCondition();
+    form.solve();
+
+    err = (u1_soln - u1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u1_hat_soln - u1_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u2_soln - u2_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    err = (u2_hat_soln - u2_exact)->l2norm(mesh);
+    TEST_COMPARE(err, <, tol);
+    
+    if (!success)
+    {
+      HDF5Exporter exporter(mesh, "stokesTestFailure");
+      exporter.exportSolution(form.solution(),0);
+    }
+//    else
+//    {
+//      // DEBUGGING: output even on success
+//      HDF5Exporter exporter(mesh, "stokesTestFailure, correct solution");
+//      exporter.exportSolution(form.solution(),0);
+//    }
+  }
+  
+//  TEUCHOS_UNIT_TEST( StokesVGPFormulation, RefinedMesh )
+//  {
+//    // this test imitates an issue found in the "wild" -- expected to fail on 4 MPI ranks, but succeed on 3
+//    // the only test here is whether we can run to completion without generating an exception...
+//    
+//    MPIWrapper::CommWorld()->Barrier();
+//    
+//    int spaceDim = 2;
+//    bool useConformingTraces = true;
+//    int meshWidth = 2;
+//    int polyOrder = 0;
+//    int delta_k = 0;
+//    double mu = 1.0;
+//    
+//    StokesVGPFormulation form = StokesVGPFormulation::steadyFormulation(spaceDim, mu, useConformingTraces);
+//    
+//    vector<double> dims(spaceDim,1.0);
+//    vector<int> numElements(spaceDim,meshWidth);
+//    vector<double> x0(spaceDim,0.0);
+//    
+//    int maxIters = 1000;
+//    double cgTol = 1e-6;
+//    
+//    MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dims,numElements,x0);
+//    form.initializeSolution(meshTopo, polyOrder, delta_k);
+//    form.addPointPressureCondition();
+//    
+//    VarPtr u1_hat = form.u_hat(1), u2_hat = form.u_hat(2);
+//    
+//    SpatialFilterPtr topBoundary = SpatialFilter::matchingY(1);
+//    SpatialFilterPtr notTopBoundary = SpatialFilter::negatedFilter(topBoundary);
+//    form.addWallCondition(notTopBoundary);
+//    
+//    FunctionPtr u1_topRamp = Function::zero();
+//    FunctionPtr u_topRamp;
+//    FunctionPtr zero = Function::zero();
+//    if (spaceDim == 2)
+//    {
+//      u_topRamp = Function::vectorize(u1_topRamp,zero);
+//    }
+//    else
+//    {
+//      u_topRamp = Function::vectorize(u1_topRamp,zero,zero);
+//    }
+//    form.addInflowCondition(topBoundary, u_topRamp);
+//    
+//    form.solveIteratively(maxIters, cgTol);
+//    
+//    MeshPtr mesh = form.solution()->mesh();
+//    {
+//      // DEBUGGING
+//      bool repartitionAndRebuild = false;
+//      
+//      vector<GlobalIndexType> cellIDs = {3,1};
+//      mesh->hRefine(cellIDs, repartitionAndRebuild);
+//      mesh->enforceOneIrregularity();
+//      mesh->repartitionAndRebuild();
+//      cellIDs = {10, 7};
+//      mesh->hRefine(cellIDs, repartitionAndRebuild);
+//      mesh->enforceOneIrregularity();
+//      mesh->repartitionAndRebuild();
+//      cellIDs = {18, 15};
+//      mesh->hRefine(cellIDs, repartitionAndRebuild);
+//      mesh->enforceOneIrregularity();
+//      mesh->repartitionAndRebuild();
+//      cellIDs = {26, 23};
+//      mesh->hRefine(cellIDs, repartitionAndRebuild);
+//      mesh->enforceOneIrregularity();
+//      mesh->repartitionAndRebuild();
+//      cellIDs = {34, 31};
+//      mesh->hRefine(cellIDs, repartitionAndRebuild);
+//      mesh->enforceOneIrregularity();
+//      mesh->repartitionAndRebuild();
+//      cellIDs = {42, 43, 38, 39};
+//      mesh->hRefine(cellIDs, repartitionAndRebuild);
+//      mesh->enforceOneIrregularity();
+//      mesh->repartitionAndRebuild();
+//    }
+//  }
 
 TEUCHOS_UNIT_TEST( StokesVGPFormulation, SaveAndLoad )
 {
