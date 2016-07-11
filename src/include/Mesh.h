@@ -60,7 +60,6 @@
 #include "VarFactory.h"
 
 #include "RefinementObserver.h"
-#include "RefinementHistory.h"
 
 #include "Function.h"
 #include "ParametricCurve.h"
@@ -120,8 +119,6 @@ class Mesh : public RefinementObserver, public DofInterpreter
 
   static map<int,int> _emptyIntIntMap; // just defined here to implement a default argument to constructor (there's got to be a better way)
 public:
-  RefinementHistory _refinementHistory;
-
   // Preferred Constructor for min rule, n-D, single H1Order
   Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, int H1Order, int pToAddTest,
        map<int,int> trialOrderEnhancements=_emptyIntIntMap, map<int,int> testOrderEnhancements=_emptyIntIntMap,
@@ -206,6 +203,9 @@ public:
   int cellPolyOrder(GlobalIndexType cellID);
   vector<int> cellTensorPolyOrder(GlobalIndexType cellID);
 
+  // ! RefinementObserver method; when invoked, we too should probably repartitionAndRebuild...
+  void didRepartition(MeshTopologyPtr meshTopo);
+  
   //! This should probably be renamed "enforceRegularityRules" and then made more general to enforce whatever rules are appropriate for the mesh.
   void enforceOneIrregularity(bool repartitionAndMigrate = true);
 

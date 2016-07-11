@@ -95,11 +95,6 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, vector<in
   _boundary.setMesh(Teuchos::rcp(this,false));
 
   _meshTopology->setGlobalDofAssignment(_gda.get());
-
-  // Teuchos::RCP< RefinementHistory > refHist = Teuchos::rcp( &_refinementHistory, false );
-  // cout << "Has ownership " << refHist.has_ownership() << endl;
-  // this->registerObserver(refHist);
-  this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
 Mesh::Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, int H1Order, int pToAddTest,
@@ -122,11 +117,6 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, int H1Ord
   _boundary.setMesh(Teuchos::rcp(this,false));
 
   _meshTopology->setGlobalDofAssignment(_gda.get());
-
-  // Teuchos::RCP< RefinementHistory > refHist = Teuchos::rcp( &_refinementHistory, false );
-  // cout << "Has ownership " << refHist.has_ownership() << endl;
-  // this->registerObserver(refHist);
-  this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
 Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector<int> H1Order, int pToAddTest,
@@ -151,11 +141,6 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector
   _boundary.setMesh(Teuchos::rcp(this,false));
 
   _meshTopology->setGlobalDofAssignment(_gda.get());
-
-  // Teuchos::RCP< RefinementHistory > refHist = Teuchos::rcp( &_refinementHistory, false );
-  // cout << "Has ownership " << refHist.has_ownership() << endl;
-  // this->registerObserver(refHist);
-  this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
 Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, int H1Order, int pToAddTest,
@@ -180,11 +165,6 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, int H1
   _boundary.setMesh(Teuchos::rcp(this,false));
 
   _meshTopology->setGlobalDofAssignment(_gda.get());
-
-  // Teuchos::RCP< RefinementHistory > refHist = Teuchos::rcp( &_refinementHistory, false );
-  // cout << "Has ownership " << refHist.has_ownership() << endl;
-  // this->registerObserver(refHist);
-  this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
 Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<IndexType> > &elementVertices,
@@ -241,11 +221,6 @@ Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<IndexType> > 
   _boundary.setMesh(Teuchos::rcp(this,false));
 
   _pToAddToTest = pToAddTest;
-
-  // Teuchos::RCP< RefinementHistory > refHist = Teuchos::rcp( &_refinementHistory, false );
-  // cout << "Has ownership " << refHist.has_ownership() << endl;
-  // this->registerObserver(refHist);
-  this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
 // private constructor for use by deepCopy()
@@ -320,11 +295,6 @@ Mesh::Mesh(MeshPtr mesh, GlobalIndexType cellID, Epetra_CommPtr Comm) : DofInter
   _boundary.setMesh(Teuchos::rcp(this,false));
   
   _meshTopology->setGlobalDofAssignment(_gda.get());
-  
-  // Teuchos::RCP< RefinementHistory > refHist = Teuchos::rcp( &_refinementHistory, false );
-  // cout << "Has ownership " << refHist.has_ownership() << endl;
-  // this->registerObserver(refHist);
-  this->registerObserver(Teuchos::rcp( &_refinementHistory, false ));
 }
 
 GlobalIndexType Mesh::activeCellOffset()
@@ -615,6 +585,11 @@ FieldContainer<double> Mesh::cellSideParitiesForCell( GlobalIndexType cellID )
   return _gda->cellSideParitiesForCell(cellID);
 }
 
+void Mesh::didRepartition(MeshTopologyPtr meshTopo)
+{
+  this->repartitionAndRebuild();
+}
+
 vector<double> Mesh::getCellCentroid(GlobalIndexType cellID)
 {
   return _meshTopology->getCellCentroid(cellID);
@@ -672,22 +647,12 @@ set<GlobalIndexType> Mesh::getActiveCellIDsGlobal()
     return _meshTopology->getLocallyKnownActiveCellIndices();
   }
   
+  vector<GlobalIndexType> gatheredCellIDs;
   const set<GlobalIndexType>* myCellIDs = &cellIDsInPartition();
-  int myCellCount = myCellIDs->size();
-  int priorCellCount = 0;
-  Comm()->ScanSum(&myCellCount, &priorCellCount, 1);
-  priorCellCount -= myCellCount;
-  int globalCellCount = 0;
-  Comm()->SumAll(&myCellCount, &globalCellCount, 1);
-  vector<int> allCellIDs(globalCellCount);
-  auto myCellIDPtr = myCellIDs->begin();
-  for (int i=priorCellCount; i<priorCellCount+myCellCount; i++)
-  {
-    allCellIDs[i] = *myCellIDPtr;
-    myCellIDPtr++;
-  }
-  vector<int> gatheredCellIDs(globalCellCount);
-  Comm()->SumAll(&allCellIDs[0], &gatheredCellIDs[0], globalCellCount);
+  vector<int> offsets;
+  vector<GlobalIndexType> myCellIDsVector(myCellIDs->begin(), myCellIDs->end());
+  MPIWrapper::allGatherVariable(*Comm(), gatheredCellIDs, myCellIDsVector, offsets);
+
   set<GlobalIndexType> activeCellIDs(gatheredCellIDs.begin(),gatheredCellIDs.end());
   return activeCellIDs;
 }
@@ -906,7 +871,7 @@ void Mesh::hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementP
   for (vector< Teuchos::RCP<RefinementObserver> >::iterator meshIt = _registeredObservers.begin();
        meshIt != _registeredObservers.end(); meshIt++)
   {
-    (*meshIt)->hRefine(writableMeshTopology,cellIDs,refPattern);
+    (*meshIt)->hRefine(writableMeshTopology,cellIDs,refPattern,repartitionAndRebuild);
   }
 
   set<GlobalIndexType>::const_iterator cellIt;
@@ -943,7 +908,7 @@ void Mesh::hRefine(const set<GlobalIndexType> &cellIDs, Teuchos::RCP<RefinementP
   for (vector< Teuchos::RCP<RefinementObserver> >::iterator observerIt = _registeredObservers.begin();
        observerIt != _registeredObservers.end(); observerIt++)
   {
-    (*observerIt)->didHRefine(writableMeshTopology,cellIDs,refPattern);
+    (*observerIt)->didHRefine(writableMeshTopology,cellIDs,refPattern,repartitionAndRebuild);
   }
 
   // TODO: consider making transformation function a refinementObserver, using that interface to send it the notification
@@ -967,7 +932,7 @@ void Mesh::hUnrefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndReb
   for (vector< Teuchos::RCP<RefinementObserver> >::iterator meshIt = _registeredObservers.begin();
        meshIt != _registeredObservers.end(); meshIt++)
   {
-    (*meshIt)->hUnrefine(cellIDs);
+    (*meshIt)->hUnrefine(cellIDs, repartitionAndRebuild);
   }
 
   MeshTopology* meshTopologyInstance = dynamic_cast<MeshTopology*>(_meshTopology.get());
@@ -1057,7 +1022,7 @@ void Mesh::hUnrefine(const set<GlobalIndexType> &cellIDs, bool repartitionAndReb
   // notify observers that of the unrefinement that just happened
   for (Teuchos::RCP<RefinementObserver> refinementObserver : _registeredObservers)
   {
-    refinementObserver->didHUnrefine(writableMeshTopology,cellIDs);
+    refinementObserver->didHUnrefine(writableMeshTopology,cellIDs, repartitionAndRebuild);
   }
 
   if (repartitionAndRebuild)
@@ -1363,7 +1328,7 @@ void Mesh::pRefine(const set<GlobalIndexType> &cellIDsForPRefinements, int pToAd
   for (vector< Teuchos::RCP<RefinementObserver> >::iterator meshIt = _registeredObservers.begin();
        meshIt != _registeredObservers.end(); meshIt++)
   {
-    (*meshIt)->pRefine(cellIDsForPRefinements); // TODO: add pToAdd argument!
+    (*meshIt)->pRefine(cellIDsForPRefinements, repartitionAndRebuild); // TODO: add pToAdd argument!
   }
 
   _gda->didPRefine(cellIDsForPRefinements, pToAdd);
