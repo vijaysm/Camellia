@@ -26,6 +26,9 @@ namespace Camellia
     InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr otherMesh);
     InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr otherMesh, const map<GlobalIndexType, GlobalIndexType> & cellIDMap);
     
+    // ! Destructor will deregister from any meshes that this has registered with...
+    ~InducedMeshPartitionPolicy();
+    
     // ! Suitable for setting up a partition policy passed in during Mesh construction.
     InducedMeshPartitionPolicy(MeshPtr otherMesh, const map<GlobalIndexType, GlobalIndexType> & cellIDMap);
     
