@@ -52,13 +52,14 @@ InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr
   {
     _cellIDMap[cellID] = cellID;
   }
-  
-  Teuchos::RCP<RefinementObserver> thisObserver = Teuchos::rcp(this,false); // weak RCP
-  if (_thisMesh != Teuchos::null)
-  {
-    _thisMesh->registerObserver(thisObserver);
-  }
-  _otherMesh->registerObserver(thisObserver);
+
+  // for now, we don't actually have reworking of the cell map implemented, so we skip registering
+//  Teuchos::RCP<RefinementObserver> thisObserver = Teuchos::rcp(this,false); // weak RCP
+//  if (_thisMesh != Teuchos::null)
+//  {
+//    _thisMesh->registerObserver(thisObserver);
+//  }
+//  _otherMesh->registerObserver(thisObserver);
 }
 
 InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr thisMesh, MeshPtr otherMesh, const map<GlobalIndexType, GlobalIndexType> & cellIDMap)
@@ -75,6 +76,19 @@ InducedMeshPartitionPolicy::InducedMeshPartitionPolicy(MeshPtr otherMesh, const 
   _thisMesh = Teuchos::null;
   _otherMesh = otherMesh;
   _cellIDMap = cellIDMap; // copy
+}
+
+InducedMeshPartitionPolicy::~InducedMeshPartitionPolicy()
+{
+  // if/when we turn on registering, we'll want to uncomment this
+//  if (_thisMesh != Teuchos::null)
+//  {
+//    _thisMesh->unregisterObserver(this);
+//  }
+//  if (_otherMesh != Teuchos::null)
+//  {
+//    _otherMesh->unregisterObserver(this);
+//  }
 }
 
 void InducedMeshPartitionPolicy::didHRefine(MeshTopologyPtr meshToRefine, const set<GlobalIndexType> &cellIDs, RefinementPatternPtr refPattern)
