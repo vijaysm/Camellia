@@ -26,6 +26,8 @@ typedef pair<LabeledRefinementBranch, vector<vector<double>> > RootedLabeledRefi
 #define WRITE_ADVANCE(dataLocation,variable) writeAndAdvance(dataLocation,&variable,sizeof(variable))
 #define WRITE_ADVANCE_ARRAY(dataLocation,array) if (array.size() > 0) writeAndAdvance(dataLocation,&array[0],sizeof(array[0])*array.size())
 
+std::vector<std::pair<std::pair<GlobalIndexType,bool>,Intrepid::FieldContainer<double>>> CellDataMigration::solutionCoefficients;
+
 void CellDataMigration::addMigratedGeometry(MeshTopology* meshTopo,
                                             const vector<RootedLabeledRefinementBranch> &rootedLabeledBranches)
 {
@@ -236,7 +238,6 @@ void CellDataMigration::packData(Mesh *mesh, GlobalIndexType cellID, bool packPa
   packSolutionData(mesh, cellID, packParentDofs, dataLocation, size);
 }
 
-
 void CellDataMigration::packGeometryData(Mesh *mesh, GlobalIndexType cellID, char* &dataLocation, int size)
 {
   bool geometryIsDistributed = mesh->getTopology()->isDistributed(); // otherwise, redundantly stored, and we don't need to send
@@ -361,6 +362,46 @@ void CellDataMigration::packSolutionData(Mesh *mesh, GlobalIndexType cellID, boo
     //    cout << ";";
   }
   //  cout << endl;
+}
+
+void CellDataMigration::processSolutionCoefficients(Mesh* mesh)
+{
+  vector<TSolutionPtr<double>> solutions = mesh->globalDofAssignment()->getRegisteredSolutions();
+  int numSolutions = solutions.size();
+  int solnOrdinal = 0;
+  
+  for (auto entry : solutionCoefficients)
+  {
+    GlobalIndexType cellID = entry.first.first;
+    bool coefficientsBelongToParent = entry.first.second;
+    Intrepid::FieldContainer<double>* solnCoeffs = &entry.second;
+    
+    if (!coefficientsBelongToParent)
+    {
+      solutions[solnOrdinal]->setSolnCoeffsForCellID(*solnCoeffs, cellID);
+    }
+    else
+    {
+      CellPtr cell = mesh->getTopology()->getCell(cellID);
+      CellPtr parent = cell->getParent();
+      int childOrdinal = -1;
+      vector<IndexType> childIndices = parent->getChildIndices(mesh->getTopology());
+      for (int i=0; i<childIndices.size(); i++)
+      {
+        if (childIndices[i]==cellID) childOrdinal = i;
+        else childIndices[i] = -1; // indication that Solution should not compute the projection for this child
+      }
+      if (childOrdinal == -1)
+      {
+        cout << "ERROR: child not found.\n";
+        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
+      }
+      //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
+      solutions[solnOrdinal]->projectOldCellOntoNewCells(parent->cellIndex(), mesh->getElementType(parent->cellIndex()), *solnCoeffs, childIndices);
+    }
+    solnOrdinal = (solnOrdinal + 1) % numSolutions;
+  }
+  solutionCoefficients.clear();
 }
 
 int CellDataMigration::solutionDataSize(Mesh *mesh, GlobalIndexType cellID)
@@ -555,30 +596,8 @@ void CellDataMigration::unpackSolutionData(Mesh* mesh, GlobalIndexType cellID, c
     memcpy(&solnCoeffs[0], dataLocation, localDofs * sizeof(double));
     // the dofs themselves
     dataLocation += localDofs * sizeof(double);
-    if (!coefficientsBelongToParent)
-    {
-      solutions[solnOrdinal]->setSolnCoeffsForCellID(solnCoeffs, cellID);
-      //      cout << "CellDataMigration: setting soln coefficients for cell " << cellID << endl;
-    }
-    else
-    {
-      CellPtr cell = mesh->getTopology()->getCell(cellID);
-      CellPtr parent = cell->getParent();
-      int childOrdinal = -1;
-      vector<IndexType> childIndices = parent->getChildIndices(mesh->getTopology());
-      for (int i=0; i<childIndices.size(); i++)
-      {
-        if (childIndices[i]==cellID) childOrdinal = i;
-        else childIndices[i] = -1; // indication that Solution should not compute the projection for this child
-      }
-      if (childOrdinal == -1)
-      {
-        cout << "ERROR: child not found.\n";
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "child not found!");
-      }
-      //      cout << "determining cellID " << parent->cellIndex() << "'s child " << childOrdinal << "'s coefficients.\n";
-      solutions[solnOrdinal]->projectOldCellOntoNewCells(parent->cellIndex(), mesh->getElementType(parent->cellIndex()), solnCoeffs, childIndices);
-    }
+    
+    solutionCoefficients.push_back({{cellID,coefficientsBelongToParent},solnCoeffs});
     //    cout << "setting solution coefficients for cellID " << cellID << endl << solnCoeffs;
   }
 }
@@ -624,14 +643,6 @@ void CellDataMigration::getGeometry(const MeshTopologyView* meshTopo, MeshGeomet
     {
       CellPtr parentCell = meshTopo->getCell(parentCellID);
       vector<IndexType> childCellIndices = parentCell->getChildIndices(meshTopoRCP);
-      {
-        // DEBUGGING
-        if (childCellIndices.size() == 0)
-        {
-          // repeat the call for debugging
-          childCellIndices = parentCell->getChildIndices(meshTopoRCP);
-        }
-      }
       GlobalIndexType firstChildID = childCellIndices[0];
       RefinementPatternKey refPatternKey = parentCell->refinementPattern()->getKey();
       refinementLevel[refPatternKey].push_back({parentCellID,firstChildID});

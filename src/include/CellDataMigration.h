@@ -44,6 +44,12 @@ namespace Camellia
   
 class CellDataMigration
 {
+  // ! cellCoefficients stores solution data that has been migrated to this MPI rank, but not yet stored to the appropriate Solution object.
+  // ! The method processSolutionCoefficients() will process these, and clear the container.  (The deferral is necessary because we may not
+  // ! have assigned global degrees of freedom to the cell in question by the time we receive the solution coefficients for the cell.)
+  // ! This is not an ideal design, for many reasons.  It would be better to communicate solution coefficients independently of Zoltan; that
+  // ! way, we only communicate them when we are ready to use them.
+  static std::vector<std::pair<std::pair<GlobalIndexType,bool>,Intrepid::FieldContainer<double>>> solutionCoefficients; // ((cellID, coeffsBelongToParent), coefficients)
 public:
   // methods for Zoltan's benefit
   static int dataSize(Mesh* mesh, GlobalIndexType cellID);
@@ -73,6 +79,8 @@ public:
   static void writeGeometryData(const MeshGeometryInfo &geometryInfo, char* &dataLocation, int bufferSize);
   // ! Reads 0 or more serialized geometryInfo objects into the geometryInfo structure provided.  (Reads until end of buffer.)
   static void readGeometryData(const char* &dataLocation, int bufferSize, MeshGeometryInfo &geometryInfo);
+  
+  static void processSolutionCoefficients(Mesh* mesh);
 };
 }
 

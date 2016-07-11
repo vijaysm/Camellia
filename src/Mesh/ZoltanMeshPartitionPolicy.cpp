@@ -211,6 +211,7 @@ void ZoltanMeshPartitionPolicy::partitionMesh(Mesh *mesh, PartitionIndexType num
 
         mesh->globalDofAssignment()->projectParentCoefficientsOntoUnsetChildren();
         mesh->globalDofAssignment()->rebuildLookups();
+        CellDataMigration::processSolutionCoefficients(mesh);
         
         if (rc == ZOLTAN_FATAL)
         {
