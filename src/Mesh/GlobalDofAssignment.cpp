@@ -212,8 +212,30 @@ void GlobalDofAssignment::assignParities( GlobalIndexType cellID )
       }
     }
   }
+  // track which sides flipped parities, so that solution's fluxes can be corrected accordingly
+  vector<int> sidesWithChangedParities;
+  if (_cellSideParitiesForCellID.find(cellID) != _cellSideParitiesForCellID.end())
+  {
+    vector<int> oldSideParities = _cellSideParitiesForCellID[cellID];
+    for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
+    {
+      if (oldSideParities[sideOrdinal] != cellParities[sideOrdinal])
+      {
+        sidesWithChangedParities.push_back(sideOrdinal);
+      }
+    }
+  }
   _cellSideParitiesForCellID[cellID] = cellParities;
 
+  for (TSolutionPtr<double> soln : _registeredSolutions)
+  {
+    if (soln->cellHasCoefficientsAssigned(cellID))
+    {
+      soln->reverseParitiesForLocalCoefficients(cellID, sidesWithChangedParities);
+//      cout << "Reversing parities for cellID " << cellID << " on " << sidesWithChangedParities.size() << " sides." << endl;
+    }
+  }
+  
   // if this cell is a parent, then we should treat its children as well (children without peer neighbors will inherit any parity flips)
   if (cell->isParent(_meshTopology))
   {
@@ -387,6 +409,13 @@ void GlobalDofAssignment::repartitionAndMigrate()
 {
   _partitionPolicy->partitionMesh(_mesh.get(),_numPartitions);
   // if our MeshTopology is the base, then we can prune
+  
+  if (_allowMeshTopologyPruning)
+  {
+    // then clear cell parities, as these may now be outdated
+    // (there may be a more granular approach, but parity determination is relatively cheap)
+    _cellSideParitiesForCellID.clear();
+  }
   
   MeshTopology* meshTopo = dynamic_cast<MeshTopology*>(_meshTopology.get());
   if (meshTopo != NULL)
@@ -813,18 +842,6 @@ void GlobalDofAssignment::setPartitions(FieldContainer<GlobalIndexType> &partiti
       _activeCellOffset += partition.size();
     }
   }
-  
-//  { // DEBUGGING
-//    if (partitionNumber == 0)
-//    {
-//      for (int i=0; i<_partitions.size(); i++)
-//      {
-//        ostringstream label;
-//        label << "partition " << i;
-//        print(label.str().c_str(),_partitions[i]);
-//      }
-//    }
-//  }
   
   constructActiveCellMap();
   if (rebuildDofLookups)
