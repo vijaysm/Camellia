@@ -1092,6 +1092,15 @@ void NavierStokesVGPFormulation::refine()
   _solnIncrement->setRHS(_rhsForSolve);
 }
 
+void NavierStokesVGPFormulation::refineUniformly()
+{
+  _nonlinearIterationCount = 0;
+  this->clearSolutionIncrement();
+  _solnIncrement->setRHS(_rhsForResidual);
+  _refinementStrategy->hRefineUniformly();
+  _solnIncrement->setRHS(_rhsForSolve);
+}
+
 void NavierStokesVGPFormulation::hRefine()
 {
   _hRefinementStrategy->refine();

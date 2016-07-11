@@ -154,6 +154,9 @@ public:
 
   // ! refine according to energy error in the accumulated solution
   void refine();
+  
+  // ! refine every active element in the mesh
+  void refineUniformly();
 
   // ! h-refine according to energy error in the solution
   void hRefine();
