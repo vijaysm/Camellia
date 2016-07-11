@@ -1354,11 +1354,22 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
                 
                 // extract a Epetra_SerialDenseMatrix corresponding to just the varTracedID dofs
                 set<int> volumeBasisOrdinals = weights.coarseOrdinals;
-                Epetra_SerialDenseMatrix coarseFluxToFieldTraced(volumeBasisOrdinals.size(),coarseFluxToFieldMapMatrix->ColDim()); // columns here correspond to our coarse dof indices -- what we map to
-                
                 vector<int> fieldTracedIndices = condensedDofInterpreterCoarse->fieldRowIndices(coarseCellID, varTracedID);
-                int reducedRowIndex = 0;
+                vector<int> volumeBasisOrdinalsForFields;
                 for (int volumeBasisOrdinal : volumeBasisOrdinals)
+                {
+                  int fieldTracedIndex = fieldTracedIndices[volumeBasisOrdinal];
+                  if (fieldTracedIndex != -1)
+                  {
+                    // we map this one
+                    volumeBasisOrdinalsForFields.push_back(volumeBasisOrdinal);
+                  }
+                }
+                
+                Epetra_SerialDenseMatrix coarseFluxToFieldTraced(volumeBasisOrdinalsForFields.size(),coarseFluxToFieldMapMatrix->ColDim()); // columns here correspond to our coarse dof indices -- what we map to
+                
+                int reducedRowIndex = 0;
+                for (int volumeBasisOrdinal : volumeBasisOrdinalsForFields)
                 {
                   int fieldTracedIndex = fieldTracedIndices[volumeBasisOrdinal];
                   int numCols = coarseFluxToFieldMapMatrix->ColDim();
