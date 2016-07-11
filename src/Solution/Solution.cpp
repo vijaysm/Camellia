@@ -538,8 +538,6 @@ void TSolution<Scalar>::applyDGJumpTerms()
       {
         int trialDegree = trialOrder->getBasis(trialVarID)->getDegree();
         
-        vector<GlobalIndexType> myGlobalDofs_trial_native = _mesh->globalDofAssignment()->globalDofIndicesForFieldVariable(cellID, trialVarID);
-        
         for (int testVarID : *testVarIDs)
         {
           int testDegree = testOrder->getBasis(testVarID)->getDegree();
@@ -4026,20 +4024,40 @@ void TSolution<Scalar>::projectOldCellOntoNewCells(GlobalIndexType cellID,
       // and on the volume in parent doesn't share the side (in which case we use the interior trace map).
       BasisCachePtr basisCacheForSide;
       
+      FieldContainer<double> sideParities;
+      bool parityFlipped = false;
       if (parentSideOrdinal != -1)
       {
         basisCacheForSide = sideBasisCache[sideOrdinal];
+        /*
+         Since parent and child share a side, need to worry about parity flips.
+         If there is a flip, then we need effectively to negate the parity seen
+         during the projection.  We can achieve this by simply setting child's
+         parity to match parent's on the child's side.  (If they are the same, there
+         is no difference; if they are different, then there will be a flip.)
+         */
+        sideParities = _mesh->cellSideParitiesForCell(childID);
+        int parentParity = _mesh->cellSideParitiesForCell(cellID)[parentSideOrdinal];
+        parityFlipped = sideParities[sideOrdinal] != parentParity;
       }
       else
       {
         basisCacheForSide = volumeBasisCache->getSideBasisCache(sideOrdinal);
+        sideParities = _mesh->cellSideParitiesForCell(childID);
       }
-      basisCacheForSide->setCellSideParities(_mesh->cellSideParitiesForCell(childID));
-
+      basisCacheForSide->setCellSideParities(sideParities);
+      
       for (typename map<int,TFunctionPtr<Scalar>>::iterator traceFxnIt=traceMapForSide->begin(); traceFxnIt != traceMapForSide->end(); traceFxnIt++)
       {
         int varID = traceFxnIt->first;
         TFunctionPtr<Scalar> traceFxn = traceFxnIt->second;
+        
+        bool shouldNegate = parityFlipped && (FLUX == _mesh->bilinearForm()->varFactory()->trial(varID)->varType());
+        if (shouldNegate)
+        {
+          traceFxn = -traceFxn;
+        }
+        
         if (! childType->trialOrderPtr->hasBasisEntry(varID, sideOrdinal)) continue;
         BasisPtr childBasis = childType->trialOrderPtr->getBasis(varID, sideOrdinal);
         basisCoefficients.resize(1,childBasis->getCardinality());
@@ -4107,6 +4125,29 @@ void TSolution<Scalar>::readFromFile(const string &filePath)
     }
   }
   fin.close();
+}
+
+template <typename Scalar>
+void TSolution<Scalar>::reverseParitiesForLocalCoefficients(GlobalIndexType cellID, const vector<int> &sidesWithChangedParities)
+{
+  auto coefficientsEntry = _solutionForCellIDGlobal.find(cellID);
+  if (coefficientsEntry != _solutionForCellIDGlobal.end())
+  {
+    FieldContainer<double>* coefficients = &coefficientsEntry->second;
+    DofOrderingPtr trialOrder = _mesh->getElementType(cellID)->trialOrderPtr;
+    auto fluxVars = _mesh->bilinearForm()->varFactory()->fluxVars();
+    for (VarPtr fluxVar : fluxVars)
+    {
+      for (int side : sidesWithChangedParities)
+      {
+        auto dofIndices = &trialOrder->getDofIndices(fluxVar->ID(),side);
+        for (auto dofIndex : *dofIndices)
+        {
+          (*coefficients)[dofIndex] *= -1.0;
+        }
+      }
+    }
+  }
 }
 
 template <typename Scalar>

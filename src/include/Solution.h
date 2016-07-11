@@ -235,13 +235,12 @@ public:
   void projectOntoCell(const std::map<int, TFunctionPtr<Scalar> > &functionMap, GlobalIndexType cellID, int sideIndex=-1);
   void projectFieldVariablesOntoOtherSolution(TSolutionPtr<Scalar> otherSoln);
 
-  void projectOldCellOntoNewCells(GlobalIndexType cellID,
-                                  ElementTypePtr oldElemType,
+  void projectOldCellOntoNewCells(GlobalIndexType cellID, ElementTypePtr oldElemType,
                                   const vector<GlobalIndexType> &childIDs);
-  void projectOldCellOntoNewCells(GlobalIndexType cellID,
-                                  ElementTypePtr oldElemType,
+  void projectOldCellOntoNewCells(GlobalIndexType cellID, ElementTypePtr oldElemType,
                                   const Intrepid::FieldContainer<Scalar> &oldData,
                                   const std::vector<GlobalIndexType> &childIDs);
+  void reverseParitiesForLocalCoefficients(GlobalIndexType cellID, const vector<int> &sidesWithChangedParities);
 
   void setLagrangeConstraints( Teuchos::RCP<LagrangeConstraints> lagrangeConstraints);
   void setFilter(Teuchos::RCP<LocalStiffnessMatrixFilter> newFilter);
