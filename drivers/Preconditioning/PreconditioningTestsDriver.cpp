@@ -1095,7 +1095,9 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     {
       vector<double> origin(spaceDim,0);
       IndexType vertexIndex;
-      if (!mesh->getTopology()->getVertexIndex(origin, vertexIndex))
+      bool vertexFound = mesh->getTopology()->getVertexIndex(origin, vertexIndex);
+      vertexFound = MPIWrapper::globalOr(*mesh->Comm(), vertexFound);
+      if (!vertexFound)
       {
         TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "origin vertex not found");
       }
