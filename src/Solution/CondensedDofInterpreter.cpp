@@ -14,8 +14,6 @@
 #include "Epetra_SerialSpdDenseSolver.h"
 #include "Epetra_DataAccess.h"
 
-#include <Teuchos_GlobalMPISession.hpp>
-
 #include "Epetra_Distributor.h"
 #include "Epetra_SerialComm.h"
 
@@ -868,7 +866,7 @@ void CondensedDofInterpreter<Scalar>::initializeGlobalDofIndices()
   _interpretedFluxDofIndices.clear();
   _interpretedToGlobalDofIndexMap.clear();
 
-  PartitionIndexType rank = Teuchos::GlobalMPISession::getRank();
+  PartitionIndexType rank = _mesh->Comm()->MyPID();
   set<GlobalIndexType> cellsForFluxStorage = _mesh->globalDofAssignment()->cellsInPartition(rank);
   cellsForFluxStorage.insert(_offRankCellsToInclude.begin(),_offRankCellsToInclude.end());
   map<GlobalIndexType, IndexType> partitionLocalFluxMap = interpretedFluxMapLocal(cellsForFluxStorage);
