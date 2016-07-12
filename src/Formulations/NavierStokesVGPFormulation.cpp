@@ -19,7 +19,7 @@ using namespace Camellia;
 static const int INITIAL_CONDITION_TAG = 1;
 
 NavierStokesVGPFormulation NavierStokesVGPFormulation::steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                         MeshTopologyPtr meshTopo, int polyOrder, int delta_k)
+                                                                         MeshTopologyViewPtr meshTopo, int polyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
 
@@ -36,7 +36,7 @@ NavierStokesVGPFormulation NavierStokesVGPFormulation::steadyFormulation(int spa
 }
 
 NavierStokesVGPFormulation NavierStokesVGPFormulation::spaceTimeFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                            MeshTopologyPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k)
+                                                                            MeshTopologyViewPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
 
@@ -65,7 +65,7 @@ NavierStokesVGPFormulation NavierStokesVGPFormulation::spaceTimeFormulation(int 
 }
 
 NavierStokesVGPFormulation NavierStokesVGPFormulation::steadyConservationFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                         MeshTopologyPtr meshTopo, int polyOrder, int delta_k)
+                                                                         MeshTopologyViewPtr meshTopo, int polyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
 
@@ -83,7 +83,7 @@ NavierStokesVGPFormulation NavierStokesVGPFormulation::steadyConservationFormula
 }
 
 NavierStokesVGPFormulation NavierStokesVGPFormulation::spaceTimeConservationFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                            MeshTopologyPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k)
+                                                                            MeshTopologyViewPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k)
 {
   Teuchos::ParameterList parameters;
 
@@ -113,7 +113,7 @@ NavierStokesVGPFormulation NavierStokesVGPFormulation::spaceTimeConservationForm
 
 
 NavierStokesVGPFormulation NavierStokesVGPFormulation::timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                                               MeshTopologyPtr meshTopo, int polyOrder, int delta_k,
+                                                                               MeshTopologyViewPtr meshTopo, int polyOrder, int delta_k,
                                                                                double dt, TimeStepType timeStepType)
 {
   Teuchos::ParameterList parameters;
@@ -133,7 +133,7 @@ NavierStokesVGPFormulation NavierStokesVGPFormulation::timeSteppingFormulation(i
   return NavierStokesVGPFormulation(meshTopo, parameters);
 }
 
-NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyPtr meshTopo, Teuchos::ParameterList &parameters)
+NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshTopo, Teuchos::ParameterList &parameters)
 {
   _ctorParameters = parameters;
 

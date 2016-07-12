@@ -55,13 +55,13 @@ class NavierStokesVGPFormulation
 
   int _nonlinearIterationCount; // starts at 0, increases for each iterate
 
-//  void initialize(MeshTopologyPtr meshTopology, std::string filePrefix,
+//  void initialize(MeshTopologyViewPtr meshTopology, std::string filePrefix,
 //                  int spaceDim, double Re, int fieldPolyOrder, int delta_k,
 //                  TFunctionPtr<double> forcingFunction, bool transientFormulation, bool useConformingTraces);
 
   void refine(RefinementStrategyPtr refStrategy);
 public:
-//  NavierStokesVGPFormulation(MeshTopologyPtr meshTopology, double Re,
+//  NavierStokesVGPFormulation(MeshTopologyViewPtr meshTopology, double Re,
 //                             int fieldPolyOrder,
 //                             int delta_k = 1,
 //                             TFunctionPtr<double> forcingFunction = Teuchos::null,
@@ -74,7 +74,7 @@ public:
 //                             bool transientFormulation = false,
 //                             bool useConformingTraces = false);
 
-  NavierStokesVGPFormulation(MeshTopologyPtr meshTopology, Teuchos::ParameterList &parameters);
+  NavierStokesVGPFormulation(MeshTopologyViewPtr meshTopology, Teuchos::ParameterList &parameters);
 
   // ! sets an x-velocity boundary condition
   void addXVelocityCondition(SpatialFilterPtr region, TFunctionPtr<double> value);
@@ -220,15 +220,15 @@ public:
   // static utility functions:
 
   static NavierStokesVGPFormulation steadyFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                      MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
+                                                      MeshTopologyViewPtr meshTopo, int polyOrder, int delta_k);
   static NavierStokesVGPFormulation spaceTimeFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                         MeshTopologyPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k);
+                                                         MeshTopologyViewPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k);
   static NavierStokesVGPFormulation steadyConservationFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                      MeshTopologyPtr meshTopo, int polyOrder, int delta_k);
+                                                      MeshTopologyViewPtr meshTopo, int polyOrder, int delta_k);
   static NavierStokesVGPFormulation spaceTimeConservationFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                         MeshTopologyPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k);
+                                                         MeshTopologyViewPtr meshTopo, int spatialPolyOrder, int temporalPolyOrder, int delta_k);
   static NavierStokesVGPFormulation timeSteppingFormulation(int spaceDim, double Re, bool useConformingTraces,
-                                                            MeshTopologyPtr meshTopo, int polyOrder, int delta_k,
+                                                            MeshTopologyViewPtr meshTopo, int polyOrder, int delta_k,
                                                             double dt, TimeStepType timeStepType = BACKWARD_EULER);
 
   // ! returns the convective term (u dot grad u) corresponding to the provided velocity function
