@@ -227,12 +227,12 @@ public:
 
     solver.SetAztecOption(AZ_conv, AZ_rhs); // convergence is relative to the RHS
     
-    cout << "***Experiment: using one-norm of residual instead of two-norm for stopping criterion.***\n";
-    // I think we really want _tol * _tol (the status test really should take sqrt of one-norm), but doing _tol for now...
-    _statusTest = Teuchos::rcp( new AztecOO_StatusTestResNorm(*_stiffnessMatrix.get(), *(*_lhs.get())(0), *(*_rhs.get())(0), _tol));
-    solver.SetStatusTest(_statusTest.get());
-    _statusTest->DefineResForm(AztecOO_StatusTestResNorm::Explicit, AztecOO_StatusTestResNorm::OneNorm);
-    _statusTest->DefineScaleForm(AztecOO_StatusTestResNorm::NormOfRHS, AztecOO_StatusTestResNorm::OneNorm);
+//    cout << "***Experiment: using one-norm of residual instead of two-norm for stopping criterion.***\n";
+//    // I think we really want _tol * _tol (the status test really should take sqrt of one-norm), but doing _tol for now...
+//    _statusTest = Teuchos::rcp( new AztecOO_StatusTestResNorm(*_stiffnessMatrix.get(), *(*_lhs.get())(0), *(*_rhs.get())(0), _tol));
+//    solver.SetStatusTest(_statusTest.get());
+//    _statusTest->DefineResForm(AztecOO_StatusTestResNorm::Explicit, AztecOO_StatusTestResNorm::OneNorm);
+//    _statusTest->DefineScaleForm(AztecOO_StatusTestResNorm::NormOfRHS, AztecOO_StatusTestResNorm::OneNorm);
     
     Teuchos::RCP<Epetra_CrsMatrix> A = this->_stiffnessMatrix;
 
@@ -397,7 +397,7 @@ enum RunManyPreconditionerChoices
 };
 
 Teuchos::RCP<GMGSolver> initializeGMGSolver(SolutionPtr solution, int AztecOutputLevel, GMGOperator::SmootherChoice smootherType,
-                                            int schwarzOverlap, GMGOperator::FactorType schwarzBlockFactorization, int schwarzLevelOfFill, double schwarzFillRatio,
+                                            int schwarzOverlap, int dimensionForSchwarzNeighbors, GMGOperator::FactorType schwarzBlockFactorization, int schwarzLevelOfFill, double schwarzFillRatio,
                                             bool useStaticCondensation, bool hOnly, bool useHierarchicalNeighborsForSchwarz,
                                             MeshPtr coarseMesh,
                                             Solver::SolverChoice coarseSolverChoice, int cgMaxIterations, double cgTol,
@@ -462,6 +462,10 @@ Teuchos::RCP<GMGSolver> initializeGMGSolver(SolutionPtr solution, int AztecOutpu
   }
   else
     gmgSolver->gmgOperator()->setUseSchwarzScalingWeight(true);
+  if (dimensionForSchwarzNeighbors != -1)
+  {
+    gmgSolver->gmgOperator()->setDimensionForSchwarzNeighborRelationship(dimensionForSchwarzNeighbors);
+  }
   
   gmgSolver->gmgOperator()->setUseSchwarzDiagonalWeight(useWeightMatrixForSchwarz);
   
@@ -469,7 +473,7 @@ Teuchos::RCP<GMGSolver> initializeGMGSolver(SolutionPtr solution, int AztecOutpu
   
   if (saveVisualizationOutput)
   {
-    Teuchos::RCP<HDF5Exporter> exporter = Teuchos::rcp(new HDF5Exporter(solution->mesh(), "./", "preconditionerError") );
+    Teuchos::RCP<HDF5Exporter> exporter = Teuchos::rcp(new HDF5Exporter(solution->mesh(), "preconditionerError", "./") );
     gmgSolver->gmgOperator()->setFunctionExporter(exporter, errToPlot, errFunctionName);
   }
   
@@ -543,6 +547,13 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     if (conformingTraces && enhanceFieldsForH1TracesWhenConforming)
     {
       trialOrderEnhancements[formulation.phi()->ID()] = 1;
+    }
+    
+    if (saveVisualizationOutput)
+    {
+      // we don't have an exact solution, so let's just plot phi instead...
+      varExact = formulation.phi();
+      exactSolution = Function::zero();
     }
   }
   else if (problemChoice == ConvectionDiffusion)
@@ -960,12 +971,8 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     }
     
     MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology({2.0,2.0}, {rootMeshNumCells, rootMeshNumCells}, {-0.5,0.0});
-    MeshTopologyPtr coarseMeshTopo;
-    if (hOnly)
-    {
-      coarseMeshTopo = MeshFactory::rectilinearMeshTopology({2.0,2.0}, {rootMeshNumCells, rootMeshNumCells}, {-0.5,0.0});
-    }
-    else
+    MeshTopologyViewPtr coarseMeshTopo;
+    if (!hOnly)
     {
       coarseMeshTopo = meshTopo;
     }
@@ -974,20 +981,22 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     {
       vector<IndexType> activeCellIDs = meshTopo->getActiveCellIndicesGlobal(); // should match between coarseMesh and mesh
       IndexType nextCellIndexFine = meshTopo->cellCount();
-      IndexType nextCellIndexCoarse = coarseMeshTopo->cellCount();
       for (IndexType cellIndex : activeCellIDs)
       {
         CellTopoPtr cellTopo = meshTopo->getCell(cellIndex)->topology();
         RefinementPatternPtr refPattern = RefinementPattern::regularRefinementPattern(cellTopo);
         meshTopo->refineCell(cellIndex, refPattern, nextCellIndexFine);
         nextCellIndexFine += refPattern->numChildren();
-        if (hOnly && (meshWidthCells * 2 < numCells))
-        {
-          coarseMeshTopo->refineCell(cellIndex, refPattern, nextCellIndexCoarse); // coarseMesh gets 1 less h-refinement
-          nextCellIndexCoarse += refPattern->numChildren();
-        }
       }
       meshWidthCells *= 2;
+      
+      if (hOnly && (meshWidthCells == numCells))
+      {
+        // final iteration for h-multigrid: coarseMesh should be the parents of the most recently refined guys
+        set<IndexType> cellsForCoarseMesh;
+        cellsForCoarseMesh.insert(activeCellIDs.begin(),activeCellIDs.end());
+        coarseMeshTopo = meshTopo->getView(cellsForCoarseMesh);
+      }
     }
     
     // set up classical Kovasznay flow solution:
@@ -1078,7 +1087,6 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
   mesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order, delta_k, x0, trialOrderEnhancements);
   
   int H1Order_coarse = k_coarse + 1;
-  if (hOnly) coarseMesh = MeshFactory::rectilinearMesh(bf, dimensions, elementCounts, H1Order_coarse, delta_k, x0, trialOrderEnhancements);
 
   // now that we have mesh, add pressure constraint for Stokes (imposing zero at origin--want to aim for center of mesh)
   if (problemChoice == Stokes)
@@ -1105,8 +1113,15 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
     set<IndexType> activeCellIDs = mesh->getActiveCellIDsGlobal(); // should match between coarseMesh and mesh
     mesh->hRefine(activeCellIDs);
     meshWidthCells *= 2;
-    if (hOnly && (meshWidthCells < numCells))
-      coarseMesh->hRefine(activeCellIDs); // coarseMesh gets 1 less h-refinement
+    
+    if (hOnly && (meshWidthCells == numCells))
+    {
+      // final iteration for h-multigrid: coarseMesh should be the parents of the most recently refined guys
+      set<IndexType> cellsForCoarseMesh;
+      cellsForCoarseMesh.insert(activeCellIDs.begin(),activeCellIDs.end());
+      MeshTopologyViewPtr coarseMeshTopo = mesh->getTopology()->getView(cellsForCoarseMesh);
+      coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, mesh->bilinearForm(), H1Order_coarse, delta_k) ) ;
+    }
   }
 
   if (meshWidthCells != numCells)
@@ -1120,7 +1135,12 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
 
   // coarse and fine mesh share a MeshTopology.  This means that they should not be further refined (they won't be, here)
   if (!hOnly)
-    coarseMesh = Teuchos::rcp(new Mesh(mesh->getTopology(), bf, H1Order_coarse, delta_k, trialOrderEnhancements));
+  {
+    // ensure that coarse and fine mesh share a common partitioning
+    MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicy(mesh);
+    coarseMesh = Teuchos::rcp(new Mesh(mesh->getTopology(), bf, H1Order_coarse, delta_k, trialOrderEnhancements,
+                                       map<int,int>(), inducedPartitionPolicy));
+  }
   
   if (graphNorm == Teuchos::null) // if set previously, honor that...
     graphNorm = bf->graphNorm();
@@ -1129,7 +1149,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
   solution->setUseCondensedSolve(useStaticCondensation);
   solution->setZMCsAsGlobalLagrange(false); // fine grid solution shouldn't impose ZMCs (should be handled in coarse grid solve)
   
-  if (saveVisualizationOutput)
+  if ((saveVisualizationOutput) && (varExact != Teuchos::null))
   {
     FunctionPtr var_soln = Function::solution(varExact, solution);
     // exact increment is (u1 - u1_background)
@@ -1149,7 +1169,7 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
 
 void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int numCells, int k, int delta_k, int k_coarse, bool conformingTraces,
          bool useStaticCondensation, bool precondition, bool schwarzOnly, GMGOperator::SmootherChoice smootherType,
-         int schwarzOverlap, GMGOperator::FactorType schwarzBlockFactorization, int schwarzLevelOfFill, double schwarzFillRatio,
+         int schwarzOverlap, int dimensionForSchwarzNeighbors, GMGOperator::FactorType schwarzBlockFactorization, int schwarzLevelOfFill, double schwarzFillRatio,
          Solver::SolverChoice coarseSolverChoice, double cgTol, int cgMaxIterations, int AztecOutputLevel,
          bool reportTimings, double &solveTime, double &error, bool reportEnergyError, int numCellsRootMesh,
          bool hOnly, bool useHierarchicalNeighborsForSchwarz, bool useZeroMeanConstraints,
@@ -1301,7 +1321,7 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
   else
   {
     solver = initializeGMGSolver(solution, AztecOutputLevel, smootherType,
-                                 schwarzOverlap, schwarzBlockFactorization, schwarzLevelOfFill, schwarzFillRatio,
+                                 schwarzOverlap, dimensionForSchwarzNeighbors, schwarzBlockFactorization, schwarzLevelOfFill, schwarzFillRatio,
                                  useStaticCondensation, hOnly, useHierarchicalNeighborsForSchwarz, k0Mesh, coarseSolverChoice,
                                  cgMaxIterations, cgTol, comboType,
                                  smootherWeight, useWeightMatrixForSchwarz);
@@ -1501,7 +1521,18 @@ void run(ProblemChoice problemChoice, int &iterationCount, int spaceDim, int num
       return;
     }
   }
-
+  
+  if (saveVisualizationOutput)
+  {
+    static int exportOrdinal = 0;
+    ostringstream exporterName;
+    exporterName << "preconditionerSolution_" << exportOrdinal++;
+    
+    Teuchos::RCP<HDF5Exporter> exporter = Teuchos::rcp(new HDF5Exporter(solution->mesh(), exporterName.str(), "./") );
+    exporter->exportSolution(solution);
+    
+  }
+  
 //  if (rank==0) cout << "NOTE: Exported solution for debugging.\n";
 //  HDF5Exporter::exportSolution("/tmp/", "testSolution", solution);
 //
@@ -1517,7 +1548,8 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
              GMGOperator::FactorType schwarzBlockFactorization, int schwarzLevelOfFill, double schwarzFillRatio,
              Solver::SolverChoice coarseSolverChoice,
              double cgTol, int cgMaxIterations, int aztecOutputLevel, RunManyPreconditionerChoices preconditionerChoices,
-             int k, int k_coarse, int overlapLevel, int numCellsRootMesh, bool reportTimings, bool hOnly, bool useHierarchicalNeighborsForSchwarz,
+             int k, int k_coarse, int overlapLevel, int dimensionForSchwarzNeighbors, int numCellsRootMesh, bool reportTimings,
+             bool hOnly, bool useHierarchicalNeighborsForSchwarz,
              int maxCells, bool useZeroMeanConstraints, GMGOperator::SmootherApplicationType comboType, double smootherWeight,
              bool useWeightMatrixForSchwarz, bool enhanceFieldsForH1TracesWhenConforming, double graphNormBeta)
 {
@@ -1786,7 +1818,7 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
               double solveTime, error;
               bool writeAndExit = false; // not supported for runMany (since it always writes to the same disk location)
               run(problemChoice, iterationCount, spaceDim, numCells1D, k, delta_k, k_coarse, conformingTraces,
-                  useStaticCondensation, precondition, schwarzOnly, smoother, overlapValue,
+                  useStaticCondensation, precondition, schwarzOnly, smoother, overlapValue, dimensionForSchwarzNeighbors,
                   schwarzBlockFactorization, schwarzLevelOfFill, schwarzFillRatio, coarseSolverChoice,
                   cgTol, cgMaxIterations, aztecOutputLevel, reportTimings, solveTime, error,
                   reportEnergyError, numCellsRootMesh, hOnly, useHierarchicalNeighborsForSchwarz, useZeroMeanConstraints, writeAndExit, comboType,
@@ -1832,6 +1864,10 @@ void runMany(ProblemChoice problemChoice, int spaceDim, int delta_k, int minCell
     if (overlapLevel != -1)
     {
       filename << "_overlap" << overlapLevel;
+    }
+    if (dimensionForSchwarzNeighbors != -1)
+    {
+      filename << "_schwarzNeighborDim" << dimensionForSchwarzNeighbors;
     }
     if (k != -1)
     {
@@ -1935,6 +1971,8 @@ int main(int argc, char *argv[])
 
   bool reportTimings = false;
   
+  int dimensionForSchwarzNeighbors = -1;
+  
   bool enhanceFieldsForH1TracesWhenConforming = false; // new 10-27-15
 
   bool hOnly = false;
@@ -1973,6 +2011,7 @@ int main(int argc, char *argv[])
 
   cmdp.setOption("combineAdditive", "combineMultiplicative", &additiveComboType);
   cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
+  cmdp.setOption("dimensionForSchwarzNeighbors", &dimensionForSchwarzNeighbors, "dimension to use for Schwarz neighbor relationship (only supported for geometric Schwarz; default of -1 means to use spaceDim-1 (face neighbors).");
   cmdp.setOption("graphNormBeta", &graphNormBeta);
 
   cmdp.setOption("useSchwarzPreconditioner", "useGMGPreconditioner", &schwarzOnly);
@@ -2193,7 +2232,7 @@ int main(int argc, char *argv[])
     double solveTime, error;
 
     run(problemChoice, iterationCount, spaceDim, numCells, k, delta_k, k_coarse, conformingTraces,
-        useCondensedSolve, precondition, schwarzOnly, smootherChoice, schwarzOverlap,
+        useCondensedSolve, precondition, schwarzOnly, smootherChoice, schwarzOverlap, dimensionForSchwarzNeighbors,
         schwarzFactorType, levelOfFill, fillRatio, coarseSolverChoice,
         cgTol, cgMaxIterations, AztecOutputLevel, reportTimings, solveTime, error,
         reportEnergyError, numCellsRootMesh, hOnly, useHierarchicalNeighborsForSchwarz,
@@ -2237,7 +2276,7 @@ int main(int argc, char *argv[])
             schwarzFactorType, levelOfFill, fillRatio,
             coarseSolverChoice,
             cgTol, cgMaxIterations, AztecOutputLevel,
-            runManySubsetChoice, k, k_coarse, schwarzOverlap, numCellsRootMesh, reportTimings,
+            runManySubsetChoice, k, k_coarse, schwarzOverlap, dimensionForSchwarzNeighbors, numCellsRootMesh, reportTimings,
             hOnly, useHierarchicalNeighborsForSchwarz, maxCells,
             useZeroMeanConstraints, comboType, smootherWeight, useWeightMatrixForSchwarz, enhanceFieldsForH1TracesWhenConforming,
             graphNormBeta);
