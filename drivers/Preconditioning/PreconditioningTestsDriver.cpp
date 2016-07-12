@@ -1120,7 +1120,8 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, MeshPtr &coarseMesh,
       set<IndexType> cellsForCoarseMesh;
       cellsForCoarseMesh.insert(activeCellIDs.begin(),activeCellIDs.end());
       MeshTopologyViewPtr coarseMeshTopo = mesh->getTopology()->getView(cellsForCoarseMesh);
-      coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, mesh->bilinearForm(), H1Order_coarse, delta_k) ) ;
+      MeshPartitionPolicyPtr inducedPartitionPolicy = MeshPartitionPolicy::inducedPartitionPolicyFromRefinedMesh(coarseMeshTopo, mesh);
+      coarseMesh = Teuchos::rcp( new Mesh(coarseMeshTopo, mesh->bilinearForm(), H1Order_coarse, delta_k, map<int,int>(), map<int,int>(), inducedPartitionPolicy) ) ;
     }
   }
 
