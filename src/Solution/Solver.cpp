@@ -53,10 +53,31 @@ TSolverPtr<Scalar> TSolver<Scalar>::getSolver(SolverChoice choice, bool saveFact
   {
     Teuchos::ParameterList pl;
     pl.set("kCoarse", 0);
-    pl.set("delta_k", 1); // this should not really matter in this context
+    int delta_k = fineSolution->mesh()->testSpaceEnrichment(); // might matter in cases where GMGOperator actually computes some local stiffness matrices on its own (currently, this can happen on coarse meshes when static condensation is employed).
+    pl.set("delta_k", delta_k);
     pl.set("jumpToCoarsePolyOrder", false);
     vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(fineSolution->mesh(), pl);
-    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(fineSolution, meshesCoarseToFine, maxIterations, residualTolerance, GMGOperator::V_CYCLE,
+    
+    vector<MeshPtr> prunedMeshes;
+    int minDofCount = 2000; // skip any coarse meshes that have fewer dofs than this
+    for (int i=0; i<meshesCoarseToFine.size()-2; i++) // leave the last two meshes, so we can guarantee there are at least two
+    {
+      MeshPtr mesh = meshesCoarseToFine[i];
+      GlobalIndexType numGlobalDofs;
+      if (fineSolution->usesCondensedSolve())
+        numGlobalDofs = mesh->numFluxDofs(); // this might under-count, in case e.g. of pressure constraints.  But it's meant as a heuristic anyway.
+      else
+        numGlobalDofs = mesh->numGlobalDofs();
+      
+      if (numGlobalDofs > minDofCount)
+      {
+        prunedMeshes.push_back(mesh);
+      }
+    }
+    prunedMeshes.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-2]);
+    prunedMeshes.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
+    
+    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(fineSolution, prunedMeshes, maxIterations, residualTolerance, GMGOperator::V_CYCLE,
                                                                    coarseSolver, fineSolution->usesCondensedSolve(), false));
     
     gmgSolver->setAztecOutput(0);
