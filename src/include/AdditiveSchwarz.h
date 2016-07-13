@@ -726,12 +726,13 @@ int AdditiveSchwarz<T>::Compute()
     int err = Inverse->Compute();
     if (err != 0)
     {
-      Teuchos::RCP<LocalFilter> localizedMatrix = _LocalizedMatrices[i];
-      ostringstream matrixLocation;
-      matrixLocation << Teuchos::GlobalMPISession::getRank() << "." << i << ".dat";
-      EpetraExt::RowMatrixToMatrixMarketFile(matrixLocation.str().c_str(),*localizedMatrix, NULL, NULL, false); // false: don't write header
-      cout << "AdditiveSchwarz: inverse computation returned error on rank " << Teuchos::GlobalMPISession::getRank() << ", local matrix number " << i;
-      cout << "; wrote matrix to " << matrixLocation.str() << endl;
+//      Teuchos::RCP<LocalFilter> localizedMatrix = _LocalizedMatrices[i];
+//      ostringstream matrixLocation;
+//      matrixLocation << Teuchos::GlobalMPISession::getRank() << "." << i << ".dat";
+//      EpetraExt::RowMatrixToMatrixMarketFile(matrixLocation.str().c_str(),*localizedMatrix, NULL, NULL, false); // false: don't write header
+//      cout << "AdditiveSchwarz: inverse computation returned error on rank " << Teuchos::GlobalMPISession::getRank() << ", local matrix number " << i;
+//      cout << "; wrote matrix to " << matrixLocation.str() << endl;
+      cout << "AdditiveSchwarz: inverse computation returned error on rank " << Teuchos::GlobalMPISession::getRank() << ", local matrix number " << i << endl;
     }
     IFPACK_CHK_ERR(err);
     inverseLabel = Inverse->Label();
