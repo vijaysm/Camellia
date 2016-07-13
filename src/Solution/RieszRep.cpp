@@ -88,21 +88,20 @@ void TRieszRep<Scalar>::computeRieszRep(int cubatureEnrichment)
       cout << "matrix: \n" << ipMatrix;
     }
 
-    FieldContainer<Scalar> rieszRepDofs(numTestDofs,1);
+    // TODO: replace this with something that uses Cholesky (see BF::factoredCholeskySolve())
+    rhsValues.resize(numTestDofs,1);
+    FieldContainer<Scalar> rieszRepDofs = rhsValues; // copy so we can do the dot product below after solving
     ipMatrix.resize(numTestDofs,numTestDofs);
     rhsValues.resize(numTestDofs,1);
-    int success = SerialDenseWrapper::solveSystemUsingQR(rieszRepDofs, ipMatrix, rhsValues);
+    int success = SerialDenseWrapper::solveSPDSystemLAPACKCholesky(rieszRepDofs, ipMatrix);// solveSystemUsingQR(rieszRepDofs, ipMatrix, rhsValues);
 
     if (success != 0)
     {
       cout << "TRieszRep<Scalar>::computeRieszRep: Solve FAILED with error: " << success << endl;
     }
 
-//    rieszRepDofs.Multiply(true,rhsVectorCopy, normSq); // equivalent to e^T * R_V * e
     double normSquared = SerialDenseWrapper::dot(rieszRepDofs, rhsValues);
     _rieszRepNormSquared[cellID] = normSquared;
-
-//    cout << "normSquared for cell " << cellID << ": " << _rieszRepNormSquared[cellID] << endl;
 
     if (printOutRiesz)
     {

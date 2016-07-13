@@ -2509,50 +2509,31 @@ void TSolution<Scalar>::computeErrorRepresentation()
   {
     computeResiduals();
   }
-  set<GlobalIndexType> rankLocalCells = _mesh->cellIDsInPartition();
-  for (set<GlobalIndexType>::iterator cellIDIt = rankLocalCells.begin(); cellIDIt != rankLocalCells.end(); cellIDIt++)
+  const set<GlobalIndexType>* rankLocalCells = &_mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : *rankLocalCells)
   {
-    GlobalIndexType cellID = *cellIDIt;
-
     BasisCachePtr ipBasisCache = BasisCache::basisCacheForCell(_mesh, cellID, true);
-
     ElementTypePtr elemTypePtr = _mesh->getElementType(cellID);
 
     Teuchos::RCP<DofOrdering> testOrdering = elemTypePtr->testOrderPtr;
-    CellTopoPtr cellTopo = elemTypePtr->cellTopoPtr;
 
-    int numCells = 1;
     int numTestDofs = testOrdering->totalDofs();
-
-    Intrepid::FieldContainer<double> representationMatrix(numTestDofs, 1);
-    Intrepid::FieldContainer<double> errorRepresentation(numCells,numTestDofs);
 
     Intrepid::FieldContainer<Scalar> ipMatrix(1,numTestDofs,numTestDofs);
     _ip->computeInnerProductMatrix(ipMatrix,testOrdering, ipBasisCache);
-    Intrepid::FieldContainer<Scalar> rhsMatrix = _residualForCell[cellID];
-    // transpose residual :
-    rhsMatrix.resize(numTestDofs, 1);
+    Intrepid::FieldContainer<double> errorRepresentation = _residualForCell[cellID];
+    errorRepresentation.resize(numTestDofs, 1);
 
     // strip cell dimension:
     ipMatrix.resize(ipMatrix.dimension(1),ipMatrix.dimension(2));
 
-    {
-      // DEBUGGING
-//      cout << "\nIn computeErrorRepresentation, ipMatrix 2-norm condition number: " << SerialDenseWrapper::getMatrixConditionNumber2Norm(ipMatrix);
+    int result = SerialDenseWrapper::solveSPDSystemLAPACKCholesky(errorRepresentation, ipMatrix);
 
-//      cout << "In computeErrorRepresentation, ipMatrix:\n" << ipMatrix;
-//      cout << "In computeErrorRepresentation, rhsMatrix:\n" << rhsMatrix;
-    }
-
-    int result = SerialDenseWrapper::solveSystemUsingQR(representationMatrix, ipMatrix, rhsMatrix);
     if (result != 0)
     {
       cout << "WARNING: computeErrorRepresentation: call to solveSystemUsingQR failed with error code " << result << endl;
     }
-    for (int i=0; i<numTestDofs; i++)
-    {
-      errorRepresentation(0,i) = representationMatrix(i,0);
-    }
+    errorRepresentation.resize(1,numTestDofs);
     _errorRepresentationForCell[cellID] = errorRepresentation;
   }
 }
