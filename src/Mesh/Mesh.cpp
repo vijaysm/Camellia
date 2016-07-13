@@ -81,6 +81,7 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, vector<in
            MeshPartitionPolicyPtr partitionPolicy, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
 {
   _meshTopology = meshTopology;
+  _pToAddToTest = pToAddTest;
 
   DofOrderingFactoryPtr dofOrderingFactoryPtr = Teuchos::rcp( new DofOrderingFactory(varFactory, trialOrderEnhancements,testOrderEnhancements) );
   _enforceMBFluxContinuity = false;
@@ -101,8 +102,8 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, VarFactoryPtr varFactory, int H1Ord
            map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements,
            MeshPartitionPolicyPtr partitionPolicy, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
 {
-
   _meshTopology = meshTopology;
+  _pToAddToTest = pToAddTest;
 
   DofOrderingFactoryPtr dofOrderingFactoryPtr = Teuchos::rcp( new DofOrderingFactory(varFactory, trialOrderEnhancements,testOrderEnhancements) );
   _enforceMBFluxContinuity = false;
@@ -123,8 +124,8 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, vector
            map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements,
            MeshPartitionPolicyPtr partitionPolicy, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
 {
-
   _meshTopology = meshTopology;
+  _pToAddToTest = pToAddTest;
 
   DofOrderingFactoryPtr dofOrderingFactoryPtr = Teuchos::rcp( new DofOrderingFactory(bilinearForm, trialOrderEnhancements,testOrderEnhancements) );
   _enforceMBFluxContinuity = false;
@@ -147,8 +148,8 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, TBFPtr<double> bilinearForm, int H1
            map<int,int> trialOrderEnhancements, map<int,int> testOrderEnhancements,
            MeshPartitionPolicyPtr partitionPolicy, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
 {
-
   _meshTopology = meshTopology;
+  _pToAddToTest = pToAddTest;
 
   DofOrderingFactoryPtr dofOrderingFactoryPtr = Teuchos::rcp( new DofOrderingFactory(bilinearForm, trialOrderEnhancements,testOrderEnhancements) );
   _enforceMBFluxContinuity = false;
@@ -174,9 +175,9 @@ Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<IndexType> > 
 {
 
 //  cout << "in legacy mesh constructor, periodicBCs size is " << periodicBCs.size() << endl;
-
   MeshGeometryPtr meshGeometry = Teuchos::rcp( new MeshGeometry(vertices, elementVertices) );
   _meshTopology = Teuchos::rcp( new MeshTopology(meshGeometry, periodicBCs) );
+  _pToAddToTest = pToAddTest;
 
   DofOrderingFactoryPtr dofOrderingFactoryPtr = Teuchos::rcp( new DofOrderingFactory(bilinearForm, trialOrderEnhancements,testOrderEnhancements) );
   _enforceMBFluxContinuity = false;
@@ -219,8 +220,6 @@ Mesh::Mesh(const vector<vector<double> > &vertices, vector< vector<IndexType> > 
   }
 
   _boundary.setMesh(Teuchos::rcp(this,false));
-
-  _pToAddToTest = pToAddTest;
 }
 
 // private constructor for use by deepCopy()
@@ -229,6 +228,7 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, Teuchos::RCP<GlobalDofAssignment> g
 : DofInterpreter(Teuchos::rcp(this,false))
 {
   _meshTopology = meshTopology;
+  _pToAddToTest = pToAddToTest;
   _gda = gda;
   _varFactory = varFactory;
   _pToAddToTest = pToAddToTest;
@@ -244,6 +244,7 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, Teuchos::RCP<GlobalDofAssignment> g
            int pToAddToTest, bool useConformingTraces, bool usePatchBasis, bool enforceMBFluxContinuity) : DofInterpreter(Teuchos::rcp(this,false))
 {
   _meshTopology = meshTopology;
+  _pToAddToTest = pToAddToTest;
   _gda = gda;
   _bilinearForm = bf;
   _varFactory = bf->varFactory();
@@ -258,6 +259,7 @@ Mesh::Mesh(MeshTopologyViewPtr meshTopology, Teuchos::RCP<GlobalDofAssignment> g
 // ! Constructor for a single-element mesh extracted from an existing mesh
 Mesh::Mesh(MeshPtr mesh, GlobalIndexType cellID, Epetra_CommPtr Comm) : DofInterpreter(Teuchos::rcp(this,false))
 {
+  _pToAddToTest = mesh->testSpaceEnrichment();
   int meshDim = mesh->getTopology()->getDimension();
   Teuchos::RCP<MeshTopology> meshTopo = Teuchos::rcp( new MeshTopology(meshDim));
   _meshTopology = meshTopo;
@@ -1277,6 +1279,11 @@ void Mesh::repartitionAndRebuild()
       (*observerIt)->didRepartition(writableMeshTopology);
     }
   }
+}
+
+int Mesh::testSpaceEnrichment() const
+{
+  return _pToAddToTest;
 }
 
 void Mesh::unregisterObserver(RefinementObserver* observer)

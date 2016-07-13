@@ -316,6 +316,9 @@ public:
   //! returns the irregularity of the mesh, defined as the maximum depth of refinement hierarchy for an edge belonging to an active cell.  MPI collective method.
   int irregularity();
 
+  //! the "delta p" for DPG test space enrichment.
+  int testSpaceEnrichment() const;
+  
   template <typename Scalar>
   void registerSolution(TSolutionPtr<Scalar> solution);
 
