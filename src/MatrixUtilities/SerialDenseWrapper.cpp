@@ -853,6 +853,34 @@ namespace Camellia {
     return 0;
   }
 
+  int SerialDenseWrapper::solveSPDSystemLAPACKCholesky(Intrepid::FieldContainer<double> &bx, Intrepid::FieldContainer<double> &A_SPD)
+  {
+    int N = A_SPD.dimension(0);
+    TEUCHOS_TEST_FOR_EXCEPTION(N != A_SPD.dimension(1), std::invalid_argument, "A must be square!");
+    
+    int M = (bx.rank() == 1) ? 1 : bx.dimension(1);
+    
+    char UPLO = 'L'; // lower-triangular
+    
+    int result = 0;
+    int INFO;
+    
+    Teuchos::LAPACK<int, double> lapack;
+    Teuchos::BLAS<int, double> blas;
+    
+    // factor
+    lapack.POTRF(UPLO, N, &A_SPD[0], N, &INFO);
+    
+    if (INFO != 0) result = INFO;
+    
+    // back-substitute
+    lapack.POTRS(UPLO, N, M, &A_SPD[0], N, &bx[0], N, &INFO);
+
+    if (INFO != 0) result = INFO;
+    
+    return result;
+  }
+  
   int SerialDenseWrapper::solveSPDSystemMultipleRHS(Intrepid::FieldContainer<double> &x, Intrepid::FieldContainer<double> &A_SPD,
                                                     Intrepid::FieldContainer<double> &b, bool allowOverwriteOfA)
   {

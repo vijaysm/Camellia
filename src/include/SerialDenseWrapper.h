@@ -77,6 +77,9 @@ namespace Camellia
                                   Intrepid::FieldContainer<double> &b, bool useATranspose = false, // would be better default to true because that involves no data movement
                                   bool allowOverwriteOfA = false);
     
+    // ! A_SPD is left as in lower-triangular factored format; bx on input is the RHS b; on output, it's the solution x = A \ b.
+    static int solveSPDSystemLAPACKCholesky(Intrepid::FieldContainer<double> &bx, Intrepid::FieldContainer<double> &A_SPD);
+    
     static int solveSPDSystemMultipleRHS(Intrepid::FieldContainer<double> &x, Intrepid::FieldContainer<double> &A_SPD,
                                          Intrepid::FieldContainer<double> &b, bool allowOverwriteOfA = false);
     
