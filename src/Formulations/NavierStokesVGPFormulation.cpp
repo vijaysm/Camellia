@@ -190,7 +190,9 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
       }
     }
   }
+  int rank = mesh->Comm()->MyPID();
   _solnIncrement->setCubatureEnrichmentDegree(maxBackgroundFlowDegree);
+  if (rank == 0) cout << "In NavierStokesVGPFormulation constructor, set solution increment's cubature enrichment degree to " << maxBackgroundFlowDegree << endl;
 
   mesh->registerSolution(_backgroundFlow); // will project background flow during refinements...
   mesh->registerSolution(_solnIncrement);
@@ -446,8 +448,11 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
   _solver = Solver::getDirectSolver();
 
   _nonlinearIterationCount = 0;
+  
+  // only create stream mesh for MeshTopology objects, not views.  Views are a bit more complicated, so not supported right now.
+  MeshTopology* meshTopoPtr = dynamic_cast<MeshTopology*>(meshTopo.get());
 
-  if ((_spaceDim==2) && !_spaceTime)
+  if ((_spaceDim==2) && !_spaceTime && (meshTopoPtr != NULL))
   {
     // finally, set up a stream function solve for 2D
     _streamFormulation = Teuchos::rcp( new PoissonFormulation(_spaceDim,_useConformingTraces) );
@@ -455,7 +460,7 @@ NavierStokesVGPFormulation::NavierStokesVGPFormulation(MeshTopologyViewPtr meshT
     MeshPtr streamMesh;
     if (filePrefix == "")
     {
-      MeshTopologyPtr streamMeshTopo = meshTopo->deepCopy();
+      MeshTopologyViewPtr streamMeshTopo = meshTopo->deepCopy();
       streamMesh = Teuchos::rcp( new Mesh(streamMeshTopo, _streamFormulation->bf(), H1Order, delta_k) ) ;
     }
     else
