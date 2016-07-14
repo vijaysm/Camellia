@@ -27,12 +27,13 @@ using namespace Camellia;
 
 GMGSolver::GMGSolver(BCPtr zeroBCs, MeshPtr coarseMesh, IPPtr coarseIP,
                      MeshPtr fineMesh, Teuchos::RCP<DofInterpreter> fineDofInterpreter, Epetra_Map finePartitionMap,
-                     int maxIters, double tol, Teuchos::RCP<Solver> coarseSolver, bool useStaticCondensation) :
+                     int maxIters, double tol, Teuchos::RCP<Solver> coarseSolver, bool useStaticCondensation, int cubatureEnrichmentDegree) :
   Narrator("GMGSolver"),
   _finePartitionMap(finePartitionMap)
 {
   _gmgOperator = Teuchos::rcp(new GMGOperator(zeroBCs,coarseMesh,coarseIP,fineMesh,fineDofInterpreter,
                                               finePartitionMap,coarseSolver, useStaticCondensation));
+  _gmgOperator->getCoarseSolution()->setCubatureEnrichmentDegree(cubatureEnrichmentDegree);
   
   _maxIters = maxIters;
   _printToConsole = false;
@@ -53,6 +54,9 @@ GMGSolver::GMGSolver(TSolutionPtr<double> fineSolution, MeshPtr coarseMesh, int 
   _gmgOperator = Teuchos::rcp(new GMGOperator(fineSolution->bc()->copyImposingZero(),coarseMesh,
                                               fineSolution->ip(), fineSolution->mesh(), fineSolution->getDofInterpreter(),
                                               _finePartitionMap, coarseSolver, useStaticCondensation));
+  int cubatureEnrichment = fineSolution->cubatureEnrichmentDegree();
+  _gmgOperator->getCoarseSolution()->setCubatureEnrichmentDegree(cubatureEnrichment);
+  
   _maxIters = maxIters;
   _printToConsole = false;
   _tol = tol;
@@ -150,6 +154,8 @@ Teuchos::RCP<GMGOperator> GMGSolver::gmgOperatorFromMeshSequence(const std::vect
   BCPtr zeroBCs = fineSolution->bc()->copyImposingZero();
   Epetra_Map finePartitionMap = fineSolution->getPartitionMap();
   
+  int cubatureEnrichmentDegree = fineSolution->cubatureEnrichmentDegree();
+  
   // for now, leaving these two parameters as the historical defaults (1 and 1)
   // it may be that iteration counts would remain more stable under refinements if we increased these
   // (but our major expense is constructing prolongation operator, so this is not likely to make a big difference in runtime)
@@ -178,6 +184,7 @@ Teuchos::RCP<GMGOperator> GMGSolver::gmgOperatorFromMeshSequence(const std::vect
     coarseOperator->setMultigridStrategy(multigridStrategy);
     bool hRefined = fineMesh->numActiveElements() > coarseMesh->numActiveElements();
     coarseOperator->setUseHierarchicalNeighborsForSchwarz(false); // changed Dec. 22 2015, after tests revealed that hiarchical truncation seems to be a uniformly bad idea...
+    coarseOperator->getCoarseSolution()->setCubatureEnrichmentDegree(cubatureEnrichmentDegree);
     
     int smootherOverlap;
     if (hRefined)
