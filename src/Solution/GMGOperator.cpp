@@ -595,7 +595,6 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
            But in fact the brute force search wouldn't likely be much/any cheaper than variablesWithNonZeroEntries() below.)
            */
           fineDofInterpreter->interpretGlobalCoefficients(fineCellID, fineCellCoefficients, *XLocal);
-//          fineDofInterpreter->interpretGlobalCoefficients(fineCellID, fineCellCoefficients, *oneElementVector);
           
 //          cout << "fineCellCoefficients:\n" << fineCellCoefficients;
           
