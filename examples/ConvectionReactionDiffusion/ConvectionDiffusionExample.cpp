@@ -160,23 +160,42 @@ int main(int argc, char *argv[])
   bool conditionNumberEstimate = false;
   bool exportVisualization = false;
   bool reportSolutionTimings = true;
-  int quadratureEnrichmentL2 = 5;
+  int quadratureEnrichment = 10;
+  int quadratureEnrichmentL2 = 50;
+  bool useDirectSolver = false;
+  bool useCondensedSolve = false;
+  bool exportMatrix = false;
+  bool refineUniformly = false;
+  int maxIterations = 2000;
+  int iterativeOutputLevel = 100;
+  double cgTol = 1e-6;
+  double weightForL2TermsGraphNorm = -1;
   
   cmdp.setOption("meshWidth", &meshWidth );
   cmdp.setOption("polyOrder", &polyOrder );
   cmdp.setOption("delta_k", &delta_k );
   cmdp.setOption("spaceDim", &spaceDim);
   cmdp.setOption("epsilon", &epsilon);
+  cmdp.setOption("exportMatrix", "dontExportMatrix", &exportMatrix);
   cmdp.setOption("beta_1", &beta_1);
   cmdp.setOption("beta_2", &beta_2);
   cmdp.setOption("useTriangles", "useQuads", &useTriangles);
+  cmdp.setOption("useDirectSolver", "useIterativeSolver", &useDirectSolver);
   cmdp.setOption("numRefinements", &numRefinements);
+  cmdp.setOption("quadratureEnrichment", &quadratureEnrichment, "quadrature enrichment for Solution");
   cmdp.setOption("quadratureEnrichmentL2", &quadratureEnrichmentL2);
   cmdp.setOption("energyThreshold", &energyThreshold);
   cmdp.setOption("formulationChoice", &formulationChoice);
+  cmdp.setOption("refineUniformly", "refineUsingErrorIndicator", &refineUniformly);
   cmdp.setOption("reportConditionNumber", "dontReportConditionNumber", &conditionNumberEstimate);
   cmdp.setOption("reportSolutionTimings", "dontReportSolutionTimings", &reportSolutionTimings);
+  cmdp.setOption("useDirect", "useIterative", &useDirectSolver);
   cmdp.setOption("useVisualization","noVisualization",&exportVisualization);
+  cmdp.setOption("useCondensedSolve", "useStandardSolve", &useCondensedSolve);
+  cmdp.setOption("iterativeOutputLevel", &iterativeOutputLevel, "How many iterations to take before reporting iterative solver progress (0 to suppress output)");
+  cmdp.setOption("iterativeTol", &cgTol);
+  cmdp.setOption("maxIterations", &maxIterations);
+  cmdp.setOption("weightForL2TermsGraphNorm", &weightForL2TermsGraphNorm, "weight to use for the L^2 terms in graph norm (ultraweak only); default value of -1 means use sqrt(epsilon)");
   
   if (cmdp.parse(argc,argv) != Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL)
   {
@@ -186,8 +205,10 @@ int main(int argc, char *argv[])
     return -1;
   }
   
-  double alpha = 0; // no reaction term
-  FunctionPtr u_exact = exactSolution(epsilon, beta_1, beta_2);
+  if (weightForL2TermsGraphNorm == -1)
+  {
+    weightForL2TermsGraphNorm = sqrt(sqrt(epsilon));
+  }
   
   ConvectionDiffusionReactionFormulation::FormulationChoice formulation;
   if (formulationChoice == "Ultraweak")
@@ -207,6 +228,19 @@ int main(int argc, char *argv[])
     TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported formulation choice!");
   }
   
+  bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
+  if (!formulationIsDPG && !refineUniformly)
+  {
+    if (rank==0) cout << "No error indicator defined yet for non-DPG formulations; using uniform refinements.\n";
+    refineUniformly = true;
+  }
+  
+  double alpha = 0; // no reaction term
+  FunctionPtr u_exact = exactSolution(epsilon, beta_1, beta_2);
+
+  ostringstream thisRunPrefix;
+  thisRunPrefix << formulationChoice << "_eps" << epsilon << "_k" << polyOrder << "_";
+  
   FunctionPtr beta = Function::constant({beta_1,beta_2});
   ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilon, alpha);
   
@@ -222,7 +256,7 @@ int main(int argc, char *argv[])
   int H1Order = -1;
   if (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK)
   {
-    ip = bf->graphNorm();
+    ip = bf->graphNorm(weightForL2TermsGraphNorm);
     H1Order = polyOrder + 1;
   }
   if (formulation == ConvectionDiffusionReactionFormulation::PRIMAL)
@@ -244,9 +278,9 @@ int main(int argc, char *argv[])
   std::function<void(int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType)> optimalTestTimingCallback;
   optimalTestTimingCallback = [&totalTimeG, &totalTimeB, &totalTimeT, &totalTimeK, &totalElementCount]
     (int numElements, double timeG, double timeB, double timeT, double timeK, ElementTypePtr elemType) {
-      cout << "BF timings: on " << numElements << " elements, computed G in " << timeG;
-      cout << " seconds, B in " << timeB << " seconds; solve for T in " << timeT;
-      cout << " seconds; compute K=B^T T in " << timeK << " seconds." << endl;
+//      cout << "BF timings: on " << numElements << " elements, computed G in " << timeG;
+//      cout << " seconds, B in " << timeB << " seconds; solve for T in " << timeT;
+//      cout << " seconds; compute K=B^T T in " << timeK << " seconds." << endl;
       totalElementCount += numElements;
       totalTimeG += timeG;
       totalTimeB += timeB;
@@ -259,7 +293,6 @@ int main(int argc, char *argv[])
   int totalRHSElements = 0;
   rhsTimingCallback = [&totalTimeRHS, &totalRHSElements]
   (int numElements, double timeRHS, ElementTypePtr elemType) {
-    cout << "RHS timings: on " << numElements << " elements, computed RHS in " << timeRHS << " seconds.\n";
     totalTimeRHS += timeRHS;
     totalRHSElements += numElements;
   };
@@ -302,10 +335,60 @@ int main(int argc, char *argv[])
 //  bc->addDirichlet(form.u_dirichlet(), OUTFLOW_TAG_ID, Function::zero()); // u_exact should actually be zero on the whole boundary
   
   SolutionPtr solution = Solution::solution(bf, mesh, bc, rhs, ip);
-  
-  bool useCondensedSolve = false;
   solution->setUseCondensedSolve(useCondensedSolve);
-  solution->solve();
+  solution->setCubatureEnrichmentDegree(quadratureEnrichment);
+  
+  // Solution for L^2 projections:
+  SolutionPtr bestSolution = Solution::solution(bf, mesh, bc, rhs, ip);
+  bestSolution->setCubatureEnrichmentDegree(quadratureEnrichment);
+  map<int,FunctionPtr> exactSolutionMap = {{form.u()->ID(), u_exact}};
+  bestSolution->projectOntoMesh(exactSolutionMap);
+  FunctionPtr u_best = Function::solution(form.u(), bestSolution);
+  
+  int refinementNumber = 0;
+  ostringstream matrixFileName;
+  matrixFileName << thisRunPrefix.str() << "ref" << refinementNumber << ".dat";
+  
+  if (exportMatrix)
+  {
+    solution->setWriteMatrixToFile(true, matrixFileName.str());
+  }
+  
+  auto getGMGSolver = [&solution, &formulationIsDPG, &delta_k, &useCondensedSolve, &maxIterations, &cgTol, &iterativeOutputLevel] () -> Teuchos::RCP<GMGSolver>
+  {
+    vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(solution->mesh(), 1, delta_k);
+
+    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, maxIterations, cgTol,
+                                                                   GMGOperator::MultigridStrategy::V_CYCLE,
+                                                                   Solver::getDirectSolver(),
+                                                                   useCondensedSolve));
+
+    if (!formulationIsDPG)
+    {
+      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
+      gmgSolver->setUseConjugateGradient(false); // won't be SPD
+    }
+    else
+    {
+      gmgSolver->setSmootherType(GMGOperator::POINT_SYMMETRIC_GAUSS_SEIDEL);
+    }
+    
+    gmgSolver->setAztecOutput(iterativeOutputLevel);
+
+    return gmgSolver;
+  };
+  
+  SolverPtr solver;
+  if (useDirectSolver)
+  {
+    solver = Solver::getDirectSolver();
+  }
+  else
+  {
+    solver = getGMGSolver();
+  }
+  
+  solution->solve(solver);
   if (conditionNumberEstimate)
   {
     int errCode;
@@ -333,8 +416,21 @@ int main(int argc, char *argv[])
   FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(refStrategy.getRieszRep()) );
   refStrategy.getRieszRep()->computeRieszRep();
   
-  vector<FunctionPtr> functionsToExport = {u_exact, f, energyErrorFunction};
-  vector<string> functionsToExportNames = {"u_exact", "f", "energy_error"};
+  vector<FunctionPtr> functionsToExport;
+  vector<string> functionsToExportNames;
+  
+  if (formulation != ConvectionDiffusionReactionFormulation::SUPG)
+  {
+    functionsToExport = {u_exact, u_best, f, energyErrorFunction};
+    functionsToExportNames = {"u_exact", "u_best", "f", "energy_error"};
+  }
+  else
+  {
+    // omit energy error for SUPG
+    functionsToExport = {u_exact, u_best, f};
+    functionsToExportNames = {"u_exact", "u_best", "f"};
+  }
+
   if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
   {
     functionsToExport.push_back(form.SUPGStabilizationWeight());
@@ -344,9 +440,8 @@ int main(int argc, char *argv[])
   vector<FunctionPtr> traceFunctionsToExport = {meshIndicator};
   vector<string> traceFunctionsToExportNames = {"mesh"};
   
-  int refinementNumber = 0;
   FunctionPtr u_soln = Function::solution(form.u(), solution);
-  double errL2;
+  double errL2, bestErrL2;
   
   // for some reason, ParaView introduces visual artifacts when doing plot over line on traces when
   // the outputted resolution (HDF5Exporter's "num1DPoints" argument) is too low.  (10 is too low.)
@@ -356,57 +451,55 @@ int main(int argc, char *argv[])
   Teuchos::RCP<HDF5Exporter> solnExporter;
   if (exportVisualization)
   {
-    functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, "ConvectionDiffusionExampleFunctions"));
+    string exporterName = "ConfusionFunctions";
+    exporterName = thisRunPrefix.str() + exporterName;
+    functionExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
     functionExporter->exportFunction(functionsToExport, functionsToExportNames, refinementNumber, numLinearPointsPlotting);
     functionExporter->exportFunction(traceFunctionsToExport, traceFunctionsToExportNames, refinementNumber, numLinearPointsPlotting);
     
-    solnExporter = Teuchos::rcp(new HDF5Exporter(mesh, "ConvectionDiffusionExampleSolution"));
+    exporterName = "ConfusionSolution";
+    exporterName = thisRunPrefix.str() + exporterName;
+    solnExporter = Teuchos::rcp(new HDF5Exporter(mesh, exporterName));
     solnExporter->exportSolution(solution, refinementNumber, numLinearPointsPlotting);
   }
-  
-  bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
   
   while (refinementNumber < numRefinements)
   {
     GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
     GlobalIndexType numActiveElements = mesh->numActiveElements();
     
-    errL2 = (u_soln - u_exact)->l2norm(solution->mesh());
+    errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
     
-    if (formulationIsDPG)
+    bestSolution->projectOntoMesh(exactSolutionMap);
+    bestErrL2 = (u_best - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
+    
+    if (!refineUniformly)
     {
       refStrategy.refine();
     }
     else
     {
-      set<GlobalIndexType> allActiveCells = mesh->getActiveCellIDsGlobal();
-      mesh->hRefine(allActiveCells);
+      refStrategy.hRefineUniformly();
     }
    
-//    vector<MeshPtr> meshesCoarseToFine = GMGSolver::meshesForMultigrid(mesh, 1, delta_k);
-//    
-//    int maxIters = 500;
-//    double cgTol = 1e-6;
-//    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, maxIters, cgTol,
-//                                                                   GMGOperator::MultigridStrategy::V_CYCLE,
-//                                                                   Solver::getDirectSolver(),
-//                                                                   useCondensedSolve));
-//    
-//    if (formulation == ConvectionDiffusionReactionFormulation::SUPG)
-//    {
-//      gmgSolver->setSmootherType(GMGOperator::POINT_JACOBI);
-//      gmgSolver->setUseConjugateGradient(false); // won't be SPD
-//    }
-//    
-//    gmgSolver->setAztecOutput(25);
-    
+    // recreate solver if neccessary, after refinement:
+    SolverPtr solver;
+    if (useDirectSolver)
+    {
+      solver = Solver::getDirectSolver();
+    }
+    else
+    {
+      solver = getGMGSolver();
+    }
+
     if (formulationIsDPG)
     {
       double energyError = refStrategy.getEnergyError(refinementNumber);
       if (rank == 0)
       {
         cout << "Refinement " << refinementNumber << " has energy error " << energyError;
-        cout << ", L^2 error " << errL2 << ";";
+        cout << ", L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
         cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
       }
     }
@@ -414,13 +507,21 @@ int main(int argc, char *argv[])
     {
       if (rank == 0)
       {
-        cout << "Refinement " << refinementNumber << " has L^2 error " << errL2 << ";";
+        cout << "Refinement " << refinementNumber;
+        cout << " has L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
         cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
       }
     }
     
-//    solution->solve(gmgSolver);
-    solution->solve();
+    ostringstream matrixFileName;
+    matrixFileName << thisRunPrefix.str() << "ref" << refinementNumber << ".dat";
+    
+    if (exportMatrix)
+    {
+      solution->setWriteMatrixToFile(true, matrixFileName.str());
+    }
+    
+    solution->solve(solver);
     refinementNumber++;
     
     if (reportSolutionTimings)
@@ -470,6 +571,10 @@ int main(int argc, char *argv[])
   
   GlobalIndexType numGlobalDofs = mesh->numGlobalDofs();
   GlobalIndexType numActiveElements = mesh->numActiveElements();
+
+  bestSolution->projectOntoMesh(exactSolutionMap);
+  bestErrL2 = (u_best - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
+  errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
   
   if (formulationIsDPG)
   {
@@ -477,7 +582,7 @@ int main(int argc, char *argv[])
     if (rank == 0)
     {
       cout << "Refinement " << refinementNumber << " has energy error " << energyError;
-      cout << ", L^2 error " << errL2 << ";";
+      cout << ", L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
       cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
     }
   }
@@ -485,7 +590,8 @@ int main(int argc, char *argv[])
   {
     if (rank == 0)
     {
-      cout << "Refinement " << refinementNumber << " has L^2 error " << errL2 << ";";
+      cout << "Refinement " << refinementNumber;
+      cout << " has L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
       cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
     }
   }
