@@ -14,6 +14,20 @@ ConstantVectorFunction<Scalar>::ConstantVectorFunction(vector<Scalar> value) : T
 }
 
 template <typename Scalar>
+string ConstantVectorFunction<Scalar>::displayString()
+{
+  ostringstream str;
+  str << "(";
+  for (int i=0; i<_value.size(); i++)
+  {
+    if (i > 0) str << ",";
+    str << _value[i];
+  }
+  str << ")";
+  return str.str();
+}
+
+template <typename Scalar>
 TFunctionPtr<Scalar> ConstantVectorFunction<Scalar>::x()
 {
   return Teuchos::rcp( new ConstantScalarFunction<Scalar>( _value[0] ) );

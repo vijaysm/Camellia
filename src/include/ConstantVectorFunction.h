@@ -19,6 +19,7 @@ class ConstantVectorFunction : public TFunction<Scalar>
   std::vector<Scalar> _value;
 public:
   ConstantVectorFunction(std::vector<Scalar> value);
+  string displayString();
   bool isZero();
 
   TFunctionPtr<Scalar> x();
