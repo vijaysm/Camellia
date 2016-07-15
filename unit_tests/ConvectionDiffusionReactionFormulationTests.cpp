@@ -12,8 +12,11 @@
 #include "ConvectionDiffusionReactionFormulation.h"
 #include "Function.h"
 #include "MeshFactory.h"
+#include "SerialDenseWrapper.h"
 #include "Solution.h"
 #include "TypeDefs.h"
+
+#include "Teuchos_LAPACK.hpp"
 
 using namespace Camellia;
 
@@ -174,6 +177,60 @@ namespace
   
     double diff = (f_actual-f_expected)->l2norm(mesh);
     TEST_COMPARE(diff, <, tol);
+  }
+  
+  TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, GramMatrixCholeskyFactorization_UltraweakTriangles )
+  {
+    bool useTriangles = true;
+    
+    int polyOrder = 2;
+    int delta_k = 2;
+    int spaceDim = 2;
+    
+    double alpha = 0.0;
+    double epsilon = 1.0;
+    
+    FunctionPtr beta = Function::constant({2.0,1.0});
+    ConvectionDiffusionReactionFormulation::FormulationChoice formulation = ConvectionDiffusionReactionFormulation::ULTRAWEAK;
+    ConvectionDiffusionReactionFormulation form(formulation, spaceDim, beta, epsilon, alpha);
+    
+    BFPtr bf = form.bf();
+    int H1Order = polyOrder + 1;
+    
+    vector<double> dimensions = {1.0,1.0};
+    int meshWidth = 1;
+    vector<int> elementCounts = {meshWidth,meshWidth};
+
+    MeshPtr mesh = MeshFactory::quadMeshMinRule(bf, H1Order, delta_k, dimensions[0], dimensions[1],
+                                                elementCounts[0], elementCounts[1], useTriangles);
+    
+    IPPtr ip = bf->graphNorm();
+//    ip->printInteractions();
+    
+    GlobalIndexType cellID = 1;
+    int numCells = 1;
+    if (mesh->isLocallyOwnedGlobalDofIndex(cellID))
+    {
+      ElementTypePtr elementType = mesh->getElementType(cellID);
+      DofOrderingPtr testOrder = elementType->testOrderPtr;
+      int numTestDofs = testOrder->totalDofs();
+      Intrepid::FieldContainer<double> gramMatrix(numCells,numTestDofs,numTestDofs);
+      bool testVsTest = true;
+      BasisCachePtr basisCache = BasisCache::basisCacheForCell(mesh, cellID, testVsTest);
+      ip->computeInnerProductMatrix(gramMatrix, testOrder, basisCache);
+//      {
+//        gramMatrix.resize(numTestDofs,numTestDofs);
+//        SerialDenseWrapper::writeMatrixToMatlabFile("gramMatrix.dat", gramMatrix);
+//        gramMatrix.resize(1,numTestDofs,numTestDofs);
+//      }
+      int INFO = 0;
+      int N = numTestDofs;
+      char UPLO = 'L';
+      Teuchos::LAPACK<int, double> lapack;
+      lapack.POTRF(UPLO, N, &gramMatrix[0], N, &INFO);
+
+      TEST_EQUALITY(INFO, 0);
+    }
   }
   
   TEUCHOS_UNIT_TEST( ConvectionDiffusionReactionFormulation, SolvePrimal_1D )
