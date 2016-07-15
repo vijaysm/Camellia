@@ -1130,9 +1130,9 @@ namespace Camellia
         
         timeT = 0;
         timeK = 0;
+        timer.ResetStartTime();
         for (int cellIndex=0; cellIndex < numCells; cellIndex++)
         {
-          timer.ResetStartTime();
           int result = 0;
           FieldContainer<Scalar> cellIPMatrix(localIPDim, &ipMatrix(cellIndex,0,0));
           FieldContainer<Scalar> cellStiffnessEnriched(localStiffnessEnrichedDim, &stiffnessEnriched(cellIndex,0,0));
@@ -1141,6 +1141,12 @@ namespace Camellia
           FieldContainer<Scalar> cellRHS(localRHSDim, &rhsVector(cellIndex,0));
 
           result = factoredCholeskySolve(cellIPMatrix, cellStiffnessEnriched, cellRHSEnriched, cellStiffness, cellRHS);
+        }
+        timeK = timer.ElapsedTime();
+        
+        if (_optimalTestTimingCallback)
+        {
+          _optimalTestTimingCallback(numCells,timeG,timeB,timeT,timeK,elemType);
         }
       }
       else
