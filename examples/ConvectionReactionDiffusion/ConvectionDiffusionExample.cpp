@@ -160,8 +160,8 @@ int main(int argc, char *argv[])
   bool conditionNumberEstimate = false;
   bool exportVisualization = false;
   bool reportSolutionTimings = true;
-  int quadratureEnrichment = 10;
-  int quadratureEnrichmentL2 = 50;
+  int quadratureEnrichment = 0;
+  int quadratureEnrichmentL2 = 10;
   bool useDirectSolver = false;
   bool useCondensedSolve = false;
   bool exportMatrix = false;
