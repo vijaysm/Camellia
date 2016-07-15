@@ -860,7 +860,7 @@ namespace Camellia
     
     if (INFO != 0)
     {
-      cout << "dpptrf_ result: " << INFO << endl;
+      cout << "dpotrf_ result: " << INFO << endl;
       result = INFO;
     }
     
