@@ -272,6 +272,7 @@ void TSolution<Scalar>::addSolution(Teuchos::RCP< TSolution<Scalar> > otherSoln,
   }
 
   setGlobalSolutionFromCellLocalCoefficients();
+  importSolution();
 
   clearComputedResiduals();
 
@@ -327,6 +328,8 @@ void TSolution<Scalar>::addSolution(Teuchos::RCP< TSolution<Scalar> > otherSoln,
   }
 
   setGlobalSolutionFromCellLocalCoefficients();
+  // _lhsVector will ignore non-local dofs; now we sync those:
+  importSolution();
 
   clearComputedResiduals();
 
@@ -4264,10 +4267,9 @@ void TSolution<Scalar>::setGlobalSolutionFromCellLocalCoefficients()
   _lhsVector->PutScalar(0); // unclear whether this is redundant with constructor or not
 
   // set initial _lhsVector (initial guess for iterative solvers)
-  set<GlobalIndexType> cellIDs = _mesh->cellIDsInPartition();
-  for (set<GlobalIndexType>::iterator cellIDIt = cellIDs.begin(); cellIDIt != cellIDs.end(); cellIDIt++)
+  const set<GlobalIndexType>* cellIDs = &_mesh->cellIDsInPartition();
+  for (GlobalIndexType cellID : *cellIDs)
   {
-    GlobalIndexType cellID = *cellIDIt;
     if (_solutionForCellIDGlobal.find(cellID) != _solutionForCellIDGlobal.end())
     {
       int localTrialDofCount = _mesh->getElementType(cellID)->trialOrderPtr->totalDofs();
