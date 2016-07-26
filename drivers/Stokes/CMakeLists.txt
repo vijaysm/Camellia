@@ -3,7 +3,6 @@ project(StokesDrivers)
 set( BACK_STEP_REF_STRATEGY "BackwardFacingStepRefinementStrategy.cpp" )
 set( LID_REF_STRATEGY "LidDrivenFlowRefinementStrategy.cpp" )
 set( STOKES_CAVITY_FLOW_DRIVER "StokesCavityFlowDriver.cpp" )
-set( STOKES_CAVITY_FLOW_DRIVER_GMG "StokesCavityFlowDriverGMGExperiment.cpp" )
 set( STOKES_BACK_STEP_DRIVER "StokesBackwardFacingStepDriver.cpp" )
 
 add_executable(StokesBackwardFacingStepDriver ${STOKES_BACK_STEP_DRIVER} ${BACK_STEP_REF_STRATEGY})
@@ -18,11 +17,6 @@ target_link_libraries(StokesCavityFlowDriver
 
 add_executable(StokesCavityFlowDriverForPaper "StokesCavityFlowDriverForPaper.cpp")
 target_link_libraries(StokesCavityFlowDriver 
-  Camellia
-)
-
-add_executable(StokesCavityFlowGMGDriver ${STOKES_CAVITY_FLOW_DRIVER_GMG})
-target_link_libraries(StokesCavityFlowGMGDriver 
   Camellia
 )
 
