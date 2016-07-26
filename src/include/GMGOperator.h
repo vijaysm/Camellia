@@ -98,7 +98,7 @@ private:
   mutable map<DofOrdering*, Teuchos::RCP<Epetra_SerialDenseMatrix>> _fluxDuplicationMap;
   Teuchos::RCP<Epetra_SerialDenseMatrix> fluxDuplicationMapForCoarseCell(GlobalIndexType coarseCellID) const;
 
-  mutable BasisReconciliation _br;
+  mutable Teuchos::RCP<BasisReconciliation> _br;
   mutable map< pair< pair<int,int>, RefinementBranch >, LocalDofMapperPtr > _localCoefficientMap; // pair(fineH1Order,coarseH1Order)
 
   Epetra_CrsMatrix* _fineStiffnessMatrix;
@@ -155,7 +155,8 @@ public:
    */
   GMGOperator(BCPtr zeroBCs, MeshPtr coarseMesh, IPPtr coarseIP, MeshPtr fineMesh,
               Teuchos::RCP<DofInterpreter> fineDofInterpreter, Epetra_Map finePartitionMap,
-              Teuchos::RCP<Solver> coarseSolver, bool useStaticCondensation);
+              Teuchos::RCP<Solver> coarseSolver, bool useStaticCondensation,
+              Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation);
   //@}
   
   //! @name Constructor (for all other operators)
@@ -164,7 +165,8 @@ public:
   /*! This constructor is intended for any multigrid operators finer than the coarsest mesh.
    */
   GMGOperator(BCPtr zeroBCs, MeshPtr coarseMesh, IPPtr coarseIP, MeshPtr fineMesh,
-              Teuchos::RCP<DofInterpreter> fineDofInterpreter, Epetra_Map finePartitionMap, bool useStaticCondensation);
+              Teuchos::RCP<DofInterpreter> fineDofInterpreter, Epetra_Map finePartitionMap, bool useStaticCondensation,
+              Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation);
   //@}
 
   //! @name Attribute set methods

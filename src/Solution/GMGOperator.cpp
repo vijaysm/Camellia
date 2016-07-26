@@ -56,9 +56,9 @@ extern "C" void HPM_Stop(char *);
 
 GMGOperator::GMGOperator(BCPtr zeroBCs, MeshPtr coarseMesh, IPPtr coarseIP,
                          MeshPtr fineMesh, Teuchos::RCP<DofInterpreter> fineDofInterpreter, Epetra_Map finePartitionMap,
-                         Teuchos::RCP<Solver> coarseSolver, bool useStaticCondensation) :
+                         Teuchos::RCP<Solver> coarseSolver, bool useStaticCondensation, Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation) :
 Narrator("GMGOperator"),
-_finePartitionMap(finePartitionMap), _br(true)
+_finePartitionMap(finePartitionMap), _br(sharedBasisReconciliation)
 {
   int rank = Teuchos::GlobalMPISession::getRank();
   
@@ -153,8 +153,8 @@ _finePartitionMap(finePartitionMap), _br(true)
 
 GMGOperator::GMGOperator(BCPtr zeroBCs, MeshPtr coarseMesh, IPPtr coarseIP, MeshPtr fineMesh,
                          Teuchos::RCP<DofInterpreter> fineDofInterpreter, Epetra_Map finePartitionMap,
-                         bool useStaticCondensation)
-: GMGOperator(zeroBCs, coarseMesh, coarseIP, fineMesh,fineDofInterpreter, finePartitionMap, Teuchos::null, useStaticCondensation) {}
+                         bool useStaticCondensation, Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation)
+: GMGOperator(zeroBCs, coarseMesh, coarseIP, fineMesh,fineDofInterpreter, finePartitionMap, Teuchos::null, useStaticCondensation, sharedBasisReconciliation) {}
 
 void GMGOperator::clearTimings()
 {
@@ -1242,7 +1242,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
           coarseBasis = BasisFactory::basisFactory()->getContinuousBasis(coarseBasis);
           TEUCHOS_TEST_FOR_EXCEPTION(fineBasis->functionSpace() != coarseBasis->functionSpace(), std::invalid_argument, "Even after getting continuous basis for coarseBasis, fine and coarse function spaces disagree");
         }
-        SubBasisReconciliationWeights weights = _br.constrainedWeights(fineBasis, refBranch, coarseBasis, vertexNodePermutation);
+        SubBasisReconciliationWeights weights = _br->constrainedWeights(fineBasis, refBranch, coarseBasis, vertexNodePermutation);
         
         vector<GlobalIndexType> coarseDofIndices;
         for (set<int>::iterator coarseOrdinalIt=weights.coarseOrdinals.begin(); coarseOrdinalIt != weights.coarseOrdinals.end(); coarseOrdinalIt++)
@@ -1298,7 +1298,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
                 unsigned coarseSubcellOrdinal = 0, coarseDomainOrdinal = 0; // the volume
                 unsigned coarseSubcellPermutation = 0;
                 unsigned fineSubcellOrdinalInFineDomain = 0; // the side is the whole fine domain...
-                SubBasisReconciliationWeights weights = _br.constrainedWeightsForTermTraced(termTraced, varTracedID,
+                SubBasisReconciliationWeights weights = _br->constrainedWeightsForTermTraced(termTraced, varTracedID,
                                                                                             sideDim, fineBasis, fineSubcellOrdinalInFineDomain, refBranch, sideOrdinal,
                                                                                             ancestor->topology(),
                                                                                             spaceDim, coarseBasis, coarseSubcellOrdinal, coarseDomainOrdinal, coarseSubcellPermutation);
@@ -1336,7 +1336,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
                 unsigned volumeSubcellOrdinal = 0, volumeDomainOrdinal = 0;
                 unsigned volumeSubcellPermutation = 0;
                 unsigned fineSubcellOrdinalInFineDomain = 0; // the side is the whole fine domain...
-                SubBasisReconciliationWeights weights = _br.constrainedWeightsForTermTraced(termTraced, varTracedID,
+                SubBasisReconciliationWeights weights = _br->constrainedWeightsForTermTraced(termTraced, varTracedID,
                                                                                             sideDim, fineBasis,
                                                                                             fineSubcellOrdinalInFineDomain, refBranch,
                                                                                             sideOrdinal, volumeTopo,
@@ -1470,7 +1470,7 @@ LocalDofMapperPtr GMGOperator::getLocalCoefficientMap(GlobalIndexType fineCellID
               coarseBasis = BasisFactory::basisFactory()->getContinuousBasis(coarseBasis);
               TEUCHOS_TEST_FOR_EXCEPTION(fineBasis->functionSpace() != coarseBasis->functionSpace(), std::invalid_argument, "Even after getting continuous basis for coarseBasis, fine and coarse function spaces disagree");
             }
-            SubBasisReconciliationWeights weights = _br.constrainedWeights(fineBasis, sideRefBranches[sideOrdinal], coarseBasis, vertexNodePermutation);
+            SubBasisReconciliationWeights weights = _br->constrainedWeights(fineBasis, sideRefBranches[sideOrdinal], coarseBasis, vertexNodePermutation);
             
             vector<GlobalIndexType> coarseDofIndices(weights.coarseOrdinals.size());
             int i = 0;

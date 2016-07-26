@@ -31,8 +31,9 @@ GMGSolver::GMGSolver(BCPtr zeroBCs, MeshPtr coarseMesh, IPPtr coarseIP,
   Narrator("GMGSolver"),
   _finePartitionMap(finePartitionMap)
 {
+  Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation = Teuchos::rcp( new BasisReconciliation(true) );
   _gmgOperator = Teuchos::rcp(new GMGOperator(zeroBCs,coarseMesh,coarseIP,fineMesh,fineDofInterpreter,
-                                              finePartitionMap,coarseSolver, useStaticCondensation));
+                                              finePartitionMap,coarseSolver, useStaticCondensation, sharedBasisReconciliation));
   _gmgOperator->getCoarseSolution()->setCubatureEnrichmentDegree(cubatureEnrichmentDegree);
   
   _maxIters = maxIters;
@@ -51,9 +52,10 @@ GMGSolver::GMGSolver(TSolutionPtr<double> fineSolution, MeshPtr coarseMesh, int 
   Narrator("GMGSolver"),
   _finePartitionMap(fineSolution->getPartitionMap())
 {
+  Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation = Teuchos::rcp( new BasisReconciliation(true) );
   _gmgOperator = Teuchos::rcp(new GMGOperator(fineSolution->bc()->copyImposingZero(),coarseMesh,
                                               fineSolution->ip(), fineSolution->mesh(), fineSolution->getDofInterpreter(),
-                                              _finePartitionMap, coarseSolver, useStaticCondensation));
+                                              _finePartitionMap, coarseSolver, useStaticCondensation, sharedBasisReconciliation));
   int cubatureEnrichment = fineSolution->cubatureEnrichmentDegree();
   _gmgOperator->getCoarseSolution()->setCubatureEnrichmentDegree(cubatureEnrichment);
   
@@ -122,8 +124,10 @@ _finePartitionMap(fineSolution->getPartitionMap())
     _useCG = true;
   _azConvergenceOption = AZ_rhs;
   
+  Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation = Teuchos::rcp( new BasisReconciliation(true) );
+  
   _gmgOperator = gmgOperatorFromMeshSequence(meshesCoarseToFine, fineSolution, multigridStrategy, coarseSolver, useStaticCondensation,
-                                             useDiagonalSchwarzWeighting);
+                                             useDiagonalSchwarzWeighting, sharedBasisReconciliation);
 }
 
 double GMGSolver::condest()
@@ -144,7 +148,8 @@ int GMGSolver::iterationCount()
 Teuchos::RCP<GMGOperator> GMGSolver::gmgOperatorFromMeshSequence(const std::vector<MeshPtr> &meshesCoarseToFine, SolutionPtr fineSolution,
                                                                  GMGOperator::MultigridStrategy multigridStrategy,
                                                                  SolverPtr coarseSolver, bool useStaticCondensationInCoarseSolve,
-                                                                 bool useDiagonalSchwarzWeighting)
+                                                                 bool useDiagonalSchwarzWeighting,
+                                                                 Teuchos::RCP<BasisReconciliation> sharedBasisReconciliation)
 {
   TEUCHOS_TEST_FOR_EXCEPTION(meshesCoarseToFine.size() < 2, std::invalid_argument, "meshesCoarseToFine must have at least two meshes");
   Teuchos::RCP<GMGOperator> coarseOperator = Teuchos::null, finerOperator = Teuchos::null, finestOperator = Teuchos::null;
@@ -172,12 +177,12 @@ Teuchos::RCP<GMGOperator> GMGSolver::gmgOperatorFromMeshSequence(const std::vect
     if (i>1)
     {
       coarseOperator = Teuchos::rcp(new GMGOperator(zeroBCs, coarseMesh, ip, fineMesh, fineDofInterpreter, finePartitionMap,
-                                                    useStaticCondensationInCoarseSolve));
+                                                    useStaticCondensationInCoarseSolve, sharedBasisReconciliation));
     }
     else
     {
       coarseOperator = Teuchos::rcp(new GMGOperator(zeroBCs, coarseMesh, ip, fineMesh, fineDofInterpreter, finePartitionMap,
-                                                    coarseSolver, useStaticCondensationInCoarseSolve));
+                                                    coarseSolver, useStaticCondensationInCoarseSolve, sharedBasisReconciliation));
     }
     coarseOperator->setSmootherType(GMGOperator::CAMELLIA_ADDITIVE_SCHWARZ);
     coarseOperator->setUseSchwarzScalingWeight(true);
@@ -247,7 +252,6 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
    twice-refined h-mesh with k=kCoarse
    ...
    fine h-mesh with k=kCoarse
-   fine h-mesh with k=kCoarse (yes, duplicated: gives two kinds of smoother)
    fine h-mesh with k=kFine
    */
   
@@ -335,10 +339,6 @@ vector<MeshPtr> GMGSolver::meshesForMultigrid(MeshPtr fineMesh, Teuchos::Paramet
     
     thisLevelCellIndices = nextLevelCellIndices;
   } while (fineMeshNumCells > thisLevelNumCells);
-  
-  // 6-27-16: turning this off!
-  // repeat the last one:
-//  meshesCoarseToFine.push_back(meshesCoarseToFine[meshesCoarseToFine.size()-1]);
   
   const set<GlobalIndexType>* myFineCellIndices = &fineMesh->cellIDsInPartition();
   
