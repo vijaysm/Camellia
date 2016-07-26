@@ -49,8 +49,10 @@ namespace
     
     SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
     
+    Teuchos::RCP<BasisReconciliation> br = Teuchos::rcp(new BasisReconciliation(true) );
+    
     GMGOperator gmgOperator(bc,mesh,ip,mesh,fineSoln->getDofInterpreter(),
-                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
+                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation, br);
     gmgOperator.setSmootherOverlap(overlapLevel);
     
     return gmgOperator.computeSchwarzSmootherWeight();
@@ -152,8 +154,10 @@ namespace
     
     SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
     
+    Teuchos::RCP<BasisReconciliation> br = Teuchos::rcp(new BasisReconciliation(true) );
+
     GMGOperator gmgOperator(bc,mesh,ip,mesh,fineSoln->getDofInterpreter(),
-                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
+                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation, br);
     gmgOperator.constructProlongationOperator();
     
     Teuchos::RCP<Epetra_CrsMatrix> P = gmgOperator.getProlongationOperator();
@@ -176,8 +180,10 @@ namespace
     
     SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
     
+    Teuchos::RCP<BasisReconciliation> br = Teuchos::rcp(new BasisReconciliation(true) );
+    
     GMGOperator gmgOperator(bc,mesh,ip,mesh,fineSoln->getDofInterpreter(),
-                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
+                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation,  br);
     gmgOperator.constructProlongationOperator();
     
     Teuchos::RCP<Epetra_CrsMatrix> P = gmgOperator.getProlongationOperator();
@@ -488,10 +494,11 @@ namespace
     energyError = fineSoln->energyErrorTotal();
     TEST_COMPARE(energyError, <, tol);
     
+    Teuchos::RCP<BasisReconciliation> br = Teuchos::rcp(new BasisReconciliation(true) );
     
     SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
     GMGOperator gmgOperator(bc,mesh,ip,fineMesh,fineSoln->getDofInterpreter(),
-                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
+                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation, br);
     
     Teuchos::RCP<Epetra_CrsMatrix> P = gmgOperator.constructProlongationOperator();
     Teuchos::RCP<Epetra_FEVector> coarseSolutionVector = coarseSoln->getLHSVector();
@@ -664,9 +671,11 @@ namespace
     fineSoln->setRHS(rhs);
     fineSoln->setUseCondensedSolve(useStaticCondensation);
     
+    Teuchos::RCP<BasisReconciliation> br = Teuchos::rcp(new BasisReconciliation(true) );
+    
     SolverPtr coarseSolver = Solver::getSolver(Solver::KLU, true);
     GMGOperator gmgOperator(bc,mesh,ip,fineMesh,fineSoln->getDofInterpreter(),
-                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation);
+                            fineSoln->getPartitionMap(),coarseSolver, useStaticCondensation, br);
     
     Teuchos::RCP<Epetra_CrsMatrix> P = gmgOperator.constructProlongationOperator();
     Teuchos::RCP<Epetra_FEVector> coarseSolutionVector = coarseSoln->getLHSVector();

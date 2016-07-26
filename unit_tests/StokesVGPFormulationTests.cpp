@@ -571,7 +571,7 @@ TEUCHOS_UNIT_TEST( StokesVGPFormulation, Projection_2D_Slow )
     bool weightByParity = false; // don't weight by parity so that we know that the expected value is tn_exact everywhere
     FunctionPtr tn1_hat_soln = Function::solution(tn1_hat, form.solution(), weightByParity);
     
-    double tol = 1e-12;
+    double tol = 1e-11;
     double err;
     err = (u1_soln - u1_exact)->l2norm(mesh);
     TEST_COMPARE(err, <, tol);

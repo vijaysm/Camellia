@@ -294,6 +294,7 @@ namespace
     bool useConformingTraces = true;
     int H1Order = 2;
     int elementWidth = 2;
+    double tol = 1e-14;
     for (int spaceDim=1; spaceDim <= 3; spaceDim++)
     {
       MeshPtr poissonMesh = poissonUniformMesh(spaceDim, elementWidth, H1Order, useConformingTraces);
@@ -314,11 +315,11 @@ namespace
       TEST_COMPARE(l2norm, >, 0);
       
       double err = (phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, ==, 0);
+      TEST_COMPARE(err, <, tol);
       
       solutionAdded->addSolution(solution, 1.0);
       err = (2 * phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, ==, 0);
+      TEST_COMPARE(err, <, tol);
     }
   }
   
@@ -328,6 +329,7 @@ namespace
     bool useConformingTraces = true;
     int H1Order = 2;
     int irregularity = 1;
+    double tol = 1e-11;
     for (int spaceDim=1; spaceDim <= 3; spaceDim++)
     {
       MeshPtr poissonMesh = poissonIrregularMesh(spaceDim, irregularity, H1Order);
@@ -348,11 +350,11 @@ namespace
       TEST_COMPARE(l2norm, >, 0);
 
       double err = (phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, ==, 0);
+      TEST_COMPARE(err, <, tol);
       
       solutionAdded->addSolution(solution, 1.0);
       err = (2 * phiHatSoln - phiHatSolnAdded)->l2norm(poissonMesh);
-      TEST_COMPARE(err, ==, 0);
+      TEST_COMPARE(err, <, tol);
     }
   }
   
