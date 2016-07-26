@@ -7,6 +7,7 @@
 #include "GnuPlotUtil.h"
 #include "HDF5Exporter.h"
 #include "MeshFactory.h"
+#include "NavierStokesVGPFormulation.h"
 #include "PoissonFormulation.h"
 #include "PreviousSolutionFunction.h"
 #include "RefinementStrategy.h"
@@ -48,9 +49,15 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
                                      int spaceDim, bool conformingTraces, bool enhanceFieldsForH1TracesWhenConforming,
                                      bool useStaticCondensation, int numCells, int k, int delta_k,
                                      int k_coarse, int rootMeshNumCells, bool useZeroMeanConstraints, bool jumpToCoarsePolyOrder,
-                                     bool setupMeshTopologyAndQuit)
+                                     bool setupMeshTopologyAndQuit, Teuchos::RCP<NavierStokesVGPFormulation> &navierStokesFormulation)
 {
-  int rank = Teuchos::GlobalMPISession::getRank();
+#ifdef HAVE_MPI
+  Epetra_MpiComm Comm(MPI_COMM_WORLD);
+#else
+  Epetra_SerialComm Comm;
+#endif
+  
+  int rank = Comm.MyPID();
   
   BFPtr bf;
   BCPtr bc;
@@ -60,6 +67,23 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
   double width = 1.0; // in each dimension
   vector<double> x0(spaceDim,0); // origin is the default
   
+  if (problemChoice == NavierStokes)
+  {
+    // for Navier-Stokes we use different width and x0, to match the standard Kovasznay flow parameters
+    TEUCHOS_TEST_FOR_EXCEPTION(spaceDim != 2, std::invalid_argument, "spaceDim != 2 not supported for Navier-Stokes (don't have a manufactured solution defined for this case)");
+    width = 2.0;
+    x0 = {-0.5,0.0};
+  }
+  
+  vector<double> dimensions;
+  vector<int> elementCounts;
+  for (int d=0; d<spaceDim; d++)
+  {
+    dimensions.push_back(width);
+    elementCounts.push_back(rootMeshNumCells);
+  }
+  
+  MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts, x0);
   VarPtr p; // pressure
   
   map<int,int> trialOrderEnhancements;
@@ -217,35 +241,66 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
     
     rhs = formulation.rhs(forcingFunction);
   }
+  else if (problemChoice == NavierStokes)
+  {
+    // set up classical Kovasznay flow solution:
+    double Re = 40.0;
+    navierStokesFormulation = Teuchos::rcp(new NavierStokesVGPFormulation(NavierStokesVGPFormulation::steadyFormulation(spaceDim, Re, conformingTraces, meshTopo, k, delta_k)));
+    
+    FunctionPtr u1, u2, p;
+    NavierStokesVGPFormulation::getKovasznaySolution(Re, u1, u2, p);
+    
+    mesh = navierStokesFormulation->solutionIncrement()->mesh();
+    int kovasznayCubatureEnrichment = 20; // 20 is better than 10 for accurately measuring error on the coarser meshes.
+    navierStokesFormulation->solutionIncrement()->setCubatureEnrichmentDegree(kovasznayCubatureEnrichment);
+    navierStokesFormulation->solution()->setCubatureEnrichmentDegree(kovasznayCubatureEnrichment);
+    
+    if (useZeroMeanConstraints)
+    {
+      navierStokesFormulation->addZeroMeanPressureCondition();
+      double p_mean = p->integrate(mesh);
+      p = p - p_mean;
+    }
+    else
+    {
+      navierStokesFormulation->addPointPressureCondition({0.5,1.0});
+      double p_center = p->evaluate(0.5, 1.0);
+      p = p - p_center;
+    }
+    
+    FunctionPtr u = Function::vectorize({u1, u2});
+    FunctionPtr forcingFunction = NavierStokesVGPFormulation::forcingFunctionSteady(spaceDim, Re, u, p);
+    
+    navierStokesFormulation->addInflowCondition(SpatialFilter::allSpace(), u);
+    navierStokesFormulation->setForcingFunction(forcingFunction);
+    
+    if (conformingTraces && enhanceFieldsForH1TracesWhenConforming)
+    {
+      TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Unsupported option for Navier-Stokes"); // if it seems important, we can add support for this later...
+    }
+
+    bf = navierStokesFormulation->bf();
+    graphNorm = bf->graphNorm();
+    
+    solution = navierStokesFormulation->solutionIncrement();
+    
+    bc = solution->bc();
+    rhs = solution->rhs();
+  }
   
   int H1Order = k + 1;
   
-  BFPtr bilinearForm = bf;
-  
-//  bf->setUseSPDSolveForOptimalTestFunctions(true);
-  
-  vector<double> dimensions;
-  vector<int> elementCounts;
-  for (int d=0; d<spaceDim; d++)
-  {
-    dimensions.push_back(width);
-    elementCounts.push_back(rootMeshNumCells);
-  }
-  
-  MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dimensions, elementCounts);
-  
   // now that we have mesh, add pressure constraint for Stokes (imposing zero at origin--want to aim for center of mesh)
-  if ((problemChoice == Stokes) || (problemChoice==NavierStokes))
+  if (problemChoice == Stokes)
   {
     if (!useZeroMeanConstraints)
     {
       vector<double> origin(spaceDim,0);
       IndexType vertexIndex;
       
-      if (!meshTopo->getVertexIndex(origin, vertexIndex))
-      {
-        TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "origin vertex not found");
-      }
+      bool foundVertex = meshTopo->getVertexIndex(origin, vertexIndex);
+      foundVertex = MPIWrapper::globalOr(Comm, foundVertex);
+      TEUCHOS_TEST_FOR_EXCEPTION(!foundVertex, std::invalid_argument, "origin vertex not found on any rank");
       bc->addSpatialPointBC(p->ID(), 0, origin);
     }
     else
@@ -258,16 +313,13 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
   
   meshesCoarseToFine.clear();
   
-#ifdef HAVE_MPI
-  Epetra_MpiComm Comm(MPI_COMM_WORLD);
-#else
-  Epetra_SerialComm Comm;
-#endif
-  
   bool useGMGSolverForMeshes = true; // use static method from GMGSolver to generate meshesCoarseToFine
   if (useGMGSolverForMeshes)
   {
-    mesh = Teuchos::rcp(new Mesh(meshTopo, bf, H1Order, delta_k, trialOrderEnhancements));
+    if (mesh == Teuchos::null)
+    {
+      mesh = Teuchos::rcp(new Mesh(meshTopo, bf, H1Order, delta_k, trialOrderEnhancements));
+    }
 
     Epetra_Time hRefinementTimer(Comm);
     int meshWidthCells = rootMeshNumCells;
@@ -379,7 +431,10 @@ void initializeSolutionAndCoarseMesh(SolutionPtr &solution, vector<MeshPtr> &mes
   graphNorm = bf->graphNorm();
   
   Epetra_Time timer(Comm);
-  solution = Solution::solution(mesh, bc, rhs, graphNorm);
+  if (solution == Teuchos::null)
+  {
+    solution = Solution::solution(mesh, bc, rhs, graphNorm);
+  }
   solution->setUseCondensedSolve(useStaticCondensation);
   solution->setZMCsAsGlobalLagrange(false); // fine grid solution shouldn't impose ZMCs (should be handled in coarse grid solve)
   
@@ -475,6 +530,17 @@ void printTimings()
   }
 }
 
+struct Result
+{
+  int k_fine;
+  int k_coarse;
+  int k_levels;
+  int fineMeshWidth;
+  int coarseMeshWidth;
+  int h_levels;
+  int iterations;
+};
+
 int main(int argc, char *argv[])
 {
   Teuchos::GlobalMPISession mpiSession(&argc, &argv, NULL);
@@ -488,19 +554,19 @@ int main(int argc, char *argv[])
   Teuchos::CommandLineProcessor cmdp(false,true); // false: don't throw exceptions; true: do return errors for unrecognized options
 
   int k = 1; // poly order for field variables
-  int delta_k = 1;   // test space enrichment
+  int delta_k = -1;   // test space enrichment
   int k_coarse = 0; // coarse poly order
   bool jumpToCoarsePolyOrder = false;
 
-  bool conformingTraces = false;
-  bool enhanceFieldsForH1TracesWhenConforming = true;
+  bool conformingTraces = true;
+  bool enhanceFieldsForH1TracesWhenConforming = false;
 
   int numGrids = -1;
   
   int numCells = -1;
   int numCellsRootMesh = -1;
   int spaceDim = 1;
-  bool useCondensedSolve = false;
+  bool useCondensedSolve = true;
 
   double cgTol = 1e-10;
   int cgMaxIterations = 2000;
@@ -523,6 +589,8 @@ int main(int argc, char *argv[])
   
   bool useFactoredCholeskyForOptimalTests = true;
   
+  bool runMany = false;
+  
   string multigridStrategyString = "V-cycle";
   
   bool pauseOnRankZero = false;
@@ -537,7 +605,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("numCells",&numCells,"mesh width");
   cmdp.setOption("numCellsRootMesh",&numCellsRootMesh,"mesh width of root mesh");
   cmdp.setOption("polyOrder",&k,"polynomial order for field variable u");
-  cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment");
+  cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment (use -1 for spaceDim, -2 for polyOrder)");
   cmdp.setOption("coarsePolyOrder", &k_coarse, "polynomial order for field variables on coarse grid");
 
   cmdp.setOption("jumpToCoarsePolyOrder","dontJumpToCoarsePolyOrder",&jumpToCoarsePolyOrder);
@@ -567,6 +635,7 @@ int main(int argc, char *argv[])
 
   cmdp.setOption("pause","dontPause",&pauseOnRankZero, "pause (to allow attachment by tracer, e.g.), waiting for user to press a key");
   cmdp.setOption("reportTimings", "dontReportTimings", &reportTimings, "Report timings in Solution");
+  cmdp.setOption("runMany", "runOne", &runMany, "Run for intermediate mesh sizes in the range specified, and report iteration counts for each.");
 
   cmdp.setOption("constructProlongationOperatorAndQuit", "constructProlongationOperatorAndContinue", &constructProlongationOperatorAndQuit);
   cmdp.setOption("setUpMeshTopologyAndQuit", "setUpMeshTopologyAndContinue", &setUpMeshTopologyAndQuit);
@@ -612,11 +681,7 @@ int main(int argc, char *argv[])
   }
   else if (problemChoiceString == "Navier-Stokes")
   {
-    if (rank==0) cout << "Navier-Stokes not yet supported by this driver!\n";
-#ifdef HAVE_MPI
-    MPI_Finalize();
-#endif
-    return -1;
+    problemChoice = NavierStokes;
   }
   else
   {
@@ -672,265 +737,384 @@ int main(int argc, char *argv[])
     cout << "Solving " << spaceDim << "D " << problemChoiceString << " problem with k = " << k << " on " << numProcs << " MPI ranks.  Initializing meshes...\n";
   }
   
-  Epetra_Time timer(*Comm);
-
-  int meshInitTimerHandle = TimeLogger::sharedInstance()->startTimer("Mesh Init.");
-  
-  SolutionPtr solution;
-  MeshPtr coarseMesh;
-  IPPtr ip;
-
-  if (numCells == -1)
+  vector<Result> runsToDo;
+  if (!runMany)
   {
-    numCells = (int)ceil(pow(numProcs,1.0/(double)spaceDim));
-  }
-  
-  vector<MeshPtr> meshesCoarseToFine;
-  initializeSolutionAndCoarseMesh(solution, meshesCoarseToFine, ip, problemChoice, spaceDim, conformingTraces, enhanceFieldsForH1TracesWhenConforming,
-                                  useCondensedSolve, numCells, k, delta_k, k_coarse, numCellsRootMesh, useZeroMeanConstraints, jumpToCoarsePolyOrder,
-                                  setUpMeshTopologyAndQuit);
-  
-  if (setUpMeshTopologyAndQuit)
-  {
-    return 0;
-  }
-  
-  if (numGrids != -1)
-  {
-    vector<MeshPtr> newMeshesCoarseToFine;
-    for (int gridNumber=0; gridNumber < numGrids; gridNumber++)
-    {
-      MeshPtr lastMesh = meshesCoarseToFine[meshesCoarseToFine.size()-1];
-      meshesCoarseToFine.pop_back();
-      newMeshesCoarseToFine.insert(newMeshesCoarseToFine.begin(), lastMesh);
-    }
-    meshesCoarseToFine = newMeshesCoarseToFine;
-  }
-  
-  TimeLogger::sharedInstance()->stopTimer(meshInitTimerHandle);
-  
-  double meshInitializationTime = timer.ElapsedTime();
-
-  int numDofs = solution->mesh()->numGlobalDofs();
-  int numTraceDofs = solution->mesh()->numFluxDofs();
-  int numElements = solution->mesh()->numActiveElements();
-  
-  long long approximateMemoryCostInBytes = approximateMemoryCostsForMeshTopologies(meshesCoarseToFine);
-  double bytesPerMB = (1024.0 * 1024.0);
-  double memoryCostInMB = approximateMemoryCostInBytes / bytesPerMB;
-
-  BFPtr bf = solution->mesh()->bilinearForm();
-
-  GlobalIndexType sampleCellID = 0;
-  int totalTrialDofs, totalTestDofs;
-  double B_denseMatrixSize, G_denseMatrixSize, K_denseMatrixSize, B_sparseMatrixSize, G_sparseMatrixSize;
-  int rankWithSampleCell = solution->mesh()->Comm()->NumProc();
-  if (solution->mesh()->getTopology()->isValidCellIndex(sampleCellID))
-  {
-    rankWithSampleCell = solution->mesh()->Comm()->MyPID();
-    ElementTypePtr sampleElementType = solution->mesh()->getElementType(sampleCellID);
-    totalTrialDofs = sampleElementType->trialOrderPtr->totalDofs();
-    totalTestDofs = sampleElementType->testOrderPtr->totalDofs();
-    
-    int doubleSizeInBytes = sizeof(double);
-    B_denseMatrixSize = (totalTrialDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
-    G_denseMatrixSize = (totalTestDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
-    K_denseMatrixSize = (totalTrialDofs * totalTrialDofs * doubleSizeInBytes) / bytesPerMB;
-    B_sparseMatrixSize = ( bf->nonZeroEntryCount(sampleElementType->trialOrderPtr, sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
-    G_sparseMatrixSize = ( ip->nonZeroEntryCount(sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
-  }
-
-  Comm = solution->mesh()->Comm();
-  
-  int minRankWithSampleCell;
-  Comm->MinAll(&rankWithSampleCell, &minRankWithSampleCell, 1);
-  Comm->Broadcast(&totalTestDofs, 1, minRankWithSampleCell);
-  Comm->Broadcast(&totalTrialDofs, 1, minRankWithSampleCell);
-  
-  Comm->Broadcast(&B_denseMatrixSize, 1, minRankWithSampleCell);
-  Comm->Broadcast(&G_denseMatrixSize, 1, minRankWithSampleCell);
-  Comm->Broadcast(&K_denseMatrixSize, 1, minRankWithSampleCell);
-  Comm->Broadcast(&B_sparseMatrixSize, 1, minRankWithSampleCell);
-  Comm->Broadcast(&G_sparseMatrixSize, 1, minRankWithSampleCell);
-
-  int coarseMeshGlobalDofs = meshesCoarseToFine[0]->numGlobalDofs();
-  int coarseMeshNumElements = meshesCoarseToFine[0]->numElements();
-  int coarseMeshTraceDofs = meshesCoarseToFine[0]->numFluxDofs();
-  
-  double cellHaloTime = solution->mesh()->getTopology()->totalTimeComputingCellHalos();
-  double maxCellHaloTime;
-  solution->mesh()->Comm()->MaxAll(&cellHaloTime, &maxCellHaloTime, 1);
-  
-  if (rank==0)
-  {
-    int numLevels = meshesCoarseToFine.size();
-    cout << setprecision(2);
-    cout << "Mesh initialization completed in " << meshInitializationTime << " seconds.  Fine mesh has " << numDofs;
-    cout << " global degrees of freedom (" << numTraceDofs << " trace dofs) on " << numElements << " elements.\n";
-    cout << "Coarsest mesh has " << coarseMeshGlobalDofs << " global degrees of freedom (" << coarseMeshTraceDofs << " trace dofs) on " << coarseMeshNumElements << " elements.\n";
-    cout << "Approximate (correct within a factor of 2 or so) memory cost for all mesh topologies: " << memoryCostInMB << " MB.\n";
-    cout << "Number of mesh levels: " << numLevels << ".\n";
-    cout << "Approximate memory cost per element (assuming dense storage): G = " << G_denseMatrixSize << " MB, B = " << B_denseMatrixSize << " MB, K = ";
-    cout << K_denseMatrixSize << " MB.\n";
-    cout << totalTrialDofs << " trial dofs per element; " << totalTestDofs << " test dofs.\n";
-    
-    cout << "Approximate memory cost per element (assuming sparse storage): G = " << G_sparseMatrixSize << " MB, B = " << B_sparseMatrixSize << " MB.\n";
-    
-    cout << "Maximum time spent determining cell halos: " << maxCellHaloTime << " seconds.\n";
-    
-    if (setUpMeshesAndQuit)
-      cout << "***** setUpMeshesAndQuit option selected; now exiting *****\n";
-    
-    if (solveDirectly)
-      cout << "******* Using direct solve in place of multigrid-preconditioned iterative solve ****** \n";
-    else
-      cout << "Multigrid strategy: " << multigridStrategyString << endl;
-    
-    if (useDiagonalSchwarzWeighting)
-    {
-      cout << "***********************************************************************************************************\n";
-      cout << "** NOTE: USING DIAGONAL SCHWARZ WEIGHTING.  THIS IS EXPERIMENTAL, AS PREVIOUS TESTS HAVE NOT WORKED WELL. *\n";
-      cout << "***********************************************************************************************************\n";
-    }
-  }
-  
-  printTimings();
-  
-  if (setUpMeshesAndQuit)
-  {
-    return 0;
-  }
-  
-//  if (rank==0) cout << "Setting optimal test solve to QR\n";
-  if (useFactoredCholeskyForOptimalTests)
-  {
-    if (rank==0) cout << "Setting optimal test solve to *factored* Cholesky\n";
-    solution->mesh()->bilinearForm()->setOptimalTestSolver(TBF<>::FACTORED_CHOLESKY);
+    Result run;
+    run.k_fine = k;
+    run.k_coarse = k_coarse;
+    run.k_levels = 0; // can work this out by hand?
+    run.coarseMeshWidth = numCellsRootMesh;
+    run.fineMeshWidth = numCells;
+    run.h_levels = 0;
+    runsToDo.push_back(run);
   }
   else
   {
-    if (rank==0) cout << "Setting optimal test solve to standard Cholesky\n";
-    solution->mesh()->bilinearForm()->setOptimalTestSolver(TBF<>::CHOLESKY);
+    Result run;
+    run.k_coarse = k_coarse;
+    run.k_fine = k_coarse;
+    run.k_levels = 0;
+    run.coarseMeshWidth = numCellsRootMesh;
+    run.fineMeshWidth = numCellsRootMesh;
+    run.h_levels = 0;
+    while (run.k_fine < k)
+    {
+      run.k_fine = max(run.k_fine*2,1);
+      if (!jumpToCoarsePolyOrder)
+        run.k_levels++;
+      else
+        run.k_levels = 1;
+      runsToDo.push_back(run);
+    }
+    while (run.fineMeshWidth < numCells)
+    {
+      run.fineMeshWidth = 2 * run.fineMeshWidth;
+      run.h_levels++;
+      runsToDo.push_back(run);
+    }
   }
   
-  double gmgSolverInitializationTime = 0, solveTime;
-  
-  timer.ResetStartTime();
-  int gmgSolverInitTimerHandle = TimeLogger::sharedInstance()->startTimer("GMGSolver Init.");
-  if (!solveDirectly)
+  auto getDeltaK = [&delta_k, &spaceDim] (int polyOrder) -> int
   {
-    bool reuseFactorization = true;
-    SolverPtr coarseSolver = Solver::getDirectSolver(reuseFactorization);
+    if (delta_k == -1)
+    {
+      return spaceDim;
+    }
+    else if (delta_k == -2)
+    {
+      return polyOrder;
+    }
+    else
+    {
+      return delta_k;
+    }
+  };
+  
+  
+  for (int i=0; i<runsToDo.size(); i++)
+  {
+    Result *run = &runsToDo[i];
+    k = run->k_fine;
+    k_coarse = run->k_coarse;
+    numCellsRootMesh = run->coarseMeshWidth;
+    numCells = run->fineMeshWidth;
     
-    Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, cgMaxIterations, cgTol,
-                                                                   multigridStrategy, coarseSolver, useCondensedSolve,
-                                                                   useDiagonalSchwarzWeighting));
-    gmgSolver->setUseConjugateGradient(useConjugateGradient);
-    gmgSolver->setAztecOutput(azOutput);
-    gmgSolver->gmgOperator()->setNarrateOnRankZero(logFineOperator,"finest GMGOperator");
+    Epetra_Time timer(*Comm);
+
+    int meshInitTimerHandle = TimeLogger::sharedInstance()->startTimer("Mesh Init.");
     
-    gmgSolver->gmgOperator()->setClearFinestCondensedDofInterpreterAfterProlongation(clearFinestCondensedDofInterpreterAfterProlongation);
+    SolutionPtr solution;
+    MeshPtr coarseMesh;
+    IPPtr ip;
+
+    if (numCells == -1)
+    {
+      numCells = (int)ceil(pow(numProcs,1.0/(double)spaceDim));
+    }
     
-    TimeLogger::sharedInstance()->stopTimer(gmgSolverInitTimerHandle);
+    Teuchos::RCP<NavierStokesVGPFormulation> nsFormulation;
+    vector<MeshPtr> meshesCoarseToFine;
+    initializeSolutionAndCoarseMesh(solution, meshesCoarseToFine, ip, problemChoice, spaceDim, conformingTraces, enhanceFieldsForH1TracesWhenConforming,
+                                    useCondensedSolve, numCells, k, getDeltaK(k), k_coarse, numCellsRootMesh, useZeroMeanConstraints, jumpToCoarsePolyOrder,
+                                    setUpMeshTopologyAndQuit, nsFormulation);
     
-    gmgSolverInitializationTime = timer.ElapsedTime();
+    if (setUpMeshTopologyAndQuit)
+    {
+      return 0;
+    }
+    
+    if (numGrids != -1)
+    {
+      vector<MeshPtr> newMeshesCoarseToFine;
+      for (int gridNumber=0; gridNumber < numGrids; gridNumber++)
+      {
+        MeshPtr lastMesh = meshesCoarseToFine[meshesCoarseToFine.size()-1];
+        meshesCoarseToFine.pop_back();
+        newMeshesCoarseToFine.insert(newMeshesCoarseToFine.begin(), lastMesh);
+      }
+      meshesCoarseToFine = newMeshesCoarseToFine;
+    }
+    
+    TimeLogger::sharedInstance()->stopTimer(meshInitTimerHandle);
+    
+    double meshInitializationTime = timer.ElapsedTime();
+
+    int numDofs = solution->mesh()->numGlobalDofs();
+    int numTraceDofs = solution->mesh()->numFluxDofs();
+    int numElements = solution->mesh()->numActiveElements();
+    
+    long long approximateMemoryCostInBytes = approximateMemoryCostsForMeshTopologies(meshesCoarseToFine);
+    double bytesPerMB = (1024.0 * 1024.0);
+    double memoryCostInMB = approximateMemoryCostInBytes / bytesPerMB;
+
+    BFPtr bf = solution->mesh()->bilinearForm();
+
+    GlobalIndexType sampleCellID = 0;
+    int totalTrialDofs, totalTestDofs;
+    double B_denseMatrixSize, G_denseMatrixSize, K_denseMatrixSize, B_sparseMatrixSize, G_sparseMatrixSize;
+    int rankWithSampleCell = solution->mesh()->Comm()->NumProc();
+    if (solution->mesh()->getTopology()->isValidCellIndex(sampleCellID))
+    {
+      rankWithSampleCell = solution->mesh()->Comm()->MyPID();
+      ElementTypePtr sampleElementType = solution->mesh()->getElementType(sampleCellID);
+      totalTrialDofs = sampleElementType->trialOrderPtr->totalDofs();
+      totalTestDofs = sampleElementType->testOrderPtr->totalDofs();
+      
+      int doubleSizeInBytes = sizeof(double);
+      B_denseMatrixSize = (totalTrialDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
+      G_denseMatrixSize = (totalTestDofs * totalTestDofs * doubleSizeInBytes) / bytesPerMB;
+      K_denseMatrixSize = (totalTrialDofs * totalTrialDofs * doubleSizeInBytes) / bytesPerMB;
+      B_sparseMatrixSize = ( bf->nonZeroEntryCount(sampleElementType->trialOrderPtr, sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
+      G_sparseMatrixSize = ( ip->nonZeroEntryCount(sampleElementType->testOrderPtr) * doubleSizeInBytes) / bytesPerMB;
+    }
+
+    Comm = solution->mesh()->Comm();
+    
+    int minRankWithSampleCell;
+    Comm->MinAll(&rankWithSampleCell, &minRankWithSampleCell, 1);
+    Comm->Broadcast(&totalTestDofs, 1, minRankWithSampleCell);
+    Comm->Broadcast(&totalTrialDofs, 1, minRankWithSampleCell);
+    
+    Comm->Broadcast(&B_denseMatrixSize, 1, minRankWithSampleCell);
+    Comm->Broadcast(&G_denseMatrixSize, 1, minRankWithSampleCell);
+    Comm->Broadcast(&K_denseMatrixSize, 1, minRankWithSampleCell);
+    Comm->Broadcast(&B_sparseMatrixSize, 1, minRankWithSampleCell);
+    Comm->Broadcast(&G_sparseMatrixSize, 1, minRankWithSampleCell);
+
+    int coarseMeshGlobalDofs = meshesCoarseToFine[0]->numGlobalDofs();
+    int coarseMeshNumElements = meshesCoarseToFine[0]->numElements();
+    int coarseMeshTraceDofs = meshesCoarseToFine[0]->numFluxDofs();
+    
+    double cellHaloTime = solution->mesh()->getTopology()->totalTimeComputingCellHalos();
+    double maxCellHaloTime;
+    solution->mesh()->Comm()->MaxAll(&cellHaloTime, &maxCellHaloTime, 1);
+    
     if (rank==0)
     {
-      cout << "GMGSolver initialized in " << gmgSolverInitializationTime << " seconds.\n";
+      int numLevels = meshesCoarseToFine.size();
+      cout << setprecision(2);
+      cout << "Mesh initialization completed in " << meshInitializationTime << " seconds.  Fine mesh has " << numDofs;
+      cout << " global degrees of freedom (" << numTraceDofs << " trace dofs) on " << numElements << " elements.\n";
+      cout << "Coarsest mesh has " << coarseMeshGlobalDofs << " global degrees of freedom (" << coarseMeshTraceDofs << " trace dofs) on " << coarseMeshNumElements << " elements.\n";
+      cout << "Approximate (correct within a factor of 2 or so) memory cost for all mesh topologies: " << memoryCostInMB << " MB.\n";
+      cout << "Number of mesh levels: " << numLevels << ".\n";
+      cout << "Approximate memory cost per element (assuming dense storage): G = " << G_denseMatrixSize << " MB, B = " << B_denseMatrixSize << " MB, K = ";
+      cout << K_denseMatrixSize << " MB.\n";
+      cout << totalTrialDofs << " trial dofs per element; " << totalTestDofs << " test dofs.\n";
+      
+      cout << "Approximate memory cost per element (assuming sparse storage): G = " << G_sparseMatrixSize << " MB, B = " << B_sparseMatrixSize << " MB.\n";
+      
+      cout << "Maximum time spent determining cell halos: " << maxCellHaloTime << " seconds.\n";
+      
+      if (setUpMeshesAndQuit)
+        cout << "***** setUpMeshesAndQuit option selected; now exiting *****\n";
+      
+      if (solveDirectly)
+        cout << "******* Using direct solve in place of multigrid-preconditioned iterative solve ****** \n";
+      else
+        cout << "Multigrid strategy: " << multigridStrategyString << endl;
+      
+      if (useDiagonalSchwarzWeighting)
+      {
+        cout << "***********************************************************************************************************\n";
+        cout << "** NOTE: USING DIAGONAL SCHWARZ WEIGHTING.  THIS IS EXPERIMENTAL, AS PREVIOUS TESTS HAVE NOT WORKED WELL. *\n";
+        cout << "***********************************************************************************************************\n";
+      }
     }
+    
+    printTimings();
+    
+    if (setUpMeshesAndQuit)
+    {
+      return 0;
+    }
+    
+  //  if (rank==0) cout << "Setting optimal test solve to QR\n";
+    if (useFactoredCholeskyForOptimalTests)
+    {
+      if (rank==0) cout << "Setting optimal test solve to *factored* Cholesky\n";
+      solution->mesh()->bilinearForm()->setOptimalTestSolver(TBF<>::FACTORED_CHOLESKY);
+    }
+    else
+    {
+      if (rank==0) cout << "Setting optimal test solve to standard Cholesky\n";
+      solution->mesh()->bilinearForm()->setOptimalTestSolver(TBF<>::CHOLESKY);
+    }
+    
+    double gmgSolverInitializationTime = 0, solveTime;
+    
+    timer.ResetStartTime();
+    int gmgSolverInitTimerHandle = TimeLogger::sharedInstance()->startTimer("GMGSolver Init.");
+    if (!solveDirectly)
+    {
+      auto setUpGMGSolver = [&solution, &meshesCoarseToFine, &cgMaxIterations, &cgTol,
+                             &multigridStrategy, &useCondensedSolve, &useDiagonalSchwarzWeighting,
+                             &useConjugateGradient, &azOutput, &logFineOperator,
+                             &clearFinestCondensedDofInterpreterAfterProlongation] () -> Teuchos::RCP<GMGSolver>
+      {
+        bool reuseFactorization = true;
+        SolverPtr coarseSolver = Solver::getDirectSolver(reuseFactorization);
+        
+  #if defined(HAVE_AMESOS_SUPERLUDIST) || defined(HAVE_AMESOS2_SUPERLUDIST)
+        SuperLUDistSolver* superLUSolver = dynamic_cast<SuperLUDistSolver*>(coarseSolver.get());
+        if (superLUSolver)
+        {
+          superLUSolver->setRunSilent(true);
+        }
+  #endif
+        
+        Teuchos::RCP<GMGSolver> gmgSolver = Teuchos::rcp(new GMGSolver(solution, meshesCoarseToFine, cgMaxIterations, cgTol,
+                                                                       multigridStrategy, coarseSolver, useCondensedSolve,
+                                                                       useDiagonalSchwarzWeighting));
+        gmgSolver->setUseConjugateGradient(useConjugateGradient);
+        gmgSolver->setAztecOutput(azOutput);
+        gmgSolver->gmgOperator()->setNarrateOnRankZero(logFineOperator,"finest GMGOperator");
+        
+        gmgSolver->gmgOperator()->setClearFinestCondensedDofInterpreterAfterProlongation(clearFinestCondensedDofInterpreterAfterProlongation);
+        
+        return gmgSolver;
+      };
+      Teuchos::RCP<GMGSolver> gmgSolver = setUpGMGSolver();
+      TimeLogger::sharedInstance()->stopTimer(gmgSolverInitTimerHandle);
+      
+      gmgSolverInitializationTime = timer.ElapsedTime();
+      if (rank==0)
+      {
+        cout << "GMGSolver initialized in " << gmgSolverInitializationTime << " seconds.\n";
+      }
 
-    if (constructProlongationOperatorAndQuit)
+      if (constructProlongationOperatorAndQuit)
+      {
+        timer.ResetStartTime();
+        gmgSolver->gmgOperator()->constructProlongationOperator();
+        double gmgFineProlongationOperatorConstructionTime = timer.ElapsedTime();
+        if (rank==0)
+        {
+          cout << "fine GMG prolongation operator constructed in " << gmgFineProlongationOperatorConstructionTime << " seconds.\n";
+          cout << "--constructProlongationOperatorAndQuit passed in; now exiting.\n";
+        }
+  #ifdef HAVE_MPI
+        MPI_Finalize();
+  #endif
+        exit(0);
+      }
+      
+      if (problemChoice == NavierStokes)
+      {
+        if (rank == 0) cout << "Navier-Stokes: taking an initial Newton step before recording results.\n";
+        gmgSolver->setAztecOutput(0); // solve silently
+        // then take a Newton step, and recreate the gmgSolver
+        nsFormulation->setSolver(gmgSolver);
+        nsFormulation->solveAndAccumulate();
+        if (rank == 0) cout << "Navier-Stokes: recreating GMGSolver after taking initial Newton step.\n";
+        gmgSolver = setUpGMGSolver();
+      }
+      
+      timer.ResetStartTime();
+      
+      int totalSolveTimerHandle = TimeLogger::sharedInstance()->startTimer("Total solve");
+      solution->solve(gmgSolver);
+      TimeLogger::sharedInstance()->stopTimer(totalSolveTimerHandle);
+      solveTime = timer.ElapsedTime();
+      
+      run->iterations = gmgSolver->iterationCount();
+
+      if (useCondensedSolve)
+      {
+        long long memoryCost = 0;
+        
+        Teuchos::RCP<GMGOperator> gmgOperator = gmgSolver->gmgOperator();
+        while (gmgOperator != Teuchos::null)
+        {
+          CondensedDofInterpreter<double>* dofInterpreter = dynamic_cast<CondensedDofInterpreter<double>*>(gmgOperator->getFineDofInterpreter().get());
+          memoryCost += dofInterpreter->approximateStiffnessAndLoadMemoryCost();
+          
+          gmgOperator = gmgOperator->getCoarseOperator();
+        }
+        
+        double memoryCostInMB = memoryCost / (1024.0 * 1024.0);
+        if (rank==0) cout << "On rank 0, CondensedDofInterpreter used " << memoryCostInMB << " MB for stiffness and load storage.\n";
+      }
+      
+      if (rank==0) cout << "Finest GMGOperator, timing report:\n";
+      gmgSolver->gmgOperator()->reportTimingsSumOfOperators(StatisticChoice::MAX);
+      
+      if (writeOpToFile)
+      {
+        Teuchos::RCP<GMGOperator> op = gmgSolver->gmgOperator();
+        if (rank==0) cout << "writing op to op.dat.\n";
+        EpetraExt::RowMatrixToMatrixMarketFile("op.dat",*op->getMatrixRepresentation(), NULL, NULL, false);
+        
+        if (rank==0) cout << "writing fine stiffness to A.dat.\n";
+        EpetraExt::RowMatrixToMatrixMarketFile("A.dat",*solution->getStiffnessMatrix(), NULL, NULL, false);
+      }
+    }
+    else
     {
       timer.ResetStartTime();
-      gmgSolver->gmgOperator()->constructProlongationOperator();
-      double gmgFineProlongationOperatorConstructionTime = timer.ElapsedTime();
-      if (rank==0)
+      SolverPtr solver = Solver::getDirectSolver();
+  #if defined(HAVE_AMESOS_SUPERLUDIST) || defined(HAVE_AMESOS2_SUPERLUDIST)
+      // if we are solving directly using SuperLU_Dist, there's a good chance we're memory-bound.  Let's use as many processors as are available
+      SuperLUDistSolver* superLUSolver = dynamic_cast<SuperLUDistSolver*>(solver.get());
+      if (superLUSolver)
       {
-        cout << "fine GMG prolongation operator constructed in " << gmgFineProlongationOperatorConstructionTime << " seconds.\n";
-        cout << "--constructProlongationOperatorAndQuit passed in; now exiting.\n";
+        superLUSolver->setMaxProcsToUse(-3);
+        if (rank==0)
+          cout << "****** Set SuperLUDistSolver to use all available processors (for direct solve). ***** \n";
       }
-#ifdef HAVE_MPI
-      MPI_Finalize();
-#endif
-      exit(0);
+  #endif
+      solution->solve(superLUSolver);
+      solveTime = timer.ElapsedTime();
+      
+      solution->reportTimings();
     }
-    
-    timer.ResetStartTime();
-    
-    int totalSolveTimerHandle = TimeLogger::sharedInstance()->startTimer("Total solve");
-    solution->solve(gmgSolver);
-    TimeLogger::sharedInstance()->stopTimer(totalSolveTimerHandle);
-    solveTime = timer.ElapsedTime();
 
-    if (useCondensedSolve)
+    double maxTimeLocalStiffness = solution->maxTimeLocalStiffness();
+    
+    if (rank==0)
     {
-      long long memoryCost = 0;
+      double totalTime = solveTime + gmgSolverInitializationTime + meshInitializationTime;
+      cout << "Max time spent determining local stiffness contributions (included in Solve, below): " << maxTimeLocalStiffness << " seconds.\n";
       
-      Teuchos::RCP<GMGOperator> gmgOperator = gmgSolver->gmgOperator();
-      while (gmgOperator != Teuchos::null)
-      {
-        CondensedDofInterpreter<double>* dofInterpreter = dynamic_cast<CondensedDofInterpreter<double>*>(gmgOperator->getFineDofInterpreter().get());
-        memoryCost += dofInterpreter->approximateStiffnessAndLoadMemoryCost();
-        
-        gmgOperator = gmgOperator->getCoarseOperator();
-      }
-      
-      double memoryCostInMB = memoryCost / (1024.0 * 1024.0);
-      if (rank==0) cout << "On rank 0, CondensedDofInterpreter used " << memoryCostInMB << " MB for stiffness and load storage.\n";
+      cout << "Total time: " << totalTime << " seconds.\n";
+      int tabWidth = 15;
+      cout << setw(tabWidth) << "Mesh Init." << setw(tabWidth) << "GMG Init." << setw(tabWidth) << "Solve" << endl;
+      if (gmgSolverInitializationTime ==  0)
+        cout << setw(tabWidth) << meshInitializationTime << setw(tabWidth) << "-" << setw(tabWidth) << solveTime << endl;
+      else
+        cout << setw(tabWidth) << meshInitializationTime << setw(tabWidth) << gmgSolverInitializationTime << setw(tabWidth) << solveTime << endl;
+  //    cout << "Solve completed in " << solveTime << " seconds.\n";
+  //    cout << "Total time, including GMGSolver initialization (but not mesh construction): " << solveTime + gmgSolverInitializationTime << " seconds.\n";
     }
     
-    if (rank==0) cout << "Finest GMGOperator, timing report:\n";
-    gmgSolver->gmgOperator()->reportTimingsSumOfOperators(StatisticChoice::MAX);
-    
-    if (writeOpToFile)
-    {
-      Teuchos::RCP<GMGOperator> op = gmgSolver->gmgOperator();
-      if (rank==0) cout << "writing op to op.dat.\n";
-      EpetraExt::RowMatrixToMatrixMarketFile("op.dat",*op->getMatrixRepresentation(), NULL, NULL, false);
-      
-      if (rank==0) cout << "writing fine stiffness to A.dat.\n";
-      EpetraExt::RowMatrixToMatrixMarketFile("A.dat",*solution->getStiffnessMatrix(), NULL, NULL, false);
-    }
-  }
-  else
-  {
-    timer.ResetStartTime();
-    SolverPtr solver = Solver::getDirectSolver();
-#if defined(HAVE_AMESOS_SUPERLUDIST) || defined(HAVE_AMESOS2_SUPERLUDIST)
-    // if we are solving directly using SuperLU_Dist, there's a good chance we're memory-bound.  Let's use as many processors as are available
-    SuperLUDistSolver* superLUSolver = dynamic_cast<SuperLUDistSolver*>(solver.get());
-    if (superLUSolver)
-    {
-      superLUSolver->setMaxProcsToUse(-3);
-      if (rank==0)
-        cout << "****** Set SuperLUDistSolver to use all available processors (for direct solve). ***** \n";
-    }
-#endif
-    solution->solve(superLUSolver);
-    solveTime = timer.ElapsedTime();
-    
-    solution->reportTimings();
-  }
-
-  double maxTimeLocalStiffness = solution->maxTimeLocalStiffness();
-  
-  if (rank==0)
-  {
-    double totalTime = solveTime + gmgSolverInitializationTime + meshInitializationTime;
-    cout << "Max time spent determining local stiffness contributions (included in Solve, below): " << maxTimeLocalStiffness << " seconds.\n";
-    
-    cout << "Total time: " << totalTime << " seconds.\n";
-    int tabWidth = 15;
-    cout << setw(tabWidth) << "Mesh Init." << setw(tabWidth) << "GMG Init." << setw(tabWidth) << "Solve" << endl;
-    if (gmgSolverInitializationTime ==  0)
-      cout << setw(tabWidth) << meshInitializationTime << setw(tabWidth) << "-" << setw(tabWidth) << solveTime << endl;
-    else
-      cout << setw(tabWidth) << meshInitializationTime << setw(tabWidth) << gmgSolverInitializationTime << setw(tabWidth) << solveTime << endl;
-//    cout << "Solve completed in " << solveTime << " seconds.\n";
-//    cout << "Total time, including GMGSolver initialization (but not mesh construction): " << solveTime + gmgSolverInitializationTime << " seconds.\n";
+    printTimings();
   }
   
-  printTimings();
+  if (rank == 0)
+  {
+    vector<int> colWidths = {20,20,20,20,20,20,20};
+    cout << "Summary:\n";
+    cout << setw(colWidths[0]) << "$k_{\\rm fine}$"; //
+    cout << setw(colWidths[1]) << "& $k_{\\rm coarse}$";
+    cout << setw(colWidths[2]) << "& $k$ levels";
+    cout << setw(colWidths[3]) << "& Fine Mesh Width";
+    cout << setw(colWidths[4]) << "& Coarse Mesh Width";
+    cout << setw(colWidths[5]) << "& $h$ levels";
+    cout << setw(colWidths[6]) << "& Iterations\\\\\n";
+    
+    for (Result run : runsToDo)
+    {
+      cout << setw(colWidths[0]) << run.k_fine;
+      cout << setw(colWidths[1]) << "&" << run.k_coarse;
+      cout << setw(colWidths[2]) << "&" << run.k_levels;
+      cout << setw(colWidths[3]) << "&" << run.fineMeshWidth;
+      cout << setw(colWidths[4]) << "&" << run.coarseMeshWidth;
+      cout << setw(colWidths[5]) << "&" << run.h_levels;
+      cout << setw(colWidths[6]) << "&" << run.iterations;
+      cout << "\\\\\n";
+    }
+  }
   
   return 0;
 }
