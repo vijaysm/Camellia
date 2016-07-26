@@ -402,6 +402,13 @@ void CellDataMigration::processSolutionCoefficients(Mesh* mesh)
     solnOrdinal = (solnOrdinal + 1) % numSolutions;
   }
   solutionCoefficients.clear();
+  for (SolutionPtr soln : solutions)
+  {
+    // reset the global LHS vector from the local coefficients
+    soln->initializeLHSVector();
+    // import any coefficients that belong to neighbors -- and reset local coefficients accordingly
+    soln->importSolution();
+  }
 }
 
 int CellDataMigration::solutionDataSize(Mesh *mesh, GlobalIndexType cellID)
@@ -611,6 +618,7 @@ void CellDataMigration::getGeometry(const MeshTopologyView* meshTopo, MeshGeomet
   geometryInfo.globalCellCount = meshTopo->cellCount();
   geometryInfo.globalActiveCellCount = meshTopo->activeCellCount();
   int rootCellOrdinal = 0;
+  ConstMeshTopologyViewPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
   vector<GlobalIndexType> thisLevelParents;
   for (IndexType rootCellIndex : *myRootCellIndices)
   {
@@ -625,14 +633,13 @@ void CellDataMigration::getGeometry(const MeshTopologyView* meshTopo, MeshGeomet
       IndexType vertexIndex = (*vertexIndices)[vertexOrdinal];
       geometryInfo.rootVertices[rootCellOrdinal][vertexOrdinal] = meshTopo->getVertex(vertexIndex);
     }
-    if (rootCell->numChildren() > 0)
+    if (rootCell->isParent(meshTopoRCP))
     {
       thisLevelParents.push_back(rootCellIndex);
     }
     rootCellOrdinal++;
   }
   
-  ConstMeshTopologyViewPtr meshTopoRCP = Teuchos::rcp(meshTopo,false);
   geometryInfo.refinementLevels.clear();
   
   while (thisLevelParents.size() > 0)
@@ -653,7 +660,7 @@ void CellDataMigration::getGeometry(const MeshTopologyView* meshTopo, MeshGeomet
         if (meshTopo->isValidCellIndex(childCellID))
         {
           CellPtr childCell = meshTopo->getCell(childCellID);
-          if (childCell->numChildren() > 0)
+          if (childCell->isParent(meshTopoRCP))
           {
             nextLevelParents.push_back(childCellID);
           }
