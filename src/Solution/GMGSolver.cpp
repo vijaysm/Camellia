@@ -167,7 +167,7 @@ Teuchos::RCP<GMGOperator> GMGSolver::gmgOperatorFromMeshSequence(const std::vect
   int coarseSmootherApplications = 1;
   int fineSmootherApplications = 1;
   
-  const static int SMOOTHER_OVERLAP_FOR_LOWEST_ORDER_P = 1; // new; old approach would have had 0 here...
+  const static int SMOOTHER_OVERLAP_FOR_LOWEST_ORDER_P = 0; // new; old approach would have had 0 here...
   
   bool hRefinedPrevious = false; // assumption is that we do h-refinements on a coarse poly mesh, and then p refinements.
   for (int i=meshesCoarseToFine.size()-1; i>0; i--)
