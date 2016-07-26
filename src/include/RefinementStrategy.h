@@ -49,12 +49,20 @@ protected:
   int _max_p;
   bool _preferPRefinements;
 
+  int _cubatureEnrichment = 0;
+  
   MeshPtr mesh();
 public:
   TRefinementStrategy( TSolutionPtr<Scalar> solution, double relativeEnergyThreshold, double min_h = 0, int max_p = 10, bool preferPRefinements = false);
   TRefinementStrategy( MeshPtr mesh, TLinearTermPtr<Scalar> residual, TIPPtr<Scalar> ip, double relativeEnergyThreshold, double min_h = 0, int max_p = 10, bool preferPRefinements = false);
   
   double computeTotalEnergyError();
+  
+  // ! Set the energy threshold (relative to maximum element error) to use for refinements
+  void setRelativeEnergyThreshold(double value);
+  
+  // ! Used when RefinementStrategy is constructed with a residual argument.  (When a solution was provided on construction, the solution's cubature degree will be used.)
+  void setRieszRepCubatureEnrichmentDegree(int value);
   
   void setEnforceOneIrregularity(bool value);
   void setAnisotropicThreshhold(double value);

@@ -199,7 +199,7 @@ double TRefinementStrategy<Scalar>::computeTotalEnergyError()
   map<GlobalIndexType, double> energyErrorThisRank; // for each cell owned by this rank
   if (_rieszRep.get() != NULL)
   {
-    _rieszRep->computeRieszRep();
+    _rieszRep->computeRieszRep(_cubatureEnrichment);
     energyErrorThisRank = _rieszRep->getNormsSquared();
     // take square roots:
     for (map<GlobalIndexType, double>::iterator energyEntryIt = energyErrorThisRank.begin();
@@ -287,7 +287,7 @@ void TRefinementStrategy<Scalar>::refine(bool printToConsole)
   bool energyErrorIsSquared;
   if (_rieszRep.get() != NULL)
   {
-    _rieszRep->computeRieszRep();
+    _rieszRep->computeRieszRep(_cubatureEnrichment);
     rankLocalEnergyError = &_rieszRep->getNormsSquared();
     // will need to take square roots:
     energyErrorIsSquared = true;
@@ -567,6 +567,18 @@ void TRefinementStrategy<Scalar>::hRefineUniformly(MeshPtr mesh)
   vector<GlobalIndexType> cellsToRefineVector(cellsToRefine.begin(),cellsToRefine.end());
   hRefineCells(mesh, cellsToRefineVector);
   mesh->repartitionAndRebuild();
+}
+
+template <typename Scalar>
+void TRefinementStrategy<Scalar>::setRieszRepCubatureEnrichmentDegree(int value)
+{
+  _cubatureEnrichment = value;
+}
+
+template <typename Scalar>
+void TRefinementStrategy<Scalar>::setRelativeEnergyThreshold(double value)
+{
+  _relativeEnergyThreshold = value;
 }
 
 template <typename Scalar>
