@@ -982,6 +982,12 @@ int main(int argc, char *argv[])
       if (rank==0)
       {
         cout << "GMGSolver initialized in " << gmgSolverInitializationTime << " seconds.\n";
+        Teuchos::RCP<GMGOperator> op = gmgSolver->gmgOperator();
+        while (op != Teuchos::null)
+        {
+          cout << "Level " << op->getOperatorLevel() << " operator has smoother overlap of " << op->getSmootherOverlap() << endl;
+          op = op->getCoarseOperator();
+        }
       }
 
       if (constructProlongationOperatorAndQuit)
@@ -1064,7 +1070,7 @@ int main(int argc, char *argv[])
           cout << "****** Set SuperLUDistSolver to use all available processors (for direct solve). ***** \n";
       }
   #endif
-      solution->solve(superLUSolver);
+      solution->solve(solver);
       solveTime = timer.ElapsedTime();
       
       solution->reportTimings();
