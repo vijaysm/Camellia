@@ -1611,6 +1611,11 @@ int GMGOperator::getSmootherApplicationCount() const
   return _smootherApplicationCount;
 }
 
+int GMGOperator::getSmootherOverlap() const
+{
+  return _smootherOverlap;
+}
+
 GMGOperator::SmootherChoice GMGOperator::getSmootherType()
 {
   return _smootherType;

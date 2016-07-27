@@ -325,6 +325,7 @@ public:
   SmootherChoice getSmootherType();
   
   void setSmootherType(SmootherChoice smootherType);
+  int getSmootherOverlap() const;
   void setSmootherOverlap(int overlap);
 
   // ! Computed as 1/(1+N), where N = max #neighbors of any cell's overlap region.
