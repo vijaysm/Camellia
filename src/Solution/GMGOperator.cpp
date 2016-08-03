@@ -379,7 +379,7 @@ void GMGOperator::computeResidual(const Epetra_MultiVector& Y, Epetra_MultiVecto
   }
 }
 
-// ! Computed as 1/(1+N), where N = max #neighbors of any cell's overlap region.
+// ! Computed as 1/(1+N), where N = max # of side neighbors of any cell's overlap region.
 double GMGOperator::computeSchwarzSmootherWeight()
 {
   // (For IfPack, this weight may not be exactly correct, but it's probably kinda close.  Likely we will deprecate support for
@@ -389,58 +389,10 @@ double GMGOperator::computeSchwarzSmootherWeight()
   // connected elements (an element is connected to itself and its face neighbors).
   // Conjecture: rho(E) is bounded above by the maximum side count of an element plus 1.
   // Based on results in Smith et al., I *think* that we can bound the maximum eigenvalue of S*A by 1 + rho(E)
-  set<GlobalIndexType> myCellIndices = _fineMesh->globalDofAssignment()->cellsInPartition(-1);
-  Epetra_CommPtr Comm = _fineMesh->Comm();
   
-  int localMaxNeighbors = 0;
-  MeshTopologyViewPtr fineMeshTopo = _fineMesh->getTopology();
-  for (GlobalIndexType cellIndex : myCellIndices)
-  {
-    set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, _fineMesh, _smootherOverlap,
+  int globalMaxNeighbors = AdditiveSchwarz<Ifpack_Amesos>::MaxGlobalOverlapSideNeighborCount(_fineMesh, _smootherOverlap,
                                                                                              _hierarchicalNeighborsForSchwarz,
                                                                                              _dimensionForSchwarzNeighborRelationship);
-    
-    set<GlobalIndexType> subdomainNeighbors;
-    for (GlobalIndexType subdomainCellIndex : subdomainCellsAndNeighbors)
-    {
-      CellPtr subdomainCell = _fineMesh->getTopology()->getCell(subdomainCellIndex);
-      int sideCount = subdomainCell->getSideCount();
-      for (int sideOrdinal=0; sideOrdinal<sideCount; sideOrdinal++)
-      {
-        pair<GlobalIndexType,unsigned> neighborInfo = subdomainCell->getNeighborInfo(sideOrdinal, fineMeshTopo);
-        GlobalIndexType neighborCellID = neighborInfo.first;
-        if (neighborCellID == -1) continue;
-        unsigned neighborSideOrdinal = neighborInfo.second;
-        CellPtr neighbor = fineMeshTopo->getCell(neighborCellID);
-        if (!neighbor->isParent(fineMeshTopo))
-        {
-          subdomainNeighbors.insert(neighborCellID);
-        }
-        else
-        {
-          bool leafCellsOnly = true;
-          vector<pair<GlobalIndexType,unsigned>> neighborDescendentsInfo = neighbor->getDescendantsForSide(neighborSideOrdinal, fineMeshTopo, leafCellsOnly);
-          for (auto neighborDescendentInfo : neighborDescendentsInfo)
-          {
-            subdomainNeighbors.insert(neighborDescendentInfo.first);
-          }
-        }
-      }
-    }
-    
-    subdomainCellsAndNeighbors.insert(subdomainNeighbors.begin(),subdomainNeighbors.end());
-//    {
-//      // DEBUGGING
-//      if (localMaxNeighbors < subdomainCellsAndNeighbors.size())
-//      {
-//        cout << "cell " << cellIndex << " has " << subdomainCellsAndNeighbors.size() << " neighbors.\n";
-//        print("neighbors", subdomainCellsAndNeighbors);
-//      }
-//    }
-    localMaxNeighbors = max(localMaxNeighbors,(int)subdomainCellsAndNeighbors.size());
-  }
-  int globalMaxNeighbors;
-  Comm->MaxAll(&localMaxNeighbors, &globalMaxNeighbors, 1);
   
   double weight = 1.0 / (globalMaxNeighbors + 1); // aiming for a weight that guarantees max eig of weight * S * A is 1.0
   
@@ -770,10 +722,6 @@ Teuchos::RCP<Epetra_FECrsMatrix> GMGOperator::constructProlongationOperator(Teuc
       for (int j=0; j<numRowEntries; j++)
       {
         int GID = colIndices[j];
-        if (i==8622)
-        {
-          cout << "Row 8622 has column entry for GID " << GID << endl;
-        }
         
         int LID = coarseMap.LID(GID);
         if (LID != -1)
@@ -2280,6 +2228,8 @@ void GMGOperator::setUpSmoother(Epetra_CrsMatrix *fineStiffnessMatrix)
 
   Teuchos::RCP<Ifpack_Preconditioner> smoother;
 
+  int rank = Comm().MyPID();
+  
   switch (choice)
   {
   case NONE:
@@ -2442,17 +2392,12 @@ void GMGOperator::setUpSmoother(Epetra_CrsMatrix *fineStiffnessMatrix)
 //    cout << *smoother;
 //  }
 
-//  if (_smootherType != IFPACK_ADDITIVE_SCHWARZ) {
-  // not real sure why, but in the doc examples, this isn't called for additive schwarz
   err = smoother->Initialize();
   if (err != 0)
   {
     cout << "WARNING: In GMGOperator, smoother->Initialize() returned with err " << err << endl;
   }
-//  }
-//  cout << "Calling smoother->Compute()\n";
   err = smoother->Compute();
-//  cout << "smoother->Compute() completed\n";
 
   int myLevel = getOperatorLevel();
   if (err != 0)
@@ -2464,24 +2409,28 @@ void GMGOperator::setUpSmoother(Epetra_CrsMatrix *fineStiffnessMatrix)
   {
     // setup weight vector:
     const Epetra_Map* rangeMap = NULL;
+    vector<int> myIncidenceCounts;
     switch (_schwarzBlockFactorizationType)
     {
       case Direct:
       {
         Camellia::AdditiveSchwarz<Ifpack_Amesos>* camelliaSmoother = dynamic_cast<Camellia::AdditiveSchwarz<Ifpack_Amesos>*>(smoother.get());
         rangeMap = &camelliaSmoother->OverlapMap();
+        myIncidenceCounts = camelliaSmoother->LocalIncidenceCounts();
       }
         break;
       case ILU:
       {
         Camellia::AdditiveSchwarz<Ifpack_ILU>* camelliaSmoother = dynamic_cast<Camellia::AdditiveSchwarz<Ifpack_ILU>*>(smoother.get());
         rangeMap = &camelliaSmoother->OverlapMap();
+        myIncidenceCounts = camelliaSmoother->LocalIncidenceCounts();
       }
         break;
       case IC:
       {
         Camellia::AdditiveSchwarz<Ifpack_IC>* camelliaSmoother = dynamic_cast<Camellia::AdditiveSchwarz<Ifpack_IC>*>(smoother.get());
         rangeMap = &camelliaSmoother->OverlapMap();
+        myIncidenceCounts = camelliaSmoother->LocalIncidenceCounts();
       }
         break;
     }
@@ -2489,7 +2438,8 @@ void GMGOperator::setUpSmoother(Epetra_CrsMatrix *fineStiffnessMatrix)
     Epetra_FEVector multiplicities(fineStiffnessMatrix->RowMap(),1);
     vector<GlobalIndexTypeToCast> overlappingEntries(rangeMap->NumMyElements());
     rangeMap->MyGlobalElements(&overlappingEntries[0]);
-    vector<double> myOverlappingValues(overlappingEntries.size(),1.0);
+
+    vector<double> myOverlappingValues(myIncidenceCounts.begin(),myIncidenceCounts.end());
     multiplicities.SumIntoGlobalValues(myOverlappingValues.size(), &overlappingEntries[0], &myOverlappingValues[0]);
     multiplicities.GlobalAssemble();
     
@@ -2497,7 +2447,8 @@ void GMGOperator::setUpSmoother(Epetra_CrsMatrix *fineStiffnessMatrix)
     multiplicities.MaxValue(&maxMultiplicity);
     if (_useSchwarzScalingWeight)
     {
-      _smootherWeight = 1.0 / maxMultiplicity;
+      _smootherWeight = 1.0 / (2 + maxMultiplicity);
+//      if (rank == 0) cout << "Set _smootherWeight to 1/" << (int) (2 + maxMultiplicity) << endl;
     }
     
     if (_useSchwarzDiagonalWeight)
@@ -2524,6 +2475,11 @@ void GMGOperator::setUpSmoother(Epetra_CrsMatrix *fineStiffnessMatrix)
 //    double oldWeight = _smootherWeight;
     
     _smootherWeight = computeSchwarzSmootherWeight();
+    if (rank == 0)
+    {
+      int inverse = 1.0 / _smootherWeight;
+//      cout << "Set _smootherWeight to 1/" << inverse << endl;
+    }
     
 //    int rank = Teuchos::GlobalMPISession::getRank();
 //    static bool haveWarned = false;

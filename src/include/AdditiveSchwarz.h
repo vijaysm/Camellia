@@ -239,6 +239,9 @@ public:
   //! returns the maximum such count for the mesh.
   int MaxGlobalOverlapSideNeighborCount() const;
   
+  //! static method is called by instance method
+  static int MaxGlobalOverlapSideNeighborCount(MeshPtr mesh, int overlap, bool hierarchical, int dimForNeighborRelationship);
+  
   const Epetra_Map & OverlapMap() const;
   //@}
 
@@ -898,15 +901,16 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
     multiplicities.MaxValue(&maxMultiplicity);
     return maxMultiplicity;
   }
-  
+
+  // static method (called by instance method)
   template<typename T>
-  int AdditiveSchwarz<T>::MaxGlobalOverlapSideNeighborCount() const
+  int AdditiveSchwarz<T>::MaxGlobalOverlapSideNeighborCount(MeshPtr mesh, int overlap, bool hierarchical, int dimForNeighborRelationship)
   {
-    const set<GlobalIndexType>* myCellIndices = &mesh_->cellIDsInPartition();
-    Epetra_CommPtr Comm = mesh_->Comm();
+    const set<GlobalIndexType>* myCellIndices = &mesh->cellIDsInPartition();
+    Epetra_CommPtr Comm = mesh->Comm();
     
     int localMaxNeighbors = 0;
-    MeshTopologyViewPtr meshTopo = mesh_->getTopology();
+    MeshTopologyViewPtr meshTopo = mesh->getTopology();
     
     int overlapNeighborRelationshipDimension = meshTopo->getDimension() - 1; // side dimension
     set<GlobalIndexType> remoteCells;
@@ -914,12 +918,12 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
     // first: which neighbors are remote? (we assume that overlap region itself is locally known)
     for (GlobalIndexType cellIndex : *myCellIndices)
     {
-      set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, mesh_, OverlapLevel_,
-                                                                                               hierarchical_,
-                                                                                               dimensionForNeighborRelationship_);
+      set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, mesh, overlap,
+                                                                                               hierarchical,
+                                                                                               dimForNeighborRelationship);
       for (GlobalIndexType subdomainCellIndex : subdomainCellsAndNeighbors)
       {
-        if (!mesh_->myCellsInclude(subdomainCellIndex))
+        if (!mesh->myCellsInclude(subdomainCellIndex))
         {
           remoteCells.insert(subdomainCellIndex);
         }
@@ -929,12 +933,12 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
     // second: issue requests to owners for their list of neighbors
     // this is a fairly quick-and-dirty implementation; could be reworked to reduce redundant data sent
     std::map<GlobalIndexType,std::vector<GlobalIndexType>> remoteCellNeighbors;
-
+    
     int myRank = Comm->MyPID();
     std::map<int,std::vector<std::pair<int,GlobalIndexType>>> requests; // owning PID -> (myPID, cell whose neighbor lists we want)
     for (GlobalIndexType remoteCellID : remoteCells)
     {
-      int rank = mesh_->partitionForCellID(remoteCellID);
+      int rank = mesh->partitionForCellID(remoteCellID);
       requests[rank].push_back({myRank,remoteCellID});
     }
     
@@ -947,7 +951,7 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
     {
       int remotePID = request.first;
       GlobalIndexType myCellID = request.second;
-      TEUCHOS_TEST_FOR_EXCEPTION(!mesh_->myCellsInclude(myCellID),std::invalid_argument, "request received for non-owned cellID");
+      TEUCHOS_TEST_FOR_EXCEPTION(!mesh->myCellsInclude(myCellID),std::invalid_argument, "request received for non-owned cellID");
       CellPtr myCell = meshTopo->getCell(myCellID);
       std::set<GlobalIndexType> neighborIDs = myCell->getActiveNeighborIndices(meshTopo);
       for (GlobalIndexType neighborID : neighborIDs)
@@ -966,13 +970,13 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
     // third: count
     for (GlobalIndexType cellIndex : *myCellIndices)
     {
-      set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, mesh_, OverlapLevel_,
-                                                                                               hierarchical_,
-                                                                                               dimensionForNeighborRelationship_);
+      set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, mesh, overlap,
+                                                                                               hierarchical,
+                                                                                               dimForNeighborRelationship);
       set<GlobalIndexType> subdomainNeighbors;
       for (GlobalIndexType subdomainCellIndex : subdomainCellsAndNeighbors)
       {
-        if (mesh_->myCellsInclude(subdomainCellIndex))
+        if (mesh->myCellsInclude(subdomainCellIndex))
         {
           CellPtr subdomainCell = meshTopo->getCell(subdomainCellIndex);
           
@@ -990,11 +994,17 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
       subdomainCellsAndNeighbors.insert(subdomainNeighbors.begin(),subdomainNeighbors.end());
       localMaxNeighbors = max(localMaxNeighbors,(int)subdomainCellsAndNeighbors.size());
     }
-
+    
     
     int globalMaxNeighbors;
     Comm->MaxAll(&localMaxNeighbors, &globalMaxNeighbors, 1);
     return globalMaxNeighbors;
+  }
+  
+  template<typename T>
+  int AdditiveSchwarz<T>::MaxGlobalOverlapSideNeighborCount() const
+  {
+    return AdditiveSchwarz<T>::MaxGlobalOverlapSideNeighborCount(mesh_, OverlapLevel_, hierarchical_, dimensionForNeighborRelationship_);
   }
   
 //==============================================================================
