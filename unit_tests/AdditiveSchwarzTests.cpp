@@ -74,13 +74,18 @@ namespace
     vector<double> dimensions(spaceDim,1);
     MeshTopologyPtr meshTopo = MeshFactory::rectilinearMeshTopology(dimensions, meshWidths);
     
-    SolutionPtr soln; // keep reference so that stiffness matrix doesn't get deleted
-    Teuchos::RCP<AdditiveSchwarz<Ifpack_Amesos>> schwarzOp = getSchwarzOp(soln, meshTopo, overlapLevel, conformingTraces);
+    PoissonFormulation form(spaceDim, conformingTraces);
+    int delta_k = 1; // we don't care how well we do in the Gram inversion..
+    Epetra_CommPtr Comm = MPIWrapper::CommWorld();
+    int H1Order = 1;
+    MeshPtr mesh = MeshFactory::minRuleMesh(meshTopo, form.bf(), H1Order, delta_k, Comm);
+    bool useHierarchicalNeighbors = false;
+    int dimensionForSchwarzNeighbors = spaceDim - 1; // always face neighbors, for us
     
-    // for this one, should be no need to compute -- just based on topological info
-    //schwarzOp->Compute();
+    int count = AdditiveSchwarz<Ifpack_Amesos>::MaxGlobalOverlapSideNeighborCount(mesh, overlapLevel, useHierarchicalNeighbors,
+                                                                                  dimensionForSchwarzNeighbors);
     
-    TEST_EQUALITY(schwarzOp->MaxGlobalOverlapSideNeighborCount(), expectedNeighborCount);
+    TEST_EQUALITY(count, expectedNeighborCount);
   }
   
   TEUCHOS_UNIT_TEST( AdditiveSchwarz, IncidenceCountingZeroOverlap )
