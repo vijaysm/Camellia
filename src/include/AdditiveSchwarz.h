@@ -32,6 +32,7 @@
 #include "Ifpack_Utils.h"
 #include "OverlappingRowMatrix.h"
 #include "Epetra_CombineMode.h"
+#include "Epetra_FEVector.h"
 #include "Epetra_MultiVector.h"
 #include "Epetra_Map.h"
 #include "Epetra_Comm.h"
@@ -44,9 +45,11 @@
 #include "Teuchos_RCP.hpp"
 
 #include "CamelliaDebugUtility.h"
+#include "DofInterpreter.h"
 #include "LocalFilter.h"
 #include "Mesh.h"
-#include "DofInterpreter.h"
+#include "MPIWrapper.h"
+#include "TypeDefs.h"
 
 // EpetraExt includes
 #include "EpetraExt_RowMatrixOut.h"
@@ -225,9 +228,17 @@ public:
 
   //! Returns the Epetra_Map object associated with the range of this operator.
   virtual const Epetra_Map & OperatorRangeMap() const;
-  //@}
 
-  //! Returns the Epetra_Map object for the overlapping row matrix associated with this operator.
+  //! Returns the number of local Schwarz domains that each dof in OverlapMap() participates in
+  const std::vector<int> & LocalIncidenceCounts() const;
+
+  int MaxGlobalIncidenceCount() const;
+  
+  //! For the overlap region corresponding to a Schwarz domain, count all the side (face) neighbors of
+  //! elements in that region, including the elements belonging to the overlap region.  This method
+  //! returns the maximum such count for the mesh.
+  int MaxGlobalOverlapSideNeighborCount() const;
+  
   const Epetra_Map & OverlapMap() const;
   //@}
 
@@ -414,6 +425,9 @@ protected:
   //! Camellia modification: use our LocalFilter, and have a vector of them:
   std::vector<Teuchos::RCP<LocalFilter>> _LocalizedMatrices;
   
+  //! Camellia modification: keep track of the incidence count for each dof in our Schwarz domains (those dofs listed in OverlapMap()):
+  std::vector<int> _localIncidenceCounts;
+  
 //  Teuchos::RCP<Ifpack_LocalFilter> LocalizedMatrix_;
   //! Contains the label of \c this object.
   string Label_;
@@ -512,6 +526,8 @@ int AdditiveSchwarz<T>::Setup()
   try
   {
     _LocalizedMatrices.clear();
+    _localIncidenceCounts.clear();
+    _localIncidenceCounts.resize(OverlapMap().NumMyElements(), 0);
     
     set<GlobalIndexType> myCellIDs = mesh_->cellIDsInPartition(); // we want a domain identified with each cell
 
@@ -557,6 +573,11 @@ int AdditiveSchwarz<T>::Setup()
       else
       {
         localizedMatrix = Teuchos::rcp( new LocalFilter(Matrix_, localRows) );
+      }
+      
+      for (int localRow : localRows)
+      {
+        ++_localIncidenceCounts[localRow];
       }
       
       if (localizedMatrix == Teuchos::null)
@@ -849,6 +870,131 @@ const Epetra_Map & AdditiveSchwarz<T>::OperatorRangeMap() const
       return OverlappingMatrix_->OperatorRangeMap();
     else
       return Matrix_->OperatorRangeMap();
+  }
+  
+  //==============================================================================
+  template<typename T>
+  const std::vector<int> & AdditiveSchwarz<T>::LocalIncidenceCounts() const
+  {
+    return _localIncidenceCounts;
+  }
+  
+  template<typename T>
+  int AdditiveSchwarz<T>::MaxGlobalIncidenceCount() const
+  {
+    // setup weight vector:
+    const Epetra_Map* rangeMap = &OverlapMap();
+    const vector<int>* myIncidenceCounts = &_localIncidenceCounts;
+    
+    Epetra_FEVector multiplicities(Matrix_->OperatorRangeMap(),1);
+    vector<GlobalIndexTypeToCast> overlappingEntries(rangeMap->NumMyElements());
+    rangeMap->MyGlobalElements(&overlappingEntries[0]);
+    
+    vector<double> myOverlappingValues(myIncidenceCounts->begin(),myIncidenceCounts->end());
+    multiplicities.SumIntoGlobalValues(myOverlappingValues.size(), &overlappingEntries[0], &myOverlappingValues[0]);
+    multiplicities.GlobalAssemble();
+    
+    double maxMultiplicity = 0;
+    multiplicities.MaxValue(&maxMultiplicity);
+    return maxMultiplicity;
+  }
+  
+  template<typename T>
+  int AdditiveSchwarz<T>::MaxGlobalOverlapSideNeighborCount() const
+  {
+    const set<GlobalIndexType>* myCellIndices = &mesh_->cellIDsInPartition();
+    Epetra_CommPtr Comm = mesh_->Comm();
+    
+    int localMaxNeighbors = 0;
+    MeshTopologyViewPtr meshTopo = mesh_->getTopology();
+    
+    int overlapNeighborRelationshipDimension = meshTopo->getDimension() - 1; // side dimension
+    set<GlobalIndexType> remoteCells;
+    
+    // first: which neighbors are remote? (we assume that overlap region itself is locally known)
+    for (GlobalIndexType cellIndex : *myCellIndices)
+    {
+      set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, mesh_, OverlapLevel_,
+                                                                                               hierarchical_,
+                                                                                               dimensionForNeighborRelationship_);
+      for (GlobalIndexType subdomainCellIndex : subdomainCellsAndNeighbors)
+      {
+        if (!mesh_->myCellsInclude(subdomainCellIndex))
+        {
+          remoteCells.insert(subdomainCellIndex);
+        }
+      }
+    }
+    
+    // second: issue requests to owners for their list of neighbors
+    // this is a fairly quick-and-dirty implementation; could be reworked to reduce redundant data sent
+    std::map<GlobalIndexType,std::vector<GlobalIndexType>> remoteCellNeighbors;
+
+    int myRank = Comm->MyPID();
+    std::map<int,std::vector<std::pair<int,GlobalIndexType>>> requests; // owning PID -> (myPID, cell whose neighbor lists we want)
+    for (GlobalIndexType remoteCellID : remoteCells)
+    {
+      int rank = mesh_->partitionForCellID(remoteCellID);
+      requests[rank].push_back({myRank,remoteCellID});
+    }
+    
+    std::vector<std::pair<int,GlobalIndexType>> requestsReceived;
+    MPIWrapper::sendDataVectors(Comm, requests, requestsReceived);
+    
+    std::map<int,std::vector<std::pair<GlobalIndexType,GlobalIndexType>>> responsesToSend;
+    std::vector<std::pair<GlobalIndexType,GlobalIndexType>> responsesReceived;
+    for (auto request : requestsReceived)
+    {
+      int remotePID = request.first;
+      GlobalIndexType myCellID = request.second;
+      TEUCHOS_TEST_FOR_EXCEPTION(!mesh_->myCellsInclude(myCellID),std::invalid_argument, "request received for non-owned cellID");
+      CellPtr myCell = meshTopo->getCell(myCellID);
+      std::set<GlobalIndexType> neighborIDs = myCell->getActiveNeighborIndices(meshTopo);
+      for (GlobalIndexType neighborID : neighborIDs)
+      {
+        responsesToSend[remotePID].push_back({myCellID,neighborID});
+      }
+    }
+    MPIWrapper::sendDataVectors(Comm, responsesToSend, responsesReceived);
+    for (auto response : responsesReceived)
+    {
+      GlobalIndexType remoteCellID = response.first;
+      GlobalIndexType neighborID = response.second;
+      remoteCellNeighbors[remoteCellID].push_back(neighborID);
+    }
+    
+    // third: count
+    for (GlobalIndexType cellIndex : *myCellIndices)
+    {
+      set<GlobalIndexType> subdomainCellsAndNeighbors = OverlappingRowMatrix::overlappingCells(cellIndex, mesh_, OverlapLevel_,
+                                                                                               hierarchical_,
+                                                                                               dimensionForNeighborRelationship_);
+      set<GlobalIndexType> subdomainNeighbors;
+      for (GlobalIndexType subdomainCellIndex : subdomainCellsAndNeighbors)
+      {
+        if (mesh_->myCellsInclude(subdomainCellIndex))
+        {
+          CellPtr subdomainCell = meshTopo->getCell(subdomainCellIndex);
+          
+          set<IndexType> cellNeighbors = subdomainCell->getActiveNeighborIndices(overlapNeighborRelationshipDimension, meshTopo);
+          subdomainNeighbors.insert(cellNeighbors.begin(),cellNeighbors.end());
+        }
+        else
+        {
+          auto remoteEntry = remoteCellNeighbors.find(subdomainCellIndex);
+          TEUCHOS_TEST_FOR_EXCEPTION(remoteEntry == remoteCellNeighbors.end(), std::invalid_argument, "Remote cell not found during send/receive");
+          subdomainNeighbors.insert(remoteEntry->second.begin(), remoteEntry->second.end());
+        }
+      }
+      
+      subdomainCellsAndNeighbors.insert(subdomainNeighbors.begin(),subdomainNeighbors.end());
+      localMaxNeighbors = max(localMaxNeighbors,(int)subdomainCellsAndNeighbors.size());
+    }
+
+    
+    int globalMaxNeighbors;
+    Comm->MaxAll(&localMaxNeighbors, &globalMaxNeighbors, 1);
+    return globalMaxNeighbors;
   }
   
 //==============================================================================
