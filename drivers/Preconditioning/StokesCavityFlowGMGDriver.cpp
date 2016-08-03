@@ -147,7 +147,6 @@ int main(int argc, char *argv[])
   cmdp.setOption("delta_k", &delta_k, "test space polynomial order enrichment");
   cmdp.setOption("refineUniformly", "refineAdaptively", &refineUniformly);
   cmdp.setOption("verboseRefinements", "silentRefinements", &printRefinementsOnRankZero);
-  cmdp.setOption("zeroInitialGuess", "projectInitialGuess", &clearRefinedSolutions);
   cmdp.setOption("azOutput", &azOutput);
   
 //  cmdp.setOption("coarsePolyOrder", &k_coarse, "polynomial order for field variables on coarse grid");
@@ -237,13 +236,14 @@ int main(int argc, char *argv[])
   }
   form.addInflowCondition(topBoundary, u_topRamp);
 
-  vector<int> iterationCounts;
+  vector<int> iterationCounts, iterationCountsZeroGuess;
   vector<int> elementCounts;
   vector<double> hMins, hMaxes;
   vector<double> energyErrors;
   
   int iterationCount = form.solveIteratively(maxIters, cgTol);
   iterationCounts.push_back(iterationCount);
+  iterationCountsZeroGuess.push_back(iterationCount);
   
   MeshPtr mesh = form.solution()->mesh();
   double energyError = form.solution()->energyErrorTotal();
@@ -298,13 +298,7 @@ int main(int argc, char *argv[])
     }
     else
       form.refineUniformly();
-    
-    if (clearRefinedSolutions)
-    {
-      form.solution()->clear();
-      form.solution()->initializeLHSVector();
-    }
-    
+  
     updateHValues();
     hMins.push_back(hMin);
     hMaxes.push_back(hMax);
@@ -323,47 +317,71 @@ int main(int argc, char *argv[])
     if (rank==0) cout << "with hMax/hMin = " << hRatio << ");  iteration count " << iterationCount << endl;
     iterationCounts.push_back(iterationCount);
     elementCounts.push_back(activeElements);
+    
+    // again, but with zero initial guess:
+    form.solution()->clear();
+    form.solution()->initializeLHSVector();
+    int iterationCountZeroGuess = form.solveIteratively(maxIters, cgTol, azOutput);
+    iterationCountsZeroGuess.push_back(iterationCountZeroGuess);
   }
   while ((energyError > refTol) && (refNumber < maxRefinements));
   
+  ostringstream exportName;
+  exportName << "stokesCavityGMGSolution_k" << polyOrder << "_deltak" << delta_k << "_maxRefs" << maxRefinements;
+  
   if (rank == 0)
   {
-    vector<int> colWidths = {15,15,15,15,15,15,15};
-    cout << "Summary:\n";
-    cout << setw(colWidths[0]) << "Ref. #";
-    cout << setw(colWidths[1]) << "Energy Err.";
-    cout << setw(colWidths[2]) << "Elements";
-    cout << setw(colWidths[3]) << "Iterations";
-    cout << setw(colWidths[4]) << "min h";
-    cout << setw(colWidths[5]) << "max h";
-    cout << setw(colWidths[6]) << "ratio" << endl;
-
+    ostringstream tout;
+    
+    vector<int> colWidths = {20,20,20,20,20,20,20,20,20};
+    
+    // Ref. \# & $h_{\rm max}$ & $h_{\rm min}$ & $\frac{h_{\rm max}}{h_{\rm min}}$ & Elements & Energy Error
+    
+    tout << setw(colWidths[0]) << "Ref. \\#"; //
+    tout << setw(colWidths[1]) << "& $h_{\\rm max}$";
+    tout << setw(colWidths[2]) << "& $h_{\\rm min}$";
+    tout << setw(colWidths[3]) << "& $\\frac{h_{\\rm max}}{h_{\\rm min}}$";
+    tout << setw(colWidths[4]) << "& Elements";
+    tout << setw(colWidths[5]) << "& Energy Err.";
+    tout << setw(colWidths[6]) << "& Iterations";
+    tout << setw(colWidths[7]) << "& w/Zero Init. Guess\\\\\n";
+    
     int numRefs = iterationCounts.size()-1;
     for (int i=0; i<=numRefs; i++)
     {
-      cout << setw(colWidths[0]) << i;
+      tout << setw(colWidths[0]) << i;
       
-      cout << setprecision(2);
-      cout << std::scientific;
-      cout << setw(colWidths[1]) << energyErrors[i];
+      tout << setw(colWidths[1]) << "&" << "1/" << (int)(1/hMins[i]);
+      tout << setw(colWidths[2]) << "&" << "1/" << (int)(1/hMaxes[i]);
+      tout << setw(colWidths[3]) << "&" << (int)(hMaxes[i]/hMins[i]);
+      tout << setw(colWidths[4]) << "&" << elementCounts[i];
       
-      cout << setprecision(6);
-      cout.unsetf(ios_base::floatfield);
-      cout << setw(colWidths[2]) << elementCounts[i];
-      cout << setw(colWidths[3]) << iterationCounts[i];
-      cout << setw(colWidths[4]) << hMins[i];
-      cout << setw(colWidths[5]) << hMaxes[i];
-      cout.unsetf(ios_base::floatfield);
-      cout << setw(colWidths[6]) << hMaxes[i] / hMins[i] << endl;
+      tout << setprecision(2);
+      tout << std::scientific;
+      tout << setw(colWidths[5]) << "&" << energyErrors[i];
+      
+      tout << setprecision(6);
+      tout.unsetf(ios_base::floatfield);
+      
+      tout << setw(colWidths[6]) << "&" << iterationCounts[i];
+
+      tout << setw(colWidths[7]) << "&" << iterationCountsZeroGuess[i];
+      tout << "\\\\\n";
     }
+    
+    ostringstream resultsExportName;
+    resultsExportName << exportName.str() << "_results.txt";
+    ofstream fout(resultsExportName.str().c_str());
+    fout << tout.str();
+    fout.close();
+    
+    cout << tout.str();
   }
   
   {
     // mesh visualization output
     // gather mesh topologies used in meshesForMultigrid, so we can output them using GnuPlotUtil
     
-    ostringstream exportName;
-    exportName << "stokesCavityGMGSolution_k" << polyOrder << "_deltak" << delta_k;
     
     vector<MeshTopologyPtr> meshTopos;
     int kCoarse = 1;
