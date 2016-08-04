@@ -22,7 +22,6 @@
 
 // ***********************************************************************
 //@HEADER
-*/
 
 #ifndef CAMELLIA_OVERLAPPINGROWMATRIX_H
 #define CAMELLIA_OVERLAPPINGROWMATRIX_H
