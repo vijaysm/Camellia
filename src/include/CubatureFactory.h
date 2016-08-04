@@ -12,7 +12,6 @@
 //
 // ***********************************************************************
 //@HEADER
-*/
 
 #ifndef CAMELLIA_CUBATUREFACTORY_H
 #define CAMELLIA_CUBATUREFACTORY_H
