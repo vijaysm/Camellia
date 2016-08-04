@@ -8,6 +8,7 @@
                                 with contributions from
                                  Truman Ellis (Sandia)
                                Jesse Chan (Rice University)
+                       Brendan Keith (University of Texas at Austin)
 
 OPEN SOURCE LICENSE
 
