@@ -1,13 +1,13 @@
                          Copyright © 2016, UChicago Argonne, LLC
                                   All Rights Reserved
                                   
-                                 Camellia, Version 0.9
+                                 Camellia, Version 1.0
                                           by   
                               Nathan V. Roberts (Argonne)
                               
                                 with contributions from
                                  Truman Ellis (Sandia)
-                               Jesse Chan (Virginia Tech)
+                               Jesse Chan (Rice University)
 
 OPEN SOURCE LICENSE
 
