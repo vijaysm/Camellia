@@ -1,3 +1,9 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 #include "InnerProductScratchPad.h"
 #include "Mesh.h"
 #include "Solution.h"

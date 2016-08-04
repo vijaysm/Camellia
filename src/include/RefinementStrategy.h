@@ -1,15 +1,13 @@
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
 //
-//  AdaptiveSolveStrategy.h
+//  RefinementStrategy.h
 //  Camellia
 //
 //  Created by Nathan Roberts on 2/24/12.
-//  Copyright (c) 2012 __MyCompanyName__. All rights reserved.
 //
 
 #ifndef Camellia_RefinementStrategy_h
 #define Camellia_RefinementStrategy_h
-
-
 
 #include "Teuchos_RCP.hpp"
 

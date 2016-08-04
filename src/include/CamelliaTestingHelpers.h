@@ -1,9 +1,13 @@
 // @HEADER
 // ***********************************************************************
 //
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// This code is derived from source governed by the license LICENSE-Teuchos in the licenses directory.
+//
 // Some variations on Teuchos_TestingHelpers.hpp and Teuchos_LocalTestingHelpers.hpp, which are included with Trilinos.
 //
-// Questions? Contact Nathan V. Roberts (nvroberts@anl.gov)
+// Questions? Contact Nathan V. Roberts (nate@nateroberts.com)
 //
 // ***********************************************************************
 // @HEADER

@@ -1,3 +1,9 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 #ifndef CAMELLIA_LOCALFILTER_H
 #define CAMELLIA_LOCALFILTER_H
 

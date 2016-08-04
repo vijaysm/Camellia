@@ -1,4 +1,9 @@
+// @HEADER
 //
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 //  MeshTestUtility.h
 //  Camellia-debug
 //

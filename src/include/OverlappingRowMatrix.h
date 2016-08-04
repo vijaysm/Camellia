@@ -1,10 +1,16 @@
-
-/*@HEADER
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// This code is derived from source governed by the license LICENSE-Ifpack in the licenses directory.
+//
 // ***********************************************************************
 //
 //                  Camellia Overlapping Row Matrix:
 //
-//  This code is largely copied from the IfPack found in Trilinos 11.12.1.
+//  This code is largely copied from the IfPack_OverlappingRowMatrix found in 
+//  Trilinos 11.12.1.
+//
 //  Modifications support definitions of overlap level in terms of a Camellia
 //  Mesh.  Zero-level overlap means that the owner of each cell sees all the
 //  degrees of freedom for that cell--including all the traces, even when

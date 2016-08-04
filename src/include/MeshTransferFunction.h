@@ -1,19 +1,21 @@
 #ifndef MESH_TRANSFER_FUNCTION
 #define MESH_TRANSFER_FUNCTION
 
-/*@HEADER
- // ***********************************************************************
- //
- //                  Camellia Mesh Transfer Function:
- //
- //  A function that is meant to transfer data from one mesh to another.
- //  Implemented for the purpose of space-time meshes, but might also be
- //  useful in the context of loosely coupled multiphysics implementations.
- //
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// ***********************************************************************
+//
+//                  Camellia Mesh Transfer Function:
+//
+//  A function that is meant to transfer data from one mesh to another.
+//  Implemented for the purpose of space-time meshes, but might also be
+//  useful in the context of loosely coupled multiphysics implementations.
+//
 
- // ***********************************************************************
- //@HEADER
- */
+// ***********************************************************************
+//@HEADER
 
 #include "Function.h"
 #include "Mesh.h"

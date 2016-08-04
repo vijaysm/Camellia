@@ -1,3 +1,10 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// This code is derived from source governed by the license LICENSE-Intrepid in the licenses directory.
+//
+// @HEADER
 //
 //  Basis_HVOL_TRI_C0_FEMDef.hpp
 //  Camellia

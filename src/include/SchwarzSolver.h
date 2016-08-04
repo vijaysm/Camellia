@@ -1,9 +1,15 @@
+// @HEADER
 //
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// This code is derived from source governed by the license LICENSE-DPGTrilinos in the licenses directory.
+//
+// @HEADER
+
 //  SchwarzSolver.h
 //  Camellia
 //
 //  Created by Nathan Roberts on 3/3/12.
-//  Copyright (c) 2012 __MyCompanyName__. All rights reserved.
 //
 
 #ifndef Camellia_SchwarzSolver_h

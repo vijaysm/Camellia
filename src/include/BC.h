@@ -1,6 +1,14 @@
 #ifndef DPG_BC
 #define DPG_BC
 
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// This code is derived from source governed by the license LICENSE-DPGTrilinos in the licenses directory.
+//
+// @HEADER
+
 /*
  *  BC.h
  *

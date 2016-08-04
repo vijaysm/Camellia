@@ -1,6 +1,12 @@
 #ifndef CAMELLIA_INTREPID_EXTENDED_TYPES
 #define CAMELLIA_INTREPID_EXTENDED_TYPES
 
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 #include <set>
 #include <string>
 

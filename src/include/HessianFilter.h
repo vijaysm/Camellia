@@ -1,6 +1,12 @@
 #ifndef HESSIAN_FILTER
 #define HESSIAN_FILTER
 
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 #include "TypeDefs.h"
 
 #include "LocalStiffnessMatrixFilter.h"

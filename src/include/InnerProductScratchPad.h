@@ -1,3 +1,9 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 #ifndef CAMELLIA_INNER_PRODUCT_SCRATCH_PAD
 #define CAMELLIA_INNER_PRODUCT_SCRATCH_PAD
 

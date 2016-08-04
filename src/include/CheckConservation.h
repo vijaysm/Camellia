@@ -1,3 +1,13 @@
+// @HEADER
+// ***********************************************************************
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// Questions? Contact Nathan V. Roberts (nate@nateroberts.com)
+//
+// ***********************************************************************
+// @HEADER
+
 #ifndef CHECKCONSERVATION_H
 #define CHECKCONSERVATION_H
 

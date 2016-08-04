@@ -1,9 +1,14 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 //
 //  Formulation.h
 //  Camellia
 //
 //  Created by Nathan Roberts on 4/2/12.
-//  Copyright (c) 2012 __MyCompanyName__. All rights reserved.
 //
 
 #ifndef Camellia_Formulation_h

@@ -1,6 +1,12 @@
 #ifndef BASIS_SUM_FUNCTION
 #define BASIS_SUM_FUNCTION
 
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 // Teuchos includes
 #include "Teuchos_RCP.hpp"
 

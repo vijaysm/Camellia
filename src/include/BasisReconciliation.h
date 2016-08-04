@@ -1,6 +1,11 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
 //
 //  BasisReconciliation.h
-//  Camellia-debug
+//  Camellia
 //
 //  Created by Nate Roberts on 11/19/13.
 //

@@ -1,18 +1,20 @@
-/*
- //@HEADER
- // *************************************************************************
- //
- //                     Camellia EntitySet:
- //
- // Defines a set of entities relative to a MeshTopology.  The MeshTopology,
- // which will soon change to a distributed data structure, has the 
- // responsibility of updating the set when entities migrate and/or get
- // relabeled.  When an entity is refined, in general its children should
- // also be added to the the entity set.
- //
- // *************************************************************************
- //@HEADER
- */
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+// *************************************************************************
+//
+//                     Camellia EntitySet:
+//
+// Defines a set of entities relative to a MeshTopology.  The MeshTopology,
+// which will soon change to a distributed data structure, has the 
+// responsibility of updating the set when entities migrate and/or get
+// relabeled.  When an entity is refined, in general its children should
+// also be added to the the entity set.
+//
+// *************************************************************************
+//@HEADER
 
 #ifndef Camellia_EntitySet_h
 #define Camellia_EntitySet_h

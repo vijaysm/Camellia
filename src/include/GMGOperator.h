@@ -1,3 +1,4 @@
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
 //
 //  GMGOperator.h
 //  Camellia-debug

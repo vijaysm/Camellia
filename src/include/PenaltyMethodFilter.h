@@ -1,3 +1,9 @@
+// @HEADER
+//
+// © 2016 UChicago Argonne.  For licensing details, see LICENSE-Camellia in the licenses directory.
+//
+// @HEADER
+
 #ifndef DPG_PENALTY_METHOD_FILTER
 #define DPG_PENALTY_METHOD_FILTER
 
