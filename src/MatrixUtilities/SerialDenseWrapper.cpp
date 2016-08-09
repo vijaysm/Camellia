@@ -200,6 +200,32 @@ namespace Camellia {
     return errOut;
   }
   
+  int SerialDenseWrapper::eigenvalues(const Intrepid::FieldContainer<double> &A,
+                                      Intrepid::FieldContainer<double> &lambda_real, Intrepid::FieldContainer<double> &lambda_imag)
+  {
+//    GEEV (const char JOBVL, const char JOBVR, const OrdinalType n, ScalarType *A, const OrdinalType lda, MagnitudeType *WR, MagnitudeType *WI, ScalarType *VL, const OrdinalType ldvl, ScalarType *VR, const OrdinalType ldvr, ScalarType *WORK, const OrdinalType lwork, MagnitudeType *RWORK, OrdinalType *info) const
+    
+    int N = A.dimension(0);
+    TEUCHOS_TEST_FOR_EXCEPTION(N == A.dimension(1), std::invalid_argument, "A must be square");
+    TEUCHOS_TEST_FOR_EXCEPTION(N == lambda_real.dimension(1), std::invalid_argument, "lambda_real must be of length N");
+    TEUCHOS_TEST_FOR_EXCEPTION(N == lambda_imag.dimension(1), std::invalid_argument, "lambda_imag must be of length N");
+    
+    Teuchos::LAPACK<int, double> lapack;
+    char JOBVL = 'N'; // don't compute left eigenvectors
+    char JOBVR = 'N'; // don't compute right eigenvectors
+    Intrepid::FieldContainer<double> A_copy = A; // A_copy will be overwritten; therefore we can't use the const input A
+    int LDA = N;
+    double* VL = NULL;
+    int LDVL = 1;
+    double* VR = NULL;
+    int LDVR = 1;
+    int LWORK = 4*N;
+    Intrepid::FieldContainer<double> WORK(LWORK);
+    int INFO;
+    lapack.GEEV(JOBVL, JOBVR, N, &A_copy[0], LDA, &lambda_real[0], &lambda_imag[0], VL, LDVL, VR, LDVR, &WORK[0], LWORK, &INFO);
+    return INFO;
+  }
+  
   int SerialDenseWrapper::extractFCFromEpetra_RowMatrix(const Epetra_RowMatrix &A, Intrepid::FieldContainer<double> &A_fc)
   {
     // this is not the most efficient way to do this; using an Epetra_Importer would probably be faster
