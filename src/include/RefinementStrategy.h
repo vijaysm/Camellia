@@ -11,6 +11,7 @@
 
 #include "Teuchos_RCP.hpp"
 
+#include "ErrorIndicator.h"
 #include "IP.h"
 #include "LinearTerm.h"
 #include "RieszRep.h"
@@ -30,52 +31,41 @@ struct RefinementResults
 template <typename Scalar>
 class TRefinementStrategy
 {
+public:
+  enum RefinementType
+  {
+    H_REFINEMENT, // distinction among h-refinement types comes in the RefinementPattern
+    P_REFINEMENT
+  };
 protected:
 
   static RefinementResults setResults(GlobalIndexType numElements, GlobalIndexType numDofs, double totalEnergyError);
-  TSolutionPtr<Scalar> _solution;
+  ErrorIndicatorPtr _errorIndicator;
 
-  TRieszRepPtr<Scalar> _rieszRep;
-
-  double _relativeEnergyThreshold;
+  double _relativeErrorThreshold;
   bool _enforceOneIrregularity;
   bool _reportPerCellErrors;
-  double _anisotropicThreshhold;
-  double _maxAspectRatio;
   vector< RefinementResults > _results;
   double _min_h;
   int _max_p;
   bool _preferPRefinements;
-
-  int _cubatureEnrichment = 0;
   
   MeshPtr mesh();
 public:
-  TRefinementStrategy( TSolutionPtr<Scalar> solution, double relativeEnergyThreshold, double min_h = 0, int max_p = 10, bool preferPRefinements = false);
-  TRefinementStrategy( MeshPtr mesh, TLinearTermPtr<Scalar> residual, TIPPtr<Scalar> ip, double relativeEnergyThreshold, double min_h = 0, int max_p = 10, bool preferPRefinements = false);
+  TRefinementStrategy( ErrorIndicatorPtr errorIndicator, double relativeErrorThreshold, double min_h = 0, int max_p = 10, bool preferPRefinements = false);
+  TRefinementStrategy( TSolutionPtr<Scalar> solution, double relativeEnergyThreshold, double min_h = 0, int max_p = 10,
+                      bool preferPRefinements = false);
+  TRefinementStrategy( MeshPtr mesh, TLinearTermPtr<Scalar> residual, TIPPtr<Scalar> ip, double relativeEnergyThreshold,
+                      double min_h = 0, int max_p = 10, bool preferPRefinements = false, int cubatureEnrichment = 0);
   
   double computeTotalEnergyError();
   
   // ! Set the energy threshold (relative to maximum element error) to use for refinements
-  void setRelativeEnergyThreshold(double value);
-  
-  // ! Used when RefinementStrategy is constructed with a residual argument.  (When a solution was provided on construction, the solution's cubature degree will be used.)
-  void setRieszRepCubatureEnrichmentDegree(int value);
-  
+  void setRelativeErrorThreshold(double value);
   void setEnforceOneIrregularity(bool value);
-  void setAnisotropicThreshhold(double value);
-  void setMaxAspectRatio(double value);
 
   virtual void refine(bool printToConsole=false);
   virtual void hRefineUniformly();
-  virtual void refine(bool printToConsole, map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr);
-  void refine(bool printToConsole, map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, map<GlobalIndexType,double> &threshMap);
-  void refine(bool printToConsole, map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, map<GlobalIndexType,double> &threshMap, map<GlobalIndexType, bool> useHRefMap);
-
-  void getAnisotropicCellsToRefine(map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, vector<GlobalIndexType> &xCells, vector<GlobalIndexType> &yCells, vector<GlobalIndexType> &regCells);
-  void getAnisotropicCellsToRefine(map<GlobalIndexType,double> &xErr, map<GlobalIndexType,double> &yErr, vector<GlobalIndexType> &xCells, vector<GlobalIndexType> &yCells, vector<GlobalIndexType> &regCells,
-                                   map<GlobalIndexType,double> &threshMap);
-  bool enforceAnisotropicOneIrregularity(vector<GlobalIndexType> &xCells, vector<GlobalIndexType> &yCells);
 
   virtual void refineCells(vector<GlobalIndexType> &cellIDs);
   static void pRefineCells(MeshPtr mesh, const vector<GlobalIndexType> &cellIDs);
@@ -89,12 +79,11 @@ public:
   GlobalIndexType getNumElements(int refinementNumber);
   GlobalIndexType getNumDofs(int refinementNumber);
   
-  TRieszRepPtr<Scalar> getRieszRep();
-  
-  // ! computes approximate gradients in the scalar field variable indicated.  It is not clear that this is the
-  // ! best place for this, but it's placed here for now because this can be useful in context of refinements.
-  static void computeApproximateGradients(SolutionPtr soln, VarPtr u, const std::vector<GlobalIndexType> &cells,
-                                          std::vector<double> &gradient_l2_norm, double weightWithPowerOfH);
+  static RefinementStrategyPtr energyErrorRefinementStrategy(SolutionPtr soln, double relativeEnergyThreshold);
+  static RefinementStrategyPtr energyErrorRefinementStrategy(MeshPtr mesh, TLinearTermPtr<Scalar> residual, TIPPtr<Scalar> ip,
+                                                             double relativeEnergyThreshold, int cubatureEnrichmentDegree = 0);
+  static RefinementStrategyPtr gradientRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold);
+  static RefinementStrategyPtr hessianRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold);
   
   virtual ~TRefinementStrategy() {}
 };

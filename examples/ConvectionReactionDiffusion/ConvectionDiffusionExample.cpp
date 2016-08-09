@@ -413,8 +413,9 @@ int main(int argc, char *argv[])
   LinearTermPtr residual = form.residual(solution);
   if (ipForResidual == Teuchos::null) ipForResidual = ip;
   RefinementStrategy refStrategy(mesh, residual, ipForResidual, energyThreshold);
-  FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(refStrategy.getRieszRep()) );
-  refStrategy.getRieszRep()->computeRieszRep();
+  RieszRepPtr rieszRep = RieszRep::rieszRep(mesh, ipForResidual, residual);
+  FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(rieszRep) );
+  rieszRep->computeRieszRep();
   
   vector<FunctionPtr> functionsToExport;
   vector<string> functionsToExportNames;
@@ -555,7 +556,7 @@ int main(int argc, char *argv[])
     if (formulationIsDPG)
     {
       Epetra_Time timer(*MPIWrapper::CommSerial());
-      refStrategy.getRieszRep()->computeRieszRep();
+      rieszRep->computeRieszRep();
       double rieszRepTime = timer.ElapsedTime();
       if (rank==0)
       {
