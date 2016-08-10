@@ -195,7 +195,7 @@ void HessianErrorIndicator<Scalar>::measureError()
   
   std::map<int,std::vector<std::pair<GlobalIndexType,double>>> responsesToSend;
   std::vector<std::pair<GlobalIndexType,double>> responsesReceived;
-  for (auto request : requestsReceived)
+  for (pair<int,GlobalIndexType> request : requestsReceived)
   {
     int remotePID = request.first;
     GlobalIndexType myCellID = request.second;
@@ -207,12 +207,23 @@ void HessianErrorIndicator<Scalar>::measureError()
     }
   }
   MPIWrapper::sendDataVectors(Comm, responsesToSend, responsesReceived);
-  for (auto response : responsesReceived)
+  for (pair<GlobalIndexType,double> response : responsesReceived)
   {
     GlobalIndexType remoteCellID = response.first;
     double gradient_comp = response.second;
     gradients[remoteCellID].push_back(gradient_comp);
   }
+  
+//  for (GlobalIndexType remoteCellID : remoteNeighbors)
+//  {
+//    TEUCHOS_TEST_FOR_EXCEPTION(gradients.find(remoteCellID) == gradients.end(), std::invalid_argument, "gradient for remoteCellID not received");
+//    vector<double> gradient = gradients[remoteCellID];
+//    // debugging:
+//    ostringstream label;
+//    label << "remote cell " << remoteCellID << " gradient";
+//    print(label.str(), gradient);
+//    TEUCHOS_TEST_FOR_EXCEPTION(gradient.size() != spaceDim, std::invalid_argument, "gradient vector received for remoteCellID has invalid length");
+//  }
   
   // now, compute Hessian as Y^{-1} * sum_{K'} (y_K' / norm{y_K'} \tensor (grad u(x_K') - grad u(x_K)) / norm{y_K'})
   b.resize(spaceDim, spaceDim); // RHS for matrix problem -- now matrix-valued
@@ -247,6 +258,7 @@ void HessianErrorIndicator<Scalar>::measureError()
         }
       }
     }
+    
     SerialDenseWrapper::solveSystem(hessian, Y, b);
     
     // symmetrize:
@@ -255,6 +267,7 @@ void HessianErrorIndicator<Scalar>::measureError()
       for (int d2=d1+1; d2<spaceDim; d2++)
       {
         hessian(d1,d2) = (hessian(d1,d2) + hessian(d2,d1))/2.0;
+        hessian(d2,d1) = hessian(d1,d2);
       }
     }
     
