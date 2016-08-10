@@ -159,6 +159,7 @@ int main(int argc, char *argv[])
   string formulationChoice = "Ultraweak";
   bool conditionNumberEstimate = false;
   bool exportVisualization = false;
+  bool reportRefinedCells = false;
   bool reportSolutionTimings = true;
   int quadratureEnrichment = 0;
   int quadratureEnrichmentL2 = 10;
@@ -187,6 +188,7 @@ int main(int argc, char *argv[])
   cmdp.setOption("energyThreshold", &energyThreshold);
   cmdp.setOption("formulationChoice", &formulationChoice);
   cmdp.setOption("refineUniformly", "refineUsingErrorIndicator", &refineUniformly);
+  cmdp.setOption("reportRefinedCells", "dontReportRefinedCells", &reportRefinedCells);
   cmdp.setOption("reportConditionNumber", "dontReportConditionNumber", &conditionNumberEstimate);
   cmdp.setOption("reportSolutionTimings", "dontReportSolutionTimings", &reportSolutionTimings);
   cmdp.setOption("useDirect", "useIterative", &useDirectSolver);
@@ -229,11 +231,6 @@ int main(int argc, char *argv[])
   }
   
   bool formulationIsDPG = (formulation == ConvectionDiffusionReactionFormulation::ULTRAWEAK) || (formulation == ConvectionDiffusionReactionFormulation::PRIMAL);
-  if (!formulationIsDPG && !refineUniformly)
-  {
-    if (rank==0) cout << "No error indicator defined yet for non-DPG formulations; using uniform refinements.\n";
-    refineUniformly = true;
-  }
   
   double alpha = 0; // no reaction term
   FunctionPtr u_exact = exactSolution(epsilon, beta_1, beta_2);
@@ -412,7 +409,17 @@ int main(int argc, char *argv[])
   }
   LinearTermPtr residual = form.residual(solution);
   if (ipForResidual == Teuchos::null) ipForResidual = ip;
-  RefinementStrategy refStrategy(mesh, residual, ipForResidual, energyThreshold);
+  RefinementStrategyPtr refStrategy;
+  if (formulationIsDPG)
+  {
+    refStrategy = RefinementStrategy::energyErrorRefinementStrategy(mesh, residual, ipForResidual, energyThreshold);
+  }
+  else
+  {
+    VarPtr varForHessian = form.u();
+    refStrategy = RefinementStrategy::hessianRefinementStrategy(solution, varForHessian, energyThreshold);
+  }
+  
   RieszRepPtr rieszRep = RieszRep::rieszRep(mesh, ipForResidual, residual);
   FunctionPtr energyErrorFunction = Teuchos::rcp( new EnergyErrorFunction(rieszRep) );
   rieszRep->computeRieszRep();
@@ -476,11 +483,11 @@ int main(int argc, char *argv[])
     
     if (!refineUniformly)
     {
-      refStrategy.refine();
+      refStrategy->refine(reportRefinedCells && (rank==0));
     }
     else
     {
-      refStrategy.hRefineUniformly();
+      refStrategy->hRefineUniformly();
     }
    
     // recreate solver if neccessary, after refinement:
@@ -496,7 +503,7 @@ int main(int argc, char *argv[])
 
     if (formulationIsDPG)
     {
-      double energyError = refStrategy.getEnergyError(refinementNumber);
+      double energyError = refStrategy->getEnergyError(refinementNumber);
       if (rank == 0)
       {
         cout << "Refinement " << refinementNumber << " has energy error " << energyError;
@@ -506,10 +513,11 @@ int main(int argc, char *argv[])
     }
     else
     {
+      double error = refStrategy->getEnergyError(refinementNumber);
       if (rank == 0)
       {
-        cout << "Refinement " << refinementNumber;
-        cout << " has L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
+        cout << "Refinement " << refinementNumber << " has hessian error " << error;
+        cout << ", L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
         cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
       }
     }
@@ -577,24 +585,12 @@ int main(int argc, char *argv[])
   bestErrL2 = (u_best - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
   errL2 = (u_soln - u_exact)->l2norm(solution->mesh(), quadratureEnrichmentL2);
   
-  if (formulationIsDPG)
+  double totalError = refStrategy->computeTotalEnergyError();
+  if (rank == 0)
   {
-    double energyError = refStrategy.computeTotalEnergyError();
-    if (rank == 0)
-    {
-      cout << "Refinement " << refinementNumber << " has energy error " << energyError;
-      cout << ", L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
-      cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
-    }
-  }
-  else
-  {
-    if (rank == 0)
-    {
-      cout << "Refinement " << refinementNumber;
-      cout << " has L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
-      cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
-    }
+    cout << "Refinement " << refinementNumber << " has total indicator error " << totalError;
+    cout << ", L^2 error " << errL2 << " (vs best L^2 error of " << bestErrL2 << ")";
+    cout << " (" << numGlobalDofs << " dofs on " << numActiveElements << " elements)\n";
   }
 
   // compute average timings across all MPI ranks.
