@@ -206,9 +206,9 @@ namespace Camellia {
 //    GEEV (const char JOBVL, const char JOBVR, const OrdinalType n, ScalarType *A, const OrdinalType lda, MagnitudeType *WR, MagnitudeType *WI, ScalarType *VL, const OrdinalType ldvl, ScalarType *VR, const OrdinalType ldvr, ScalarType *WORK, const OrdinalType lwork, MagnitudeType *RWORK, OrdinalType *info) const
     
     int N = A.dimension(0);
-    TEUCHOS_TEST_FOR_EXCEPTION(N == A.dimension(1), std::invalid_argument, "A must be square");
-    TEUCHOS_TEST_FOR_EXCEPTION(N == lambda_real.dimension(1), std::invalid_argument, "lambda_real must be of length N");
-    TEUCHOS_TEST_FOR_EXCEPTION(N == lambda_imag.dimension(1), std::invalid_argument, "lambda_imag must be of length N");
+    TEUCHOS_TEST_FOR_EXCEPTION(N != A.dimension(1), std::invalid_argument, "A must be square");
+    TEUCHOS_TEST_FOR_EXCEPTION(N != lambda_real.dimension(0), std::invalid_argument, "lambda_real must be of length N");
+    TEUCHOS_TEST_FOR_EXCEPTION(N != lambda_imag.dimension(0), std::invalid_argument, "lambda_imag must be of length N");
     
     Teuchos::LAPACK<int, double> lapack;
     char JOBVL = 'N'; // don't compute left eigenvectors
