@@ -28,6 +28,7 @@ TRefinementStrategy<Scalar>::TRefinementStrategy( ErrorIndicatorPtr errorIndicat
   _min_h = min_h;
   _max_p = max_p;
   _preferPRefinements = preferPRefinements;
+  _enforceOneIrregularity = true;
 }
 
 template <typename Scalar>
