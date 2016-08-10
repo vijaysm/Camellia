@@ -35,6 +35,9 @@ namespace Camellia {
   public:
     ErrorIndicator(MeshPtr mesh);
     
+    //! returns the error measures for cells belonging to the local MPI rank
+    const std::map<GlobalIndexType,double> &localErrorMeasures() const;
+    
     //! adds to the provided container rank-local cells with error above the threshold
     virtual void localCellsAboveErrorThreshold(double threshold, vector<GlobalIndexType> &cellsAboveThreshold);
     
@@ -61,6 +64,9 @@ namespace Camellia {
     
     template <typename Scalar>
     static ErrorIndicatorPtr gradientErrorIndicator(TSolutionPtr<Scalar> solution, VarPtr scalarVar);
+    
+    template <typename Scalar>
+    static ErrorIndicatorPtr hessianErrorIndicator(TSolutionPtr<Scalar> solution, VarPtr scalarVar);
   };
 }
 

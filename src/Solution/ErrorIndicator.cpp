@@ -10,6 +10,7 @@
 
 #include "EnergyErrorIndicator.h"
 #include "GradientErrorIndicator.h"
+#include "HessianErrorIndicator.h"
 
 using namespace Camellia;
 
@@ -28,6 +29,11 @@ void ErrorIndicator::localCellsAboveErrorThreshold(double threshold, vector<Glob
       cellsAboveThreshold.push_back(cellID);
     }
   }
+}
+
+const std::map<GlobalIndexType,double> & ErrorIndicator::localErrorMeasures() const
+{
+  return _localErrorMeasures;
 }
 
 double ErrorIndicator::maxError() const
@@ -69,6 +75,7 @@ double ErrorIndicator::totalError() const
 template ErrorIndicatorPtr ErrorIndicator::energyErrorIndicator<double>(TSolutionPtr<double> solution);
 template ErrorIndicatorPtr ErrorIndicator::energyErrorIndicator<double>(MeshPtr mesh,TLinearTermPtr<double> residual, TIPPtr<double> ip, int quadratureEnrichmentDegree);
 template ErrorIndicatorPtr ErrorIndicator::gradientErrorIndicator<double>(TSolutionPtr<double> solution, VarPtr scalarVar);
+template ErrorIndicatorPtr ErrorIndicator::hessianErrorIndicator<double>(TSolutionPtr<double> solution, VarPtr scalarVar);
 
 template <typename Scalar>
 ErrorIndicatorPtr ErrorIndicator::energyErrorIndicator(TSolutionPtr<Scalar> solution)
@@ -87,4 +94,11 @@ template <typename Scalar>
 ErrorIndicatorPtr ErrorIndicator::gradientErrorIndicator(TSolutionPtr<Scalar> solution, VarPtr scalarVar)
 {
   return Teuchos::rcp( new GradientErrorIndicator<Scalar>(solution, scalarVar) );
+}
+
+
+template <typename Scalar>
+ErrorIndicatorPtr ErrorIndicator::hessianErrorIndicator(TSolutionPtr<Scalar> solution, VarPtr scalarVar)
+{
+  return Teuchos::rcp( new HessianErrorIndicator<Scalar>(solution, scalarVar) );
 }
