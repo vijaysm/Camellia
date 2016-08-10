@@ -71,12 +71,19 @@ RefinementStrategyPtr TRefinementStrategy<Scalar>::energyErrorRefinementStrategy
   return Teuchos::rcp( new TRefinementStrategy<Scalar>::TRefinementStrategy(errorIndicator, relativeEnergyThreshold) );
 }
 
-RefinementStrategyPtr gradientRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold)
+template <typename Scalar>
+RefinementStrategyPtr TRefinementStrategy<Scalar>::gradientRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold)
 {
-  
+  ErrorIndicatorPtr errorIndicator = ErrorIndicator::gradientErrorIndicator(soln, scalarVar);
+  return Teuchos::rcp( new TRefinementStrategy<Scalar>::TRefinementStrategy(errorIndicator, relativeEnergyThreshold) );
 }
 
-RefinementStrategyPtr hessianRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold);
+template <typename Scalar>
+RefinementStrategyPtr TRefinementStrategy<Scalar>::hessianRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold)
+{
+  ErrorIndicatorPtr errorIndicator = ErrorIndicator::hessianErrorIndicator(soln, scalarVar);
+  return Teuchos::rcp( new TRefinementStrategy<Scalar>::TRefinementStrategy(errorIndicator, relativeEnergyThreshold) );
+}
 
 template <typename Scalar>
 void TRefinementStrategy<Scalar>::setMinH(double value)
