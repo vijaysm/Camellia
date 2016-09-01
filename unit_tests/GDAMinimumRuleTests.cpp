@@ -246,9 +246,10 @@ namespace
     FunctionPtr f = phi_exact->dx()->dx() + phi_exact->dy()->dy() + phi_exact->dz()->dz();
     rhs->addTerm(f * poissonForm.q());
     
-    if (! MeshTestUtility::checkLocalGlobalConsistency(mesh) )
+    double tolForConsistency = (spaceDim == 3) ? 1e-9 : 1e-10;
+    if (! MeshTestUtility::checkLocalGlobalConsistency(mesh, tolForConsistency) )
     {
-      cout << "FAILURE: 1-irregular Poisson 2D mesh fails local-to-global consistency check.\n";
+      cout << "FAILURE: 1-irregular Poisson " << spaceDim << "D mesh fails local-to-global consistency check.\n";
       success = false;
     }
 
