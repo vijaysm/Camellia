@@ -65,21 +65,21 @@ RefinementStrategyPtr TRefinementStrategy<Scalar>::energyErrorRefinementStrategy
                                                                                  int cubatureEnrichmentDegree)
 {
   ErrorIndicatorPtr errorIndicator = ErrorIndicator::energyErrorIndicator(mesh, residual, ip, cubatureEnrichmentDegree);
-  return Teuchos::rcp( new TRefinementStrategy<Scalar>::TRefinementStrategy(errorIndicator, relativeEnergyThreshold) );
+  return Teuchos::rcp( new TRefinementStrategy<Scalar>(errorIndicator, relativeEnergyThreshold) );
 }
 
 template <typename Scalar>
 RefinementStrategyPtr TRefinementStrategy<Scalar>::gradientRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold)
 {
   ErrorIndicatorPtr errorIndicator = ErrorIndicator::gradientErrorIndicator(soln, scalarVar);
-  return Teuchos::rcp( new TRefinementStrategy<Scalar>::TRefinementStrategy(errorIndicator, relativeEnergyThreshold) );
+  return Teuchos::rcp( new TRefinementStrategy<Scalar>(errorIndicator, relativeEnergyThreshold) );
 }
 
 template <typename Scalar>
 RefinementStrategyPtr TRefinementStrategy<Scalar>::hessianRefinementStrategy(SolutionPtr soln, VarPtr scalarVar, double relativeEnergyThreshold)
 {
   ErrorIndicatorPtr errorIndicator = ErrorIndicator::hessianErrorIndicator(soln, scalarVar);
-  return Teuchos::rcp( new TRefinementStrategy<Scalar>::TRefinementStrategy(errorIndicator, relativeEnergyThreshold) );
+  return Teuchos::rcp( new TRefinementStrategy<Scalar>(errorIndicator, relativeEnergyThreshold) );
 }
 
 template <typename Scalar>
