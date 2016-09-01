@@ -140,7 +140,7 @@ namespace Camellia
     }
     
     // one way conversion: iterator -> const_iterator
-    operator RangeListIterator<IntegerType>() const
+    operator RangeListIterator() const
     {
       return *this;
     }
