@@ -1,0 +1,12 @@
+project(examples)
+
+add_subdirectory(ConvectionReactionDiffusion)
+#add_subdirectory(DGAdvection)
+#add_subdirectory(DPGAdvection)
+#add_subdirectory(HeatSpaceTime)
+add_subdirectory(MOABReader)
+add_subdirectory(NavierStokesCavityFlow)
+add_subdirectory(Poisson1D)
+add_subdirectory(Poisson1DMOAB)
+#add_subdirectory(StokesBackwardFacingStep)
+add_subdirectory(StokesCavityFlow)

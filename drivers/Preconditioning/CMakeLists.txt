@@ -1,0 +1,16 @@
+project(PreconditioningDrivers)
+
+add_executable(ConditionNumberTestsDriver "ConditionNumberTestsDriver.cpp")
+target_link_libraries(ConditionNumberTestsDriver Camellia)
+
+add_executable(PreconditioningTestsDriver "PreconditioningTestsDriver.cpp")
+target_link_libraries(PreconditioningTestsDriver Camellia)
+
+add_executable(MultigridPreconditioningDriver "MultigridPreconditioningDriver.cpp")
+target_link_libraries(MultigridPreconditioningDriver Camellia)
+
+add_executable(NavierStokesCavityFlowGMGDriver "NavierStokesCavityFlowGMGDriver.cpp")
+target_link_libraries(NavierStokesCavityFlowGMGDriver Camellia)
+
+add_executable(StokesCavityFlowGMGDriver "StokesCavityFlowGMGDriver.cpp")
+target_link_libraries(StokesCavityFlowGMGDriver Camellia)
