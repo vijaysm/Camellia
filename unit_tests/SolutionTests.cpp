@@ -1113,9 +1113,11 @@ namespace
     BCPtr bc = BC::bc();
     VarPtr phi_hat = form.phi_hat();
     bc->addDirichlet(phi_hat, SpatialFilter::allSpace(), Function::constant(prescribedValue));
-    SolutionPtr soln = Solution::solution(form.bf(), mesh, bc);
+    SolutionPtr soln = Solution::solution(form.bf(), mesh, bc, RHS::rhs(), form.bf()->graphNorm());
     soln->initializeLHSVector();
     soln->initializeStiffnessAndLoad();
+    
+    soln->populateStiffnessAndLoad();
     
     // we prescribe 1 at at all the bc indices, and leave the solution coefficients as 0 everywhere else.
     // then we check the values on the elements.
