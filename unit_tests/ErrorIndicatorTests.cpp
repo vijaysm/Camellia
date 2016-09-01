@@ -231,7 +231,7 @@ namespace
     MeshTopologyViewPtr meshTopo = soln->mesh()->getTopology()->getGatheredCopy();
     int spaceDim = meshTopo->getDimension();
     
-    double tol = 1e-14;
+    double tol = 1e-13;
     const set<GlobalIndexType>* myCells = &soln->mesh()->cellIDsInPartition();
     const map<GlobalIndexType,double>* hessianValues = &hessianIndicator->localErrorMeasures();
     for (GlobalIndexType cellID : *myCells)
