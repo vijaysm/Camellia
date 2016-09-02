@@ -50,6 +50,11 @@ public:
       double yBottom, double yTop,
       double cylinderRadius, double embeddedSquareSideLength);
 
+
+  static MeshGeometryPtr halfHemkerGeometry(double xLeft, double xRight, double meshHeight, double cylinderRadius);
+
+  static MeshGeometryPtr confinedCylinderGeometry(double cylinderRadius);
+
   static MeshGeometryPtr shiftedSquareCylinderGeometry(double xLeft, double xRight, double meshHeight, double squareDiameter);
 
 
