@@ -696,7 +696,8 @@ void MeshTopology::addCellForSide(IndexType cellIndex, unsigned int sideOrdinal,
     }
     else
     {
-      cout << "Internal error: attempt to add 3rd cell for side with entity index " << sideEntityIndex << endl;
+      cout << "Internal error: attempt to add 3rd cell (" << cellIndex << ") for side with entity index " << sideEntityIndex;
+      cout << ", which already has cells " << cell1.first << " and " << cell2.first << endl;
       printAllEntities();
       TEUCHOS_TEST_FOR_EXCEPTION(true, std::invalid_argument, "Internal error: attempt to add 3rd cell for side");
     }
@@ -3018,59 +3019,6 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   // check whether any cells will be eliminated; if not, can skip the rebuild
   if (cellsToInclude.size() == _cells.size()) return;
   
-//  // first, let's find all the entities that our cells touch
-//  set<pair<unsigned,IndexType>> entitiesToMatch;
-//  for (GlobalIndexType cellID : ownedCellIndices)
-//  {
-//    CellPtr cell = getCell(cellID);
-//    set<pair<unsigned,IndexType>> cellEntities = cell->entitiesOnNeighborInterfaces(dimForNeighborRelation, thisPtr);
-//    entitiesToMatch.insert(cellEntities.begin(),cellEntities.end());
-//  }
-//  
-//  // now, determine which cells match those entities
-//  set<GlobalIndexType> cellsThatMatch;
-//  for (pair<unsigned, IndexType> entityInfo : entitiesToMatch)
-//  {
-//    unsigned entityDim = entityInfo.first;
-//    IndexType entityIndex = entityInfo.second;
-//    set< pair<IndexType, unsigned> > cellPairs = getCellsContainingEntity(entityDim, entityIndex);
-//    for (pair<IndexType, unsigned> cellPair : cellPairs)
-//    {
-//      IndexType cellID = cellPair.first;
-//      cellsThatMatch.insert(cellID);
-//    }
-//  }
-//  
-//  // for all the original cells, also add the peer neighbors of their ancestors
-//  // (these need to be included here so that, for example, geometric multigrid can work properly.)
-//  for (GlobalIndexType cellID : ownedCellIndices)
-//  {
-//    CellPtr cell = getCell(cellID);
-//    while (cell->getParent() != Teuchos::null)
-//    {
-//      cell = cell->getParent();
-//      set<IndexType> peerNeighbors = cell->getPeerNeighborIndices(dimForNeighborRelation, thisPtr);
-//      cellsThatMatch.insert(peerNeighbors.begin(), peerNeighbors.end());
-//    }
-//  }
-//  
-//  // for now, manually prevent pruning cells with curved edges
-//  // (we don't support pruning these yet)
-//  cellsThatMatch.insert(_cellIDsWithCurves.begin(),_cellIDsWithCurves.end());
-//  
-//  // now, for each cell, ascend the refinement hierarchy, adding ancestors
-//  set<GlobalIndexType> cellsToInclude;
-//  for (GlobalIndexType cellID : cellsThatMatch)
-//  {
-//    CellPtr cell = getCell(cellID);
-//    cellsToInclude.insert(cellID);
-//    while (cell->getParent() != Teuchos::null)
-//    {
-//      cell = cell->getParent();
-//      cellsToInclude.insert(cell->cellIndex());
-//    }
-//  }
-  
   // now, collect all the entities that belong to the cells
   vector<set<IndexType>> entitiesToKeep(_spaceDim);
   for (GlobalIndexType cellID : cellsToInclude)
@@ -3206,6 +3154,7 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   }
   
   vector< vector< vector<IndexType> > > prunedEntities(_spaceDim);
+  
   vector< map< vector<IndexType>, IndexType > > prunedKnownEntities(_spaceDim);
   vector< vector< vector<IndexType> > > prunedCanonicalEntityOrdering(_spaceDim);
   vector< vector< vector< pair<IndexType, unsigned> > > > prunedActiveCellsForEntities(_spaceDim);
@@ -3214,6 +3163,7 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   vector< map< IndexType, pair<IndexType, unsigned> > > prunedGeneralizedParentEntities(_spaceDim);
   vector< map< IndexType, vector< pair< RefinementPatternPtr, vector<IndexType> > > > > prunedChildEntities(_spaceDim);
   vector< map< Camellia::CellTopologyKey, RangeList<IndexType> > > prunedEntityCellTopologyKeys(_spaceDim);
+  map< pair<IndexType, IndexType>, ParametricCurvePtr > prunedEdgeToCurveMap;
   for (int d=0; d<_spaceDim; d++)
   {
     int prunedEntityCount = oldEntityIndices[d].size();
@@ -3228,6 +3178,24 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
       prunedEntityCellTopologyKeys[d][entityTopoKey].insert(prunedEntityIndex);
       int nodeCount = _entities[d][oldEntityIndex].size();
       prunedEntities[d][prunedEntityIndex].resize(nodeCount);
+      
+      if ((d==1) && (_edgeToCurveMap.size() > 0))
+      {
+        int edgeDim = 1;
+        vector<IndexType> oldVertexIndices = getEntityVertexIndices(edgeDim, oldEntityIndex);
+        int old_v0 = oldVertexIndices[0];
+        int old_v1 = oldVertexIndices[1];
+        pair<int,int> old_edge = {old_v0, old_v1};
+        
+        int new_v0 = reverseVertexLookup->find(old_v0)->second;
+        int new_v1 = reverseVertexLookup->find(old_v1)->second;
+        pair<int,int> new_edge = {new_v0, new_v1};
+        
+        if (_edgeToCurveMap.find(old_edge) != _edgeToCurveMap.end())
+        {
+          prunedEdgeToCurveMap[new_edge] = _edgeToCurveMap[old_edge];
+        }
+      }
       
       if (d > 0) prunedCanonicalEntityOrdering[d][prunedEntityIndex].resize(nodeCount);
       for (int nodeOrdinal=0; nodeOrdinal<nodeCount; nodeOrdinal++)
@@ -3354,6 +3322,7 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   _vertices = prunedVertices;
   _vertexMap = prunedVertexMap;
   _cellsForSideEntities = prunedCellsForSideEntities;
+  _edgeToCurveMap = prunedEdgeToCurveMap;
   _entities = prunedEntities;
   _knownEntities = prunedKnownEntities;
   _canonicalEntityOrdering = prunedCanonicalEntityOrdering;
@@ -3420,10 +3389,6 @@ void MeshTopology::pruneToInclude(Epetra_CommPtr Comm, const std::set<GlobalInde
   _rootCells = prunedRootCells;
   
   // things we haven't done yet:
-  /*
-   // these guys presently only support 2D:
-   map< pair<IndexType, IndexType>, ParametricCurvePtr > _edgeToCurveMap;
-   */
   
   /*
    vector< PeriodicBCPtr > _periodicBCs;
@@ -3507,7 +3472,8 @@ void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPatte
   refineCellEntities(cell, refPattern);
   cell->setRefinementPattern(refPattern);
 
-  if (cell->children().size() == 0)
+  bool newRefinement = (cell->children().size() == 0);
+  if (newRefinement)
   {
     // cell is active; deactivate it before we add children
     deactivateCell(cell);
@@ -3516,7 +3482,7 @@ void MeshTopology::refineCell(IndexType cellIndex, RefinementPatternPtr refPatte
 
   determineGeneralizedParentsForRefinement(cell, refPattern);
 
-  if (_edgeToCurveMap.size() > 0)
+  if ((_edgeToCurveMap.size() > 0) && newRefinement)
   {
     vector< vector< pair< unsigned, unsigned> > > childrenForSides = refPattern->childrenForSides(); // outer vector: indexed by parent's sides; inner vector: (child index in children, index of child's side shared with parent)
     // handle any broken curved edges
