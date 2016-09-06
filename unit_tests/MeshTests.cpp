@@ -195,6 +195,94 @@ MeshPtr makeTestMesh( int spaceDim, bool spaceTime )
 //    TEST_EQUALITY(mesh->irregularity(), expectedIrregularity);
 //  }
 
+  TEUCHOS_UNIT_TEST( Mesh, CurvilinearCellDataMigration )
+  {
+    /*
+     This test is derived from an issue Brendan Keith flagged; the failure occurs during the second refinement,
+     when run on 3 or more processors.  Looks like an issue with cell migration for curvilinear meshes; an
+     exception was being thrown saying that there is an attempt to add 3rd cell to side.
+     */
+    MPIWrapper::CommWorld()->Barrier();
+    
+    int spaceDim = 2;
+    double cylinderRadius = 1.0;
+    auto spatialMeshGeom = MeshFactory::confinedCylinderGeometry(cylinderRadius);
+    map< pair<IndexType, IndexType>, ParametricCurvePtr > localEdgeToCurveMap = spatialMeshGeom->edgeToCurveMap();
+    auto globalEdgeToCurveMap = map< pair<GlobalIndexType, GlobalIndexType>, ParametricCurvePtr >(localEdgeToCurveMap.begin(),localEdgeToCurveMap.end());
+    auto spatialMeshTopo = Teuchos::rcp( new MeshTopology(spatialMeshGeom) );
+    spatialMeshTopo->setEdgeToCurveMap(globalEdgeToCurveMap, Teuchos::null);
+    
+    ///////////
+    bool useConformingTraces = true;
+    PoissonFormulation form(spaceDim, useConformingTraces);
+    int H1Order = 2, delta_k = 2;
+    MeshPtr mesh = MeshFactory::minRuleMesh(spatialMeshTopo, form.bf(), H1Order, delta_k);
+    if (globalEdgeToCurveMap.size() > 0)
+    {
+      spatialMeshTopo->initializeTransformationFunction(mesh);
+    }
+    GlobalIndexType initialCellCount = mesh->getTopology()->cellCount();
+    vector<GlobalIndexType> refinement0 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71};
+    mesh->hRefine(refinement0, RefinementPattern::regularRefinementPatternQuad());
+    mesh->enforceOneIrregularity();
+    
+    // check that all locally-known cells have the correct parent status and level
+    const set<GlobalIndexType>* localActiveCellIndices = &mesh->getTopology()->getLocallyKnownActiveCellIndices();
+    for (GlobalIndexType localCellID : *localActiveCellIndices)
+    {
+      CellPtr cell = mesh->getTopology()->getCell(localCellID);
+      
+      // if the cell is active, then it must not have been refined, and must not be a parent
+      TEST_ASSERT(std::find(refinement0.begin(), refinement0.end(), localCellID) == refinement0.end());
+      TEST_ASSERT(! cell->isParent(mesh->getTopology()));
+
+      int level = cell->level();
+      if (localCellID < initialCellCount)
+      {
+        TEST_EQUALITY(level, 0);
+      }
+      else
+      {
+        // if the cell ID is greater than or equal to initialCellCount, then the cell must be level 1
+        TEST_EQUALITY(level, 1);
+      }
+    }
+    int cellCountAfterRef0 = mesh->getTopology()->cellCount();
+    
+    vector<GlobalIndexType> refinement1 = {75, 76, 78, 79, 80, 81, 82, 83, 84, 85, 87, 88, 95, 96, 98, 99, 100, 101, 102, 103, 104, 105, 107, 108, 121, 156};
+    mesh->hRefine(refinement1, RefinementPattern::regularRefinementPatternQuad());
+    mesh->enforceOneIrregularity();
+    
+    localActiveCellIndices = &mesh->getTopology()->getLocallyKnownActiveCellIndices();
+    for (GlobalIndexType localCellID : *localActiveCellIndices)
+    {
+      CellPtr cell = mesh->getTopology()->getCell(localCellID);
+      
+      // if the cell is active, then it must not have been refined, and must not be a parent
+      TEST_ASSERT(std::find(refinement0.begin(), refinement0.end(), localCellID) == refinement0.end());
+      TEST_ASSERT(! cell->isParent(mesh->getTopology()));
+      
+      int level = cell->level();
+      if (localCellID < initialCellCount)
+      {
+        TEST_EQUALITY(level, 0);
+      }
+      else if (localCellID < cellCountAfterRef0)
+      {
+        // if the cell ID is greater than or equal to initialCellCount, then the cell must be level 1
+        TEST_EQUALITY(level, 1);
+      }
+      else
+      {
+        TEST_EQUALITY(level, 2);
+      }
+    }
+    
+    int irregularity = mesh->irregularity();
+    // irregularity should be 1 (we have some hanging nodes, and have enforced 1-irregularity)
+    TEST_EQUALITY(irregularity, 1);
+  }
+  
   TEUCHOS_UNIT_TEST( Mesh, EnforceRegularityHexahedralMesh )
   {
     MPIWrapper::CommWorld()->Barrier();
